@@ -20,7 +20,8 @@
                 </div>
             </div>
             <nav>
-                <a class="active" href="#overview" data-icon="layout-dashboard">운영 개요</a>
+                <a class="active" href="#account" data-icon="wallet">계좌정보</a>
+                <a href="#overview" data-icon="layout-dashboard">운영 개요</a>
                 <a href="#decisions" data-icon="brain-circuit">AI 판단</a>
                 <a href="#risk" data-icon="shield-check">리스크</a>
                 <a href="#execution" data-icon="route">주문 라우터</a>
@@ -35,6 +36,13 @@
         </aside>
 
         <main class="workspace">
+            <header class="topbar" id="account">
+                <div>
+                    <p class="eyebrow">계좌정보</p>
+                    <h1>잔고, 증거금, 포지션 현황</h1>
+                </div>
+            </header>
+
             <header class="topbar" id="overview">
                 <div>
                     <p class="eyebrow">AI 자동매매 관제센터</p>
@@ -55,14 +63,17 @@
                 <div class="status-item ok"><span>서킷브레이커</span><strong>닫힘</strong><small>0 / 5 오류</small></div>
             </section>
 
-            <section class="metric-grid">
-                <article class="metric-tile"><span>총 평가자산</span><strong>128,420,000원</strong><small class="up">오늘 +0.84%</small></article>
+            <section class="metric-grid" id="account-metrics">
+                <article class="metric-tile"><span>총 평가자산</span><strong id="total-balance">-</strong><small class="up" id="daily-pnl">오늘 +0%</small></article>
+                <article class="metric-tile"><span>잔고</span><strong id="cash-balance">-</strong><small>예수금</small></article>
+                <article class="metric-tile"><span>증거금</span><strong id="margin-balance">-</strong><small>증거금</small></article>
+                <article class="metric-tile"><span>포지션 수</span><strong id="position-count">0</strong><small>진행중</small></article>
                 <article class="metric-tile"><span>AI 추천 후보</span><strong id="metric-candidates">8종목</strong><small>3건 승인 대기</small></article>
                 <article class="metric-tile"><span>위험 한도 사용률</span><strong>41%</strong><small class="warn-text">일일 손실 한도 18%</small></article>
                 <article class="metric-tile"><span>Paper 성과</span><strong>+7.8%</strong><small>최근 60거래일</small></article>
             </section>
 
-            <section class="control-grid">
+            <section class="control-grid" id="control">
                 <article class="panel command-panel">
                     <div class="panel-title">
                         <h2>운영 통제</h2>

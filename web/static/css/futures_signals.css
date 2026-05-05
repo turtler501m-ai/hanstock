@@ -252,10 +252,6 @@
     }
 }
 
-.channel-section {
-    display: table-row-group;
-}
-
 .channel-header-row {
     background: var(--bg-sub) !important;
 }
@@ -276,6 +272,7 @@
 
 .direction-header-row.entry td {
     color: #22c55e;
+    padding: 6px 14px !important;
 }
 
 .direction-header-row.exit {
@@ -284,6 +281,7 @@
 
 .direction-header-row.exit td {
     color: #fb923c;
+    padding: 6px 14px !important;
 }
 
 .direction-pill.direction-exit {

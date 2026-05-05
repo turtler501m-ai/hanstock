@@ -248,11 +248,8 @@ function renderSignals() {
 
     const channelLabels = { goldmoon: "GoldMoon", chart_leader: "차트리더", jurin_6: "주린스쿨" };
 
-    Object.keys(channels).forEach(ch => {
+    Object.keys(channels).sort().forEach(ch => {
         const label = channelLabels[ch] || ch;
-
-        const section = document.createElement("tbody");
-        section.className = "channel-section";
 
         const headerRow = document.createElement("tr");
         headerRow.className = "channel-header-row";
@@ -261,13 +258,13 @@ function renderSignals() {
                 <strong>📢 ${escapeHtml(label)}</strong>
             </td>
         `;
-        section.appendChild(headerRow);
+        container.appendChild(headerRow);
 
         if (channels[ch].entry.length > 0) {
             const entryRow = document.createElement("tr");
             entryRow.className = "direction-header-row entry";
             entryRow.innerHTML = `<td colspan="10">📗 진입 (${channels[ch].entry.length})</td>`;
-            section.appendChild(entryRow);
+            container.appendChild(entryRow);
 
             channels[ch].entry.forEach(signal => {
                 const row = document.createElement("tr");
@@ -287,7 +284,7 @@ function renderSignals() {
                     <td>-</td>
                 `;
                 row.addEventListener("click", () => selectSignal(signal.id));
-                section.appendChild(row);
+                container.appendChild(row);
             });
         }
 
@@ -295,7 +292,7 @@ function renderSignals() {
             const exitRow = document.createElement("tr");
             exitRow.className = "direction-header-row exit";
             exitRow.innerHTML = `<td colspan="10">📙 청산 (${channels[ch].exit.length})</td>`;
-            section.appendChild(exitRow);
+            container.appendChild(exitRow);
 
             channels[ch].exit.forEach(signal => {
                 const row = document.createElement("tr");
@@ -313,11 +310,9 @@ function renderSignals() {
                     <td>-</td>
                 `;
                 row.addEventListener("click", () => selectSignal(signal.id));
-                section.appendChild(row);
+                container.appendChild(row);
             });
         }
-
-        container.appendChild(section);
     });
 }
 
