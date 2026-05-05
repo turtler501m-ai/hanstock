@@ -213,6 +213,13 @@ button {
     color: #fecaca;
 }
 
+.futures-signals-link {
+    border-color: rgba(34, 211, 238, 0.36);
+    background: rgba(34, 211, 238, 0.14);
+    color: #cffafe;
+    font-weight: 800;
+}
+
 .status-strip,
 .metric-grid,
 .control-grid,

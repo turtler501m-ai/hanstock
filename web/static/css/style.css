@@ -59,6 +59,12 @@ header {
     font-size: 0.875rem;
 }
 
+.futures-nav-button {
+    border-color: rgba(34, 211, 238, 0.42);
+    background: rgba(34, 211, 238, 0.16);
+    color: #cffafe;
+}
+
 button.nav-button {
     min-height: auto;
     font-family: inherit;

@@ -10,6 +10,9 @@ pydantic-settings>=2.0.0
 loguru>=0.7.0
 tenacity>=8.0.0
 
+# Optional: enables Telegram signal collection for the futures signal dashboard.
+telethon>=1.34.0
+
 # RL Model dependencies (Uncomment to use RL features on Dashboard or Training)
 # stable-baselines3>=2.3.0
 # gymnasium>=0.29.1

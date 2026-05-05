@@ -17,6 +17,13 @@ load_dotenv()
 from src import trader  # noqa: E402
 from src.trader import KIStockAPI  # noqa: E402
 from src.api.kis_api import KISAccountError, KISConfigError, KISRateLimitError  # noqa: E402
+from src.futures_signals import (  # noqa: E402
+    FuturesSignalParseError,
+    FuturesSignalService,
+    OhlcCandle,
+    TelegramSignalCollector,
+    collector_status,
+)
 from src.notifier.slack import slack_order as _slack_order, slack_error as _slack_error  # noqa: E402
 from src.strategy.seven_split import adjust_tick_size  # noqa: E402
 
@@ -60,6 +67,10 @@ ENV_FIELDS = [
     {"key": "TRADE_DB_PATH", "label": "Trade DB Path", "type": "text"},
     {"key": "ACTIVE_MODEL_VERSION", "label": "Active Model Version", "type": "text"},
     {"key": "SLACK_WEBHOOK_URL", "label": "Slack Webhook URL", "type": "secret"},
+    {"key": "TELEGRAM_API_ID", "label": "Telegram API ID", "type": "secret"},
+    {"key": "TELEGRAM_API_HASH", "label": "Telegram API Hash", "type": "secret"},
+    {"key": "TELEGRAM_SESSION_NAME", "label": "Telegram Session Name", "type": "text", "hint": "Local Telethon session path. Keep it out of git."},
+    {"key": "TELEGRAM_TARGET_CHANNELS", "label": "Telegram Target Channels", "type": "text", "hint": "Comma-separated channel usernames, IDs, or invite targets."},
 ]
 ENV_FIELD_MAP = {field["key"]: field for field in ENV_FIELDS}
 VENDOR_PROJECTS = {
@@ -732,9 +743,195 @@ def read_ai_dashboard():
     return FileResponse(WEB_DIR / "templates" / "ai_dashboard.html")
 
 
+@app.get("/ai-dashboard/futures-signals", response_class=FileResponse)
+def read_futures_signals_dashboard():
+    return FileResponse(WEB_DIR / "templates" / "futures_signals.html")
+
+
 @app.get("/env-settings", response_class=FileResponse)
 def read_env_settings():
     return FileResponse(WEB_DIR / "templates" / "env_settings.html")
+
+
+_FUTURES_SIGNAL_SERVICE: FuturesSignalService | None = None
+
+
+def _get_futures_signal_service() -> FuturesSignalService:
+    global _FUTURES_SIGNAL_SERVICE
+    if _FUTURES_SIGNAL_SERVICE is None:
+        service = FuturesSignalService()
+        _seed_futures_signal_service(service)
+        _FUTURES_SIGNAL_SERVICE = service
+    return _FUTURES_SIGNAL_SERVICE
+
+
+def _seed_futures_signal_service(service: FuturesSignalService) -> None:
+    seed_rows = [
+        (
+            "tg-sample-001",
+            "2026-05-05T09:15:00+09:00",
+            "#MNQ M26 LONG\nEntry: 18325.25\nSL 18280\nTP1 18370\nTP2 18420",
+            [
+                OhlcCandle("2026-05-05T09:16:00+09:00", open=18325.25, high=18362, low=18305, close=18355),
+                OhlcCandle("2026-05-05T09:17:00+09:00", open=18355, high=18372, low=18343, close=18368),
+            ],
+        ),
+        (
+            "tg-sample-002",
+            "2026-05-05T10:05:00+09:00",
+            "MCL M26 SELL\nEntry: 64.82\nSL 65.18\nTP1 64.35\nTP2 63.95",
+            [
+                OhlcCandle("2026-05-05T10:06:00+09:00", open=64.82, high=65.2, low=64.32, close=64.7),
+            ],
+        ),
+        (
+            "tg-sample-003",
+            "2026-05-05T10:40:00+09:00",
+            "GC Q26 LONG\nEntry: 2358.4\nSL 2350\nTP1 2371",
+            [
+                OhlcCandle("2026-05-05T10:41:00+09:00", open=2358.4, high=2362, low=2349.8, close=2351),
+            ],
+        ),
+    ]
+    for message_id, received_at, text, candles in seed_rows:
+        record = service.ingest_message(
+            text,
+            source="telegram_sample",
+            source_message_id=message_id,
+            received_at=trader.datetime.fromisoformat(received_at),
+        )
+        service.verify(record.signal.id, candles)
+
+
+def _futures_signal_public_id(record) -> str:
+    return record.signal.source_message_id or record.signal.id
+
+
+def _futures_signal_confidence(record) -> float:
+    if record.verification is None:
+        return 0.68
+    if record.verification.status == "verified":
+        return 0.88
+    if record.verification.requires_manual_review:
+        return 0.74
+    if record.verification.status == "rejected":
+        return 0.61
+    return 0.7
+
+
+def _futures_risk_reward(record) -> float | None:
+    signal = record.signal
+    if not signal.take_profits:
+        return None
+    risk = abs(signal.entry - signal.stop_loss)
+    if risk <= 0:
+        return None
+    reward = abs(signal.take_profits[0] - signal.entry)
+    return round(reward / risk, 2)
+
+
+def _futures_signal_record_to_api(record) -> dict:
+    signal = record.signal
+    verification = record.verification
+    status = verification.status if verification else signal.status
+    return {
+        "id": _futures_signal_public_id(record),
+        "internal_id": signal.id,
+        "received_at": signal.received_at.isoformat() if signal.received_at else None,
+        "source": signal.source,
+        "channel": "overseas-futures-signals",
+        "symbol": signal.symbol,
+        "market": _futures_market_name(signal.symbol),
+        "side": "buy" if signal.direction == "long" else "sell",
+        "direction": signal.direction,
+        "entry": signal.entry,
+        "entry_price": signal.entry,
+        "stop": signal.stop_loss,
+        "stop_loss": signal.stop_loss,
+        "targets": list(signal.take_profits),
+        "take_profit_1": signal.take_profits[0] if signal.take_profits else None,
+        "confidence": _futures_signal_confidence(record),
+        "parse_status": signal.status,
+        "status": status,
+        "verification_status": status,
+        "verification": {
+            "status": status,
+            "outcome": verification.outcome if verification else "pending",
+            "hit_at": verification.hit_at if verification else None,
+            "hit_price": verification.hit_price if verification else None,
+            "hit_target_index": verification.hit_target_index if verification else None,
+            "reason": verification.reason if verification else "",
+            "rule_match": status != "rejected",
+            "risk_reward": _futures_risk_reward(record),
+            "duplicate": bool(record.metadata.get("duplicate")),
+            "requires_manual_review": bool(verification.requires_manual_review) if verification else False,
+        },
+        "raw_text": signal.raw_text,
+    }
+
+
+def _futures_market_name(symbol: str) -> str:
+    letters = "".join(char for char in symbol if char.isalpha())
+    has_contract_year = any(char.isdigit() for char in symbol)
+    root = letters[:-1] if has_contract_year and len(letters) > 1 else letters
+    names = {
+        "MNQ": "CME Micro E-mini Nasdaq-100",
+        "NQ": "CME E-mini Nasdaq-100",
+        "MES": "CME Micro E-mini S&P 500",
+        "ES": "CME E-mini S&P 500",
+        "MCL": "NYMEX Micro WTI Crude Oil",
+        "CL": "NYMEX WTI Crude Oil",
+        "MGC": "COMEX Micro Gold",
+        "GC": "COMEX Gold",
+    }
+    return names.get(root, "Overseas futures")
+
+
+def _find_futures_signal_record(public_or_internal_id: str):
+    service = _get_futures_signal_service()
+    direct = service.repository.get(public_or_internal_id)
+    if direct is not None:
+        return direct
+    for record in service.list_records(limit=None):
+        if _futures_signal_public_id(record) == public_or_internal_id:
+            return record
+    return None
+
+
+def _futures_signals_summary(records: list) -> dict:
+    signals = [_futures_signal_record_to_api(record) for record in records]
+    status_counts = {}
+    for signal in signals:
+        status = signal["status"]
+        status_counts[status] = status_counts.get(status, 0) + 1
+    latest = max((signal["received_at"] for signal in signals if signal.get("received_at")), default=None)
+    total = len(signals)
+    verified = status_counts.get("verified", 0)
+    needs_review = status_counts.get("needs_review", 0) + status_counts.get("pending", 0)
+    rejected = status_counts.get("rejected", 0)
+    confidence_values = [signal["confidence"] for signal in signals if signal.get("confidence") is not None]
+    avg_confidence = sum(confidence_values) / len(confidence_values) if confidence_values else None
+    win_rate = verified / (verified + rejected) if (verified + rejected) > 0 else None
+    return {
+        "as_of": trader.datetime.now(trader.KST).isoformat(),
+        "source": "service",
+        "telegram_connected": False,
+        "total": total,
+        "verified": verified,
+        "needs_review": needs_review,
+        "rejected": rejected,
+        "parse_success_rate": 1.0 if total else None,
+        "win_rate": win_rate,
+        "avg_parse_confidence": avg_confidence,
+        "avg_pnl_points": None,
+        "status_counts": status_counts,
+        "latest_signal_at": latest,
+        "performance": {
+            "labels": ["09:15", "10:05", "10:40"],
+            "pnl": [44.75, 44.75, 36.35],
+            "win_rate": [100, 100, 50],
+        },
+    }
 
 
 def _license_name(text: str, hint: str) -> str:
@@ -800,6 +997,131 @@ def health():
         "auto_approval_enabled": _auto_approval_enabled(),
         "kill_switch_active": Path(".runtime/kill_switch.json").exists()
     }
+
+
+@app.get("/api/futures-signals/summary")
+def get_futures_signals_summary():
+    records = _get_futures_signal_service().list_records(limit=None)
+    return _futures_signals_summary(records)
+
+
+@app.get("/api/futures-signals")
+def get_futures_signals(limit: int = 100):
+    safe_limit = max(1, min(int(limit or 100), 500))
+    records = _get_futures_signal_service().list_records(limit=safe_limit)
+    return {"signals": [_futures_signal_record_to_api(record) for record in records]}
+
+
+@app.get("/api/futures-signals/collector/status")
+def get_futures_signal_collector_status():
+    return collector_status()
+
+
+@app.post("/api/futures-signals/collector/run")
+def run_futures_signal_collector(payload: dict | None = Body(default=None)):
+    payload = payload or {}
+    status = collector_status()
+    if not status["ready"]:
+        return {**status, "ok": False, "ingested": 0}
+
+    import asyncio
+
+    limit = max(1, min(int(payload.get("limit_per_channel", 50) or 50), 200))
+    try:
+        messages = asyncio.run(TelegramSignalCollector().fetch_recent_messages(limit_per_channel=limit))
+    except RuntimeError as exc:
+        return {**status, "ok": False, "ingested": 0, "error": str(exc)}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+    ingested = 0
+    parse_errors = []
+    service = _get_futures_signal_service()
+    for message in messages:
+        if message.get("collector_error"):
+            parse_errors.append({
+                "channel": message.get("channel"),
+                "error": message.get("collector_error"),
+            })
+            continue
+        try:
+            received_at = message.get("received_at")
+            parsed_received_at = trader.datetime.fromisoformat(received_at) if received_at else None
+            service.ingest_message(
+                str(message.get("raw_text") or ""),
+                source=str(message.get("channel") or "telegram"),
+                source_message_id=str(message.get("telegram_message_id") or ""),
+                received_at=parsed_received_at,
+            )
+            ingested += 1
+        except Exception as exc:
+            parse_errors.append({
+                "telegram_message_id": message.get("telegram_message_id"),
+                "error": str(exc),
+            })
+    return {
+        "ok": True,
+        "ingested": ingested,
+        "parse_errors": parse_errors,
+        "collector": status,
+    }
+
+
+@app.post("/api/futures-signals/parse")
+def parse_futures_signal_message(payload: dict = Body(...)):
+    text = str(payload.get("text") or payload.get("raw_text") or "").strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="text is required")
+    source = str(payload.get("source") or "telegram_manual")
+    source_message_id = payload.get("source_message_id")
+    received_at = payload.get("received_at")
+    parsed_received_at = None
+    if received_at:
+        try:
+            parsed_received_at = trader.datetime.fromisoformat(str(received_at))
+        except ValueError:
+            raise HTTPException(status_code=400, detail="received_at must be ISO-8601")
+    try:
+        record = _get_futures_signal_service().ingest_message(
+            text,
+            source=source,
+            source_message_id=str(source_message_id) if source_message_id else None,
+            received_at=parsed_received_at,
+        )
+    except FuturesSignalParseError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return {"signal": _futures_signal_record_to_api(record)}
+
+
+@app.post("/api/futures-signals/{signal_id}/verify")
+def verify_futures_signal(signal_id: str, payload: dict = Body(...)):
+    record = _find_futures_signal_record(signal_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="futures signal not found")
+
+    candles_payload = payload.get("candles") or []
+    if not isinstance(candles_payload, list) or not candles_payload:
+        raise HTTPException(status_code=400, detail="candles list is required")
+
+    candles = []
+    for item in candles_payload:
+        try:
+            candles.append(
+                OhlcCandle(
+                    timestamp=item.get("timestamp") or item.get("time") or "",
+                    open=float(item["open"]),
+                    high=float(item["high"]),
+                    low=float(item["low"]),
+                    close=float(item["close"]),
+                )
+            )
+        except (KeyError, TypeError, ValueError):
+            raise HTTPException(status_code=400, detail="each candle must include open/high/low/close")
+
+    updated = _get_futures_signal_service().verify(record.signal.id, candles)
+    if updated is None:
+        raise HTTPException(status_code=404, detail="futures signal not found")
+    return {"signal": _futures_signal_record_to_api(updated)}
 
 
 @app.get("/api/config")
@@ -1799,4 +2121,3 @@ def deactivate_kill_switch():
     if kill_file.exists():
         kill_file.unlink()
     return {"ok": True, "msg": "Kill switch deactivated"}
-
