@@ -99,7 +99,7 @@ function confidenceValue(signal, result) {
 function normalizeSignal(signal, index) {
     const result = signal.result || signal.verification || {};
     const rawDirection = String(valueFrom(signal, ["direction", "side", "action"], "-")).toLowerCase();
-    const direction = ["sell", "short"].includes(rawDirection) ? "short" : "long";
+    const direction = ["sell", "short"].includes(rawDirection) ? "short" : (["exit", "close", "liquidate"].includes(rawDirection) ? "exit" : "long");
     const parseStatus = normalizeStatus(valueFrom(signal, ["parse_status", "parser_status"], valueFrom(signal.parser || {}, ["status"], "parsed")));
     const verificationStatus = normalizeStatus(valueFrom(result, ["verification_status", "status"], valueFrom(signal, ["verification_status", "status"], "pending")));
     const resultStatus = normalizeStatus(valueFrom(result, ["exit_reason", "result"], verificationStatus));
@@ -109,9 +109,11 @@ function normalizeSignal(signal, index) {
     return {
         id: valueFrom(signal, ["id", "signal_id"], index),
         provider: valueFrom(signal, ["provider", "channel", "channel_name", "source"], "-"),
+        channel: valueFrom(signal, ["channel_key", "channel", "source"], "-"),
         symbol: valueFrom(signal, ["symbol", "ticker", "contract"], "-"),
         exchange: valueFrom(signal, ["exchange", "market"], ""),
         direction,
+        directionType: direction === "exit" ? "exit" : "entry",
         entry: valueFrom(signal, ["entry_price", "entry", "entry_low"], "-"),
         stopLoss: valueFrom(signal, ["stop_loss", "stop", "sl"], "-"),
         takeProfit: tp,
@@ -228,31 +230,94 @@ function renderSummary(summary = {}, signals = []) {
 }
 
 function renderSignals() {
-    const body = document.getElementById("signal-table-body");
+    const container = document.getElementById("signal-table-body");
     const empty = document.getElementById("signal-empty");
-    body.innerHTML = "";
+    container.innerHTML = "";
     empty.classList.toggle("visible", state.signals.length === 0);
 
-    state.signals.forEach((signal) => {
-        const row = document.createElement("tr");
-        const directionLabel = signal.direction === "short" ? "SHORT" : "LONG";
-        const directionClass = signal.direction === "short" ? "short" : "long";
-        const exchange = signal.exchange ? `<span class="subtle">${escapeHtml(signal.exchange)}</span>` : "";
-        row.className = signal.id === state.selectedId ? "selected" : "";
-        row.innerHTML = `
-            <td>${escapeHtml(formatTime(signal.signalTime))}</td>
-            <td>${escapeHtml(signal.provider)}</td>
-            <td><strong>${escapeHtml(signal.symbol)}</strong> ${exchange}</td>
-            <td><span class="direction-pill direction-${directionClass}">${directionLabel}</span></td>
-            <td>${escapeHtml(signal.entry)}</td>
-            <td>${escapeHtml(signal.stopLoss)}</td>
-            <td>${escapeHtml(signal.takeProfit)}</td>
-            <td>${escapeHtml(formatRate(signal.confidence))}</td>
-            <td><span class="${badgeClass(signal.verificationStatus)}">${escapeHtml(resultLabel(signal.verificationStatus))}</span></td>
-            <td><span class="result-pill ${resultClass(signal.resultStatus)}">${escapeHtml(resultLabel(signal.resultStatus))}</span></td>
+    const channels = {};
+    state.signals.forEach(signal => {
+        const ch = signal.channel || signal.provider || "unknown";
+        if (!channels[ch]) channels[ch] = { entry: [], exit: [] };
+        if (signal.directionType === "exit") {
+            channels[ch].exit.push(signal);
+        } else {
+            channels[ch].entry.push(signal);
+        }
+    });
+
+    const channelLabels = { goldmoon: "GoldMoon", chart_leader: "차트리더", jurin_6: "주린스쿨" };
+
+    Object.keys(channels).forEach(ch => {
+        const label = channelLabels[ch] || ch;
+
+        const section = document.createElement("tbody");
+        section.className = "channel-section";
+
+        const headerRow = document.createElement("tr");
+        headerRow.className = "channel-header-row";
+        headerRow.innerHTML = `
+            <td colspan="10">
+                <strong>📢 ${escapeHtml(label)}</strong>
+            </td>
         `;
-        row.addEventListener("click", () => selectSignal(signal.id));
-        body.appendChild(row);
+        section.appendChild(headerRow);
+
+        if (channels[ch].entry.length > 0) {
+            const entryRow = document.createElement("tr");
+            entryRow.className = "direction-header-row entry";
+            entryRow.innerHTML = `<td colspan="10">📗 진입 (${channels[ch].entry.length})</td>`;
+            section.appendChild(entryRow);
+
+            channels[ch].entry.forEach(signal => {
+                const row = document.createElement("tr");
+                const directionLabel = signal.direction === "short" ? "SHORT" : "LONG";
+                const directionClass = signal.direction === "short" ? "short" : "long";
+                row.className = signal.id === state.selectedId ? "selected" : "";
+                row.innerHTML = `
+                    <td>${escapeHtml(formatTime(signal.signalTime))}</td>
+                    <td>${escapeHtml(label)}</td>
+                    <td><strong>${escapeHtml(signal.symbol)}</strong></td>
+                    <td><span class="direction-pill direction-${directionClass}">${directionLabel}</span></td>
+                    <td>${escapeHtml(signal.entry)}</td>
+                    <td>${escapeHtml(signal.stopLoss)}</td>
+                    <td>${escapeHtml(signal.takeProfit)}</td>
+                    <td>${escapeHtml(formatRate(signal.confidence))}</td>
+                    <td><span class="status-badge status-${signal.parseStatus}">${escapeHtml(signal.parseStatus)}</span></td>
+                    <td>-</td>
+                `;
+                row.addEventListener("click", () => selectSignal(signal.id));
+                section.appendChild(row);
+            });
+        }
+
+        if (channels[ch].exit.length > 0) {
+            const exitRow = document.createElement("tr");
+            exitRow.className = "direction-header-row exit";
+            exitRow.innerHTML = `<td colspan="10">📙 청산 (${channels[ch].exit.length})</td>`;
+            section.appendChild(exitRow);
+
+            channels[ch].exit.forEach(signal => {
+                const row = document.createElement("tr");
+                row.className = signal.id === state.selectedId ? "selected" : "";
+                row.innerHTML = `
+                    <td>${escapeHtml(formatTime(signal.signalTime))}</td>
+                    <td>${escapeHtml(label)}</td>
+                    <td><strong>${escapeHtml(signal.symbol)}</strong></td>
+                    <td><span class="direction-pill direction-exit">EXIT</span></td>
+                    <td>-</td>
+                    <td>-</td>
+                    <td>-</td>
+                    <td>${escapeHtml(formatRate(signal.confidence))}</td>
+                    <td><span class="status-badge status-verified">${escapeHtml(signal.direction)}</span></td>
+                    <td>-</td>
+                `;
+                row.addEventListener("click", () => selectSignal(signal.id));
+                section.appendChild(row);
+            });
+        }
+
+        container.appendChild(section);
     });
 }
 
@@ -369,10 +434,26 @@ async function refreshDashboard() {
     lastUpdated.textContent = "갱신 중";
 
     try {
-        const [summary, signalsPayload] = await Promise.all([
+        const [summary, signalsPayload, polldStatus] = await Promise.all([
             fetchJson(endpoints.summary),
             fetchJson(endpoints.signals),
+            fetchJson("/api/futures-signals/polld/status").catch(() => ({ running: false })),
         ]);
+
+        const polldItem = document.getElementById("polld-status-item");
+        const polldStatusEl = document.getElementById("polld-status");
+        const polldLastRunEl = document.getElementById("polld-last-run");
+        if (polldStatus.running) {
+            polldItem.classList.add("ok");
+            polldStatusEl.textContent = "실행中";
+            polldLastRunEl.textContent = polldStatus.last_run ? polldStatus.last_run.slice(0, 16) : "-";
+        } else {
+            polldItem.classList.remove("ok");
+            polldItem.classList.add("warn");
+            polldStatusEl.textContent = "중지";
+            polldLastRunEl.textContent = "-";
+        }
+
         state.signals = normalizeList(signalsPayload).map(normalizeSignal);
         renderSummary(summary, state.signals);
         renderChart(summary);

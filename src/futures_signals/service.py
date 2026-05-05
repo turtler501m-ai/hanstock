@@ -49,3 +49,6 @@ class FuturesSignalService:
 
     def list_records(self, *, limit: int | None = None) -> list[FuturesSignalRecord]:
         return self.repository.list(limit=limit)
+
+    def upsert(self, signal: "FuturesSignal", **kwargs) -> FuturesSignalRecord:
+        return self.repository.upsert(signal, **kwargs)

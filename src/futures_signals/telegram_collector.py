@@ -101,6 +101,42 @@ def collector_status(config: TelegramCollectorConfig | None = None) -> dict[str,
     }
 
 
+async def collector_status_detail(config: TelegramCollectorConfig | None = None) -> dict[str, Any]:
+    from telethon import TelegramClient
+
+    cfg = config or TelegramCollectorConfig.from_env()
+    base_status = collector_status(cfg)
+
+    channel_results: list[dict[str, Any]] = []
+    if base_status["ready"]:
+        client = TelegramClient(cfg.session_name, int(cfg.api_id), cfg.api_hash)
+        await client.connect()
+        try:
+            if await client.is_user_authorized():
+                for channel in cfg.target_channels:
+                    target = int(channel) if str(channel).lstrip("-").isdigit() else channel
+                    try:
+                        count = 0
+                        async for _ in client.iter_messages(target, limit=1):
+                            count += 1
+                        channel_results.append({
+                            "channel": channel,
+                            "status": "ok",
+                            "message_count": count,
+                        })
+                    except Exception as exc:
+                        channel_results.append({
+                            "channel": channel,
+                            "status": "error",
+                            "message": str(exc),
+                            "message_count": 0,
+                        })
+        finally:
+            await client.disconnect()
+
+    return {**base_status, "channel_results": channel_results}
+
+
 class TelegramSignalCollector:
     def __init__(self, config: TelegramCollectorConfig | None = None) -> None:
         self.config = config or TelegramCollectorConfig.from_env()
