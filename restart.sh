@@ -85,6 +85,18 @@ if [ $? -ne 0 ]; then
     exit 1
 fi
 
+mkdir -p "$ROOT_DIR/logs"
+
 echo "[restart] starting server -- http://0.0.0.0:8000"
 
-exec "$python" -m uvicorn src.dashboard:app --reload --host 0.0.0.0 --port 8000
+# 텔레그램 폴링 프로세스 정리 후 백그라운드 재시작
+pkill -f "poll\.py" 2>/dev/null || true
+
+nohup "$python" "$ROOT_DIR/src/futures_signals/poll.py" \
+    > "$ROOT_DIR/logs/poll.log" 2>&1 &
+POLL_PID=$!
+echo "[restart] poll.py started: PID=$POLL_PID"
+
+# 대시보드 시작 (포그라운드, exec로 프로세스 교체)
+exec "$python" -m uvicorn src.dashboard:app --reload --host 127.0.0.1 --port 8000 \
+    >> "$ROOT_DIR/logs/dashboard.log" 2>&1

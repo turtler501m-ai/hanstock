@@ -1,8 +1,6 @@
 import sqlite3
 import os
 import json
-import psycopg2
-from psycopg2.extras import DictCursor
 from pathlib import Path
 from datetime import datetime, timedelta, timezone
 from src.config import config
@@ -24,6 +22,8 @@ class DBWrapper:
 
     def execute(self, sql, params=()):
         if self.is_pg:
+            from psycopg2.extras import DictCursor
+
             sql = sql.replace("?", "%s")
             if "AUTOINCREMENT" in sql:
                 sql = sql.replace("INTEGER PRIMARY KEY AUTOINCREMENT", "SERIAL PRIMARY KEY")
@@ -52,6 +52,13 @@ class DBWrapper:
 def connect_db():
     db_url = os.environ.get("DATABASE_URL")
     if db_url and db_url.startswith("postgres"):
+        try:
+            import psycopg2
+            from psycopg2.extras import DictCursor
+        except ImportError as exc:
+            raise RuntimeError(
+                "Postgres DATABASE_URL requires psycopg2-binary to be installed"
+            ) from exc
         conn = psycopg2.connect(db_url)
         return DBWrapper(conn, is_pg=True)
     else:

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 import re
 from uuid import uuid5, NAMESPACE_URL
 
@@ -45,11 +45,35 @@ _DIRECTION_RE = re.compile(r"\b(LONG|SHORT|BUY|SELL|BULL|BEAR)\b|매수|매도|�
 _ENTRY_RE = re.compile(rf"(?:\b(?:ENTRY|ENTER|ENT|AT|LIMIT)\b|진입가|진입|@)\s*[:=\-]?\s*{_NUMBER}", re.IGNORECASE)
 _MARKET_ENTRY_RE = re.compile(r"(?:진입가|진입|ENTRY|ENTER|ENT)\s*[:=\-]?\s*시장가|\bMARKET\b", re.IGNORECASE)
 _STOP_RE = re.compile(rf"\b(?:SL|STOP|STOP\s*LOSS|S/L)\s*[:=\-]?\s*{_NUMBER}|손절\s*[:=\-]?\s*{_NUMBER}", re.IGNORECASE)
+# Bug 3 fix: no whitespace between TP and the optional index digit(s) (\d{0,2}).
+# "TP 19280"  -> TP matches, outer \s* consumes " ", _NUMBER captures "19280".
+# "TP1 19280" -> TP\d{0,2} matches "TP1", outer \s* consumes " ", _NUMBER captures "19280".
 _TP_RE = re.compile(
-    rf"\b(?:TP\s*\d*|TARGET|TAKE\s*PROFIT)\s*[:=\-]?\s*{_NUMBER}"
-    rf"|(?:익절|목표가|청산|청산가|수익청산|부분청산|전량청산|\d+\s*차\s*청산)\s*[:=\-]?\s*{_NUMBER}",
+    rf"\b(?:TP\d{{0,2}}|TARGET|TAKE\s*PROFIT|PROFIT\s*TARGET)\s*[:=\-]?\s*{_NUMBER}"
+    rf"|(?:익절|목표가|목표\d*|청산|청산가|수익청산|부분청산|전량청산|\d+\s*차\s*청산)\s*[:=\-]?\s*{_NUMBER}",
     re.IGNORECASE,
 )
+_QTY_RE = re.compile(
+    r"(?:Qty|qty)\s*[:=\-]?\s*(\d+)"
+    r"|(\d+)\s*(?:계약|contracts?|lots?)",
+    re.IGNORECASE,
+)
+
+# Korean symbol map used in _find_symbol (Bug 1 fix)
+_KR_SYMBOL_MAP: dict[str, str] = {
+    "나스닥100": "NQ",
+    "나스닥 100": "NQ",
+    "미니나스닥": "MNQ",
+    "나스닥": "MNQ",
+    "골드": "GC",
+    "금": "GC",
+    "원유": "CL",
+    "크루드": "CL",
+    "유가": "CL",
+    "에스피": "ES",
+    "러셀": "RTY",
+    "다우": "YM",
+}
 
 _NOISE_WORDS = {
     "LONG",
@@ -121,6 +145,7 @@ def parse_futures_signal(
     stop_loss = _find_optional_price(_STOP_RE, raw_text)
     take_profits = tuple(_match_price(match) for match in _TP_RE.finditer(raw_text))
     market_entry = _MARKET_ENTRY_RE.search(raw_text) is not None or ("시장가" in raw_text and "진입" in raw_text)
+    qty = _parse_qty(raw_text)
 
     needs_review = False
     if entry is None and market_entry:
@@ -129,6 +154,21 @@ def parse_futures_signal(
     if stop_loss is None and market_entry:
         stop_loss = 0.0
         needs_review = True
+
+    # Bug 2 fix: when entry is still None and it's not a market entry, try to find the first
+    # number that appears after the direction keyword (e.g. "NQ LONG 19200 SL 19150 TP 19280").
+    if entry is None and not market_entry:
+        dir_end = direction_match.end()
+        remaining = raw_text[dir_end:]
+        first_num_match = re.search(
+            r"(?:^|[\s@:=\-]+)([0-9]+(?:\.[0-9]+)?)(?!\s*(?:계약|contracts?|lots?))",
+            remaining,
+        )
+        if first_num_match:
+            candidate = float(first_num_match.group(1))
+            # Only accept prices in a reasonable futures range to avoid picking up qty values
+            if 100 <= candidate <= 1_000_000:
+                entry = candidate
 
     if entry is None:
         raise FuturesSignalParseError("Missing entry")
@@ -151,16 +191,56 @@ def parse_futures_signal(
         entry=entry,
         stop_loss=stop_loss,
         take_profits=take_profits,
+        qty=qty,
         status="needs_review" if needs_review else "parsed",
     )
 
 
+def _parse_qty(text: str) -> int:
+    """계약수 파싱. 실패 시 기본값 1."""
+    match = _QTY_RE.search(text)
+    if not match:
+        return 1
+    for group in match.groups():
+        if group is not None:
+            try:
+                value = int(group)
+                return value if value > 0 else 1
+            except (TypeError, ValueError):
+                pass
+    return 1
+
+
+def _current_quarter_code(root: str) -> str:
+    """Return a full futures symbol like 'MNQ' + nearest quarter month code + 2-digit year."""
+    today = date.today()
+    month = today.month
+    year = today.year % 100
+    if month <= 3:
+        mc = "H"
+    elif month <= 6:
+        mc = "M"
+    elif month <= 9:
+        mc = "U"
+    else:
+        mc = "Z"
+    return f"{root}{mc}{year:02d}"
+
+
 def _find_symbol(text: str) -> str:
+    # English symbol regex path: prefer explicit contract symbols like "NQM26".
     for match in _SYMBOL_RE.finditer(text):
         candidate = match.group(0).strip()
         root = match.group(1).upper()
         if root not in _NOISE_WORDS:
             return normalize_symbol(candidate)
+
+    # Bug 1 fix: fall back to Korean symbol aliases when no English symbol was found.
+    # Sort by descending key length so longer matches win (e.g. "나스닥100" before "나스닥").
+    for kr_name, fut_root in sorted(_KR_SYMBOL_MAP.items(), key=lambda x: -len(x[0])):
+        if kr_name in text:
+            return _current_quarter_code(fut_root)
+
     raise FuturesSignalParseError("Missing futures symbol")
 
 

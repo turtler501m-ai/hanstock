@@ -1,4 +1,7 @@
+import asyncio
 import unittest
+import os
+import tempfile
 from unittest.mock import patch
 
 import src.dashboard as dashboard
@@ -15,6 +18,16 @@ class FuturesSignalsDashboardTests(unittest.TestCase):
 
     def setUp(self):
         dashboard._FUTURES_SIGNAL_SERVICE = None
+        self._old_signals_db_path = os.environ.get("SIGNALS_DB_PATH")
+        self._tmpdir = tempfile.TemporaryDirectory()
+        os.environ["SIGNALS_DB_PATH"] = os.path.join(self._tmpdir.name, "signals.db")
+
+    def tearDown(self):
+        if self._old_signals_db_path is None:
+            os.environ.pop("SIGNALS_DB_PATH", None)
+        else:
+            os.environ["SIGNALS_DB_PATH"] = self._old_signals_db_path
+        self._tmpdir.cleanup()
 
     def test_dashboard_route_points_to_futures_template(self):
         route = self._find_route("/ai-dashboard/futures-signals")
@@ -92,7 +105,12 @@ class FuturesSignalsDashboardTests(unittest.TestCase):
         route = self._find_route("/api/futures-signals/collector/run", method="POST")
 
         with patch.object(dashboard, "collector_status", return_value={"ready": False, "missing": ["TELEGRAM_API_ID"]}):
-            payload = route.endpoint({})
+            result = route.endpoint({})
+            # async 엔드포인트인 경우 코루틴을 실행
+            if asyncio.iscoroutine(result):
+                payload = asyncio.run(result)
+            else:
+                payload = result
 
         self.assertFalse(payload["ok"])
         self.assertEqual(payload["ingested"], 0)

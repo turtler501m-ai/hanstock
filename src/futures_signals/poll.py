@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import os
 import re
 import subprocess
@@ -19,6 +20,8 @@ import sys
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 from dotenv import load_dotenv
 
@@ -29,10 +32,72 @@ from telethon.tl.types import PeerChannel
 load_dotenv()
 KST = timezone(timedelta(hours=9))
 
-# Use VM's session file and credentials
-VM_ROOT = Path("/home/turtler800/scripts/channel-monitor")
 API_ID = int(os.environ.get("TELEGRAM_API_ID", os.environ.get("TG_API_ID", "38298339")))
 API_HASH = os.environ.get("TELEGRAM_API_HASH", os.environ.get("TG_API_HASH", "17ccdf1a06ce938b600b6beaf4c43787"))
+TELEGRAM_SESSION_NAME = os.environ.get("TELEGRAM_SESSION_NAME", ".runtime/telegram_session")
+
+
+def _normalize_futures_symbol(raw: str) -> str:
+    """텔레그램 신호의 심볼을 KIS API 형식으로 변환.
+
+    예: "나스닥" → "MNQM25", "NQ" → "NQM25", "MNQ" → "MNQM25"
+    월코드: H=3월, M=6월, U=9월, Z=12월
+    """
+    from datetime import date
+
+    SYMBOL_MAP = {
+        # 영문 약어
+        "NQ": "NQ", "MNQ": "MNQ",
+        "ES": "ES", "MES": "MES",
+        "GC": "GC", "MGC": "MGC",
+        "CL": "CL", "MCL": "MCL",
+        "RTY": "RTY", "M2K": "M2K",
+        # 한글
+        "나스닥": "MNQ", "나스닥100": "NQ",
+        "골드": "GC", "금": "GC",
+        "원유": "CL", "유가": "CL",
+        "S&P": "ES", "SP": "ES",
+        "러셀": "RTY",
+    }
+
+    raw_upper = raw.upper().strip()
+
+    # 이미 완전한 선물 코드인 경우 (예: MNQM25, NQU25)
+    if re.match(r'^[A-Z]{2,4}[HMUZ]\d{2}$', raw_upper):
+        return raw_upper
+
+    # 현재 분기 계산
+    today = date.today()
+    month = today.month
+    year = today.year % 100  # 2자리 연도
+
+    # 가장 가까운 미래 만기월 선택
+    if month <= 3:
+        month_code, exp_year = 'H', year
+    elif month <= 6:
+        month_code, exp_year = 'M', year
+    elif month <= 9:
+        month_code, exp_year = 'U', year
+    else:
+        month_code, exp_year = 'Z', year
+
+    # 기본 심볼 찾기 (한글/약어 → 표준 코드)
+    base = SYMBOL_MAP.get(raw_upper, raw_upper)
+
+    # 이미 월코드가 붙어있는 경우 (예: MNQM, NQU)
+    if re.match(r'^[A-Z]{2,4}[HMUZ]$', base):
+        return f"{base}{exp_year:02d}"
+
+    return f"{base}{month_code}{exp_year:02d}"
+
+
+def telegram_session_file() -> Path:
+    path = Path(TELEGRAM_SESSION_NAME)
+    if path.suffix == ".session":
+        return path
+    if path.suffix:
+        return path.with_suffix(path.suffix + ".session")
+    return Path(f"{TELEGRAM_SESSION_NAME}.session")
 
 EXTRACT_PROMPT = """다음은 텔레그램 해외선물 시그널 채널의 최근 메시지들입니다.
 한국 시그널 채팅 특성상 한 시그널이 여러 메시지로 쪼개져 올라오기도 합니다.
@@ -89,8 +154,39 @@ def format_messages_for_prompt(new_msgs: list[dict], context_msgs: list[dict]) -
     return "\n".join(lines)
 
 
+def _call_claude_for_signals(prompt: str) -> list[dict]:
+    """Claude API로 텔레그램 메시지에서 선물 신호 추출."""
+    try:
+        import anthropic
+
+        api_key = os.getenv("ANTHROPIC_API_KEY", "")
+        if not api_key:
+            logger.debug("ANTHROPIC_API_KEY not set, skipping LLM extraction")
+            return []
+
+        client = anthropic.Anthropic(api_key=api_key)
+        response = client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=1024,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        text = response.content[0].text.strip()
+
+        json_match = re.search(r'\[.*\]', text, re.DOTALL)
+        if json_match:
+            return json.loads(json_match.group(0))
+        return []
+    except Exception as e:
+        logger.warning(f"Claude API call failed: {e}")
+        return []
+
+
 def extract_signals_via_llm(prompt: str) -> list[dict]:
-    """Extract signals using regex fallback (no external LLM required)."""
+    """Extract signals via Claude API, falling back to regex if unavailable."""
+    results = _call_claude_for_signals(prompt)
+    if results:
+        return results
+    logger.debug("LLM returned no results, using regex fallback")
     return _extract_signals_fallback(prompt)
 
 
@@ -112,8 +208,6 @@ def _extract_signals_fallback(prompt: str) -> list[dict]:
 
     last_symbol = None
     last_entry_direction = None
-    last_exit_message_id = None
-
     for line in lines:
         if not line.startswith("CTX") and not line.startswith("NEW"):
             continue
@@ -139,27 +233,25 @@ def _extract_signals_fallback(prompt: str) -> list[dict]:
                 last_entry_direction = "short"
                 break
 
-        if any(kw in text for kw in exit_keywords):
-            if last_symbol:
-                signals.append({
-                    "message_id": msg_id,
-                    "symbol": last_symbol,
-                    "direction": "exit",
-                    "entry_price": None,
-                    "stop_loss": None,
-                    "target_price": None,
-                    "confidence": 0.7,
-                    "notes": "regex exit"
-                })
+        if not line.startswith("NEW"):
+            continue
 
-    if last_entry_direction and any(kw in line for kw in entry_keywords for line in lines if line.startswith("CTX") or line.startswith("NEW")):
-        msg_id = None
-        for line in lines:
-            if line.startswith("NEW"):
-                m = re.search(r"id=(\d+)", line)
-                if m:
-                    msg_id = int(m.group(1))
-        if msg_id and last_symbol:
+        has_exit = any(kw in text for kw in exit_keywords)
+        has_entry = any(kw in text for kw in entry_keywords)
+
+        if has_exit and last_symbol:
+            signals.append({
+                "message_id": msg_id,
+                "symbol": last_symbol,
+                "direction": "exit",
+                "entry_price": None,
+                "stop_loss": None,
+                "target_price": None,
+                "confidence": 0.7,
+                "notes": "regex exit"
+            })
+
+        if has_entry and last_entry_direction and last_symbol:
             signals.append({
                 "message_id": msg_id,
                 "symbol": last_symbol,
@@ -286,7 +378,7 @@ def load_channels() -> list[dict[str, str]]:
         channels_path = Path(__file__).parent.parent / "channels.json"
     if not channels_path.exists():
         return []
-    with open(channels_path) as f:
+    with open(channels_path, encoding="utf-8") as f:
         data = json.load(f)
     return [c for c in data if c.get("signal_tracking")]
 
@@ -319,9 +411,10 @@ async def poll_channel(channel_key: str, target: str, label: str):
 
     state = signals_db.get_channel_state(channel_key)
     last_id = state["last_message_id"] if state else 0
+    if os.environ.get("POLLING_BACKFILL") == "1":
+        last_id = 0
 
-    # Use VM's session file
-    session_file = VM_ROOT / "user.session"
+    session_file = telegram_session_file()
     if not session_file.exists():
         print(f"[{channel_key}] session file not found: {session_file}")
         return
@@ -389,6 +482,37 @@ async def poll_channel(channel_key: str, target: str, label: str):
             )
             if inserted:
                 inserted_signals.append({**sig, "channel_key": channel_key, "message_date": message_date, "raw_text": raw_text})
+
+                # executor 실행 (예외 발생해도 폴링은 계속)
+                try:
+                    from src.futures_signals.executor import get_executor
+                    executor = get_executor()
+
+                    # DB 저장 신호를 FuturesSignal 호환 객체로 래핑하여 실행
+                    class _SignalProxy:
+                        def __init__(self, sig_dict, msg_id, src_key):
+                            self.id = f"{src_key}:{msg_id}"
+                            self.symbol = _normalize_futures_symbol(sig_dict.get("symbol", "MNQ"))
+                            self.direction = sig_dict.get("direction", "")
+                            self.stop_loss = sig_dict.get("stop_loss") or 0.0
+                            self.take_profits = (sig_dict.get("target_price"),) if sig_dict.get("target_price") else ()
+                            self.qty = sig_dict.get("qty", 1) or 1
+                            entry_raw = sig_dict.get("entry_price")
+                            if entry_raw is None or float(entry_raw) <= 0:
+                                self._skip_execution = True
+                                self.entry = 0.0
+                            else:
+                                self._skip_execution = False
+                                self.entry = float(entry_raw)
+
+                    proxy = _SignalProxy(sig, mid, channel_key)
+                    if proxy.direction in ("long", "short"):
+                        if not getattr(proxy, '_skip_execution', False):
+                            executor.execute(proxy)
+                        else:
+                            logger.info(f"Skipping execution for signal {proxy.id}: entry price not set")
+                except Exception as exc:
+                    logger.warning(f"Executor error for signal {mid}: {exc}")
 
         latest_id = max(m.id for m in new_msgs)
         signals_db.update_channel_state(channel_key, latest_id)

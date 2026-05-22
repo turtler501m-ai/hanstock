@@ -7,8 +7,46 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Noto+Sans+KR:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="/static/css/ai_dashboard.css?v=1">
-    <link rel="stylesheet" href="/static/css/futures_signals.css?v=1">
+    <link rel="stylesheet" href="/static/css/ai_dashboard.css?v=2">
+    <link rel="stylesheet" href="/static/css/futures_signals.css?v=2">
+    <style>
+        .tab-nav {
+            display: flex;
+            gap: 2px;
+            padding: 4px 8px;
+            background: rgba(15, 23, 42, 0.8);
+            border-bottom: 1px solid rgba(148, 163, 184, 0.15);
+        }
+        .tab-nav button {
+            padding: 4px 10px;
+            border: none;
+            background: transparent;
+            color: #94a3b8;
+            font-size: 0.75rem;
+            font-weight: 500;
+            cursor: pointer;
+            border-radius: 4px;
+            transition: all 0.2s;
+        }
+        .tab-nav button:hover {
+            background: rgba(59, 130, 246, 0.1);
+            color: #cbd5e1;
+        }
+        .tab-nav button.active {
+            background: rgba(59, 130, 246, 0.2);
+            color: #fff;
+            font-weight: 600;
+        }
+        .tab-content {
+            display: none;
+            padding: 20px;
+            min-height: calc(100vh - 200px);
+            box-sizing: border-box;
+        }
+        .tab-content.active {
+            display: block;
+        }
+    </style>
 </head>
 <body>
     <div class="app-shell futures-shell">
@@ -22,9 +60,7 @@
             </div>
             <nav>
                 <a href="/" data-icon="layout-dashboard">기존 대시보드</a>
-                <a class="active" href="#summary" data-icon="chart-candlestick">신호검증</a>
-                <a href="#signals" data-icon="table-2">신호 목록</a>
-                <a href="#details" data-icon="message-square-text">원문 비교</a>
+                <a href="#summary" data-icon="chart-candlestick">신호검증</a>
             </nav>
             <div class="mode-panel">
                 <span>운영 범위</span>
@@ -45,97 +81,113 @@
                 </div>
             </header>
 
-            <section class="status-strip futures-status" aria-label="신호검증 요약">
-                <div class="status-item" id="polld-status-item"><span>스케줄</span><strong id="polld-status">확인中</strong><small id="polld-last-run">-</small></div>
-                <div class="status-item ok"><span>오늘 수집</span><strong id="summary-collected">-</strong><small>Telegram 메시지</small></div>
-                <div class="status-item ok"><span>파싱 성공률</span><strong id="summary-parse-rate">-</strong><small>정규화 완료</small></div>
-                <div class="status-item warn"><span>검증 대기</span><strong id="summary-pending">-</strong><small>시장 데이터 확인 필요</small></div>
-                <div class="status-item ok"><span>최근 승률</span><strong id="summary-win-rate">-</strong><small>검증 완료 신호 기준</small></div>
-            </section>
+            <nav class="tab-nav" role="tablist">
+                <button type="button" class="active" data-tab="overview" data-fragment="futures_tab_overview.html" role="tab" aria-selected="true">개요</button>
+                <button type="button" data-tab="signals" data-fragment="futures_tab_signals.html" role="tab" aria-selected="false">신호 목록</button>
+                <button type="button" data-tab="mock-perf" data-fragment="futures_tab_mock_performance.html" role="tab" aria-selected="false">모의성과</button>
+                <button type="button" data-tab="live-perf" data-fragment="futures_tab_live_performance.html" role="tab" aria-selected="false">실계좌성과</button>
+                <button type="button" data-tab="settings" data-fragment="futures_tab_settings.html" role="tab" aria-selected="false">설정</button>
+            </nav>
 
-            <section class="metric-grid futures-metrics">
-                <article class="metric-tile"><span>검증 완료</span><strong id="summary-verified">-</strong><small>누적 신호</small></article>
-                <article class="metric-tile"><span>거부됨</span><strong id="summary-rejected">-</strong><small>중복/무효 신호</small></article>
-                <article class="metric-tile"><span>평균 신뢰도</span><strong id="summary-confidence">-</strong><small>파서 confidence</small></article>
-                <article class="metric-tile"><span>평균 손익</span><strong id="summary-avg-pnl">-</strong><small>계약당 포인트</small></article>
-            </section>
-
-            <section class="futures-grid" id="signals">
-                <article class="panel signal-panel">
-                    <div class="panel-title split">
-                        <div>
-                            <h2>신호 목록</h2>
-                            <p>NQ, ES, GC, CL 등 해외선물 Telegram 신호와 검증 상태입니다.</p>
-                        </div>
-                        <div class="signal-toolbar">
-                            <div class="status-counts" aria-label="검증 상태 카운트">
-                                <span class="status-count verified">Verified <strong id="count-verified">-</strong></span>
-                                <span class="status-count pending">Pending <strong id="count-pending">-</strong></span>
-                                <span class="status-count rejected">Rejected <strong id="count-rejected">-</strong></span>
-                            </div>
-                            <span class="state-pill ok" id="last-updated">대기 중</span>
-                        </div>
-                    </div>
-                    <div class="signal-table-wrap">
-                        <table class="signal-table">
-                            <thead>
-                                <tr>
-                                    <th>시간</th>
-                                    <th>제공자</th>
-                                    <th>종목</th>
-                                    <th>방향</th>
-                                    <th>진입</th>
-                                    <th>SL</th>
-                                    <th>TP</th>
-                                    <th>신뢰도</th>
-                                    <th>상태</th>
-                                    <th>결과</th>
-                                </tr>
-                            </thead>
-                            <tbody id="signal-table-body"></tbody>
-                        </table>
-                    </div>
-                    <div class="empty-state" id="signal-empty">표시할 신호가 없습니다.</div>
-                </article>
-
-                <article class="panel detail-panel" id="details">
-                    <div class="panel-title">
-                        <h2>Telegram 원문 / 파싱 결과</h2>
-                        <p>선택한 신호의 원문 메시지와 정규화된 값을 비교합니다.</p>
-                    </div>
-                    <div class="detail-badges" id="detail-badges" aria-label="선택 신호 상태"></div>
-                    <div class="raw-message" id="raw-message">신호를 선택하면 Telegram 원문이 표시됩니다.</div>
-                    <dl class="detail-list" id="parsed-detail"></dl>
-                </article>
-            </section>
-
-            <section class="futures-grid lower-grid">
-                <article class="panel chart-panel">
-                    <div class="panel-title">
-                        <h2>검증 성과</h2>
-                        <p>누적 손익과 승률 추이를 API 응답 기반으로 표시합니다.</p>
-                    </div>
-                    <div class="chart-frame"><canvas id="futures-performance-chart"></canvas></div>
-                    <div class="chart-placeholder" id="chart-placeholder">성과 데이터가 도착하면 차트가 표시됩니다.</div>
-                </article>
-
-                <article class="panel settings-panel">
-                    <div class="panel-title">
-                        <h2>검증 기준</h2>
-                        <p>현재 화면에서 사용하는 백테스트 해석 기준입니다.</p>
-                    </div>
-                    <div class="verification-rules">
-                        <div><span>기본 검증 기간</span><strong>24시간</strong></div>
-                        <div><span>TP/SL 동일 캔들</span><strong>ambiguous 표시</strong></div>
-                        <div><span>주문 연결</span><strong>비활성화</strong></div>
-                    </div>
-                </article>
-            </section>
+            <div id="tab-overview" class="tab-content active" role="tabpanel">
+                <!-- Loaded dynamically -->
+            </div>
+            <div id="tab-signals" class="tab-content" role="tabpanel"></div>
+            <div id="tab-mock-perf" class="tab-content" role="tabpanel"></div>
+            <div id="tab-live-perf" class="tab-content" role="tabpanel"></div>
+            <div id="tab-settings" class="tab-content" role="tabpanel"></div>
         </main>
     </div>
 
     <script src="https://unpkg.com/lucide@latest"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <script src="/static/js/futures_signals.js?v=1"></script>
+    <script>
+    const tabFragments = {};
+    let overviewLoaded = false;
+
+    async function loadTabFragment(tabName, fragmentUrl) {
+        // Always inject HTML (even if cached) so onclick handlers bind to fresh DOM nodes
+        const cached = tabFragments[tabName];
+        if (cached) {
+            document.getElementById('tab-' + tabName).innerHTML = cached;
+            iconize();
+            return;
+        }
+        return fetch('/templates/fragments/' + fragmentUrl)
+            .then(r => r.text())
+            .then(html => {
+                document.getElementById('tab-' + tabName).innerHTML = html;
+                tabFragments[tabName] = html;
+                iconize();
+            });
+    }
+
+    function runTabInit(tabName) {
+        if (tabName === 'overview') {
+            if (typeof loadOverviewData === 'function') loadOverviewData();
+        } else if (tabName === 'signals') {
+            if (typeof renderSignals === 'function') renderSignals();
+            if (typeof renderDetails === 'function') {
+                renderDetails(state.signals.find(function(item) { return item.id === state.selectedId; }) || state.signals[0] || null);
+            }
+        } else if (tabName === 'mock-perf') {
+            if (typeof loadMockPerformance === 'function') loadMockPerformance();
+            if (typeof loadPaperPerformance === 'function') loadPaperPerformance();
+        } else if (tabName === 'live-perf') {
+            if (typeof loadExecutorState === 'function') loadExecutorState();
+            if (typeof loadLivePerformance === 'function') loadLivePerformance();
+        } else if (tabName === 'settings') {
+            if (typeof loadExecutorState === 'function') loadExecutorState();
+        }
+    }
+
+    async function init() {
+        await loadTabFragment('overview', 'futures_tab_overview.html');
+        overviewLoaded = true;
+        if (typeof refreshDashboard === 'function') {
+            refreshDashboard();
+        }
+    }
+
+    document.addEventListener('DOMContentLoaded', function() {
+        const tabButtons = document.querySelectorAll('.tab-nav button');
+
+        init();
+
+        tabButtons.forEach(function(btn) {
+            btn.addEventListener('click', function() {
+                const tabName = this.dataset.tab;
+                const fragmentUrl = this.dataset.fragment;
+
+                tabButtons.forEach(function(b) {
+                    b.classList.remove('active');
+                    b.setAttribute('aria-selected', 'false');
+                });
+                btn.classList.add('active');
+                btn.setAttribute('aria-selected', 'true');
+
+                document.querySelectorAll('.tab-content').forEach(function(content) {
+                    content.classList.remove('active');
+                });
+                document.getElementById('tab-' + tabName).classList.add('active');
+
+                loadTabFragment(tabName, fragmentUrl).then(function() {
+                    runTabInit(tabName);
+                });
+            });
+        });
+    });
+    </script>
+    <style>
+        .btn-buy { background: #22c55e !important; }
+        .btn-sell { background: #ef4444 !important; }
+        .btn-buy:hover { background: #16a34a !important; }
+        .btn-sell:hover { background: #dc2626 !important; }
+        .btn-cancel { padding: 4px 8px; background: #64748b; border: none; color: #fff; border-radius: 4px; cursor: pointer; font-size: 0.75rem; }
+        .btn-cancel:hover { background: #475569; }
+        .text-buy { color: #22c55e !important; }
+        .text-sell { color: #ef4444 !important; }
+    </style>
+    <script src="/static/js/futures_signals.js?v=26"></script>
 </body>
 </html>

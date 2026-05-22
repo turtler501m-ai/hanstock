@@ -1,11 +1,25 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import timezone, timedelta
 import importlib.util
 import json
 import os
 from pathlib import Path
 from typing import Any
+
+KST = timezone(timedelta(hours=9))
+
+
+async def get_channel_entity(client, target: str | int):
+    """Get proper channel entity - use PeerChannel for numeric IDs."""
+    try:
+        from telethon.tl.types import PeerChannel
+        if str(target).lstrip("-").isdigit():
+            return await client.get_entity(PeerChannel(int(target)))
+    except Exception:
+        pass
+    return await client.get_entity(str(target).lstrip("@"))
 
 
 @dataclass(frozen=True)
@@ -141,7 +155,7 @@ class TelegramSignalCollector:
     def __init__(self, config: TelegramCollectorConfig | None = None) -> None:
         self.config = config or TelegramCollectorConfig.from_env()
 
-    async def fetch_recent_messages(self, *, limit_per_channel: int = 50) -> list[dict[str, Any]]:
+    async def fetch_recent_messages(self, *, limit_per_channel: int = 100) -> list[dict[str, Any]]:
         status = collector_status(self.config)
         if not status["ready"]:
             raise RuntimeError(status["message"])
@@ -159,9 +173,9 @@ class TelegramSignalCollector:
             if not await client.is_user_authorized():
                 raise RuntimeError("telegram session is not authorized; run an interactive Telethon login first")
             for channel in self.config.target_channels:
-                target: str | int = int(channel) if str(channel).lstrip("-").isdigit() else channel
                 try:
-                    async for message in client.iter_messages(target, limit=limit_per_channel):
+                    entity = await get_channel_entity(client, channel)
+                    async for message in client.iter_messages(entity, limit=limit_per_channel):
                         text = getattr(message, "raw_text", "") or ""
                         if not text.strip():
                             continue
@@ -169,7 +183,7 @@ class TelegramSignalCollector:
                             {
                                 "telegram_message_id": str(message.id),
                                 "channel": str(channel),
-                                "received_at": message.date.isoformat() if message.date else None,
+                                "received_at": message.date.astimezone(KST).isoformat() if message.date else None,
                                 "raw_text": text,
                             }
                         )

@@ -6,3 +6,13 @@ logs/
 .runtime/
 .DS_Store
 data/kis_token.json
+data/kis_*token*.json
+data/*.db
+data/*.sqlite
+data/*.db-journal
+data/*.sqlite-journal
+data/trades.json
+.claude/worktrees/
+test_debug.ps1
+bybit_test.py
+bybit_test_full.py

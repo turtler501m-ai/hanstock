@@ -82,6 +82,27 @@
     flex-wrap: wrap;
 }
 
+.btn-refresh-signals {
+    padding: 6px 12px;
+    background: #3b82f6;
+    color: white;
+    border: none;
+    border-radius: 6px;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background 0.2s;
+}
+
+.btn-refresh-signals:hover {
+    background: #2563eb;
+}
+
+.btn-refresh-signals:disabled {
+    background: #64748b;
+    cursor: not-allowed;
+}
+
 .status-counts {
     display: flex;
     gap: 6px;
@@ -288,3 +309,309 @@
     background: #fb923c;
     color: #fff;
 }
+
+.qc-order-row {
+    display: flex;
+    align-items: flex-end;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-top: 12px;
+}
+
+.qc-order-row label {
+    display: grid;
+    gap: 6px;
+    color: var(--muted);
+    font-size: 12px;
+    font-weight: 700;
+}
+
+.qc-order-row input {
+    width: 92px;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: rgba(15, 23, 42, 0.8);
+    color: var(--text);
+    padding: 8px 10px;
+}
+
+.qc-order-row button {
+    min-height: 36px;
+    border: 0;
+    border-radius: 6px;
+    color: #fff;
+    cursor: pointer;
+    font-weight: 800;
+    padding: 8px 14px;
+}
+
+.qc-order-row button:disabled {
+    cursor: not-allowed;
+    opacity: 0.55;
+}
+
+.qc-message {
+    color: var(--muted);
+    font-size: 13px;
+    margin-top: 12px;
+}
+
+.qc-alert-list {
+    display: grid;
+    gap: 8px;
+    margin-top: 12px;
+}
+
+.qc-alert {
+    border: 1px solid rgba(245, 158, 11, 0.35);
+    border-radius: 6px;
+    background: rgba(245, 158, 11, 0.1);
+    color: #fcd34d;
+    font-size: 12px;
+    padding: 8px 10px;
+}
+
+.qc-position-table {
+    min-width: 560px;
+}
+
+.signal-action-panel {
+    border-top: 1px solid var(--line);
+    margin-top: 14px;
+    padding-top: 14px;
+}
+
+.signal-action-panel > div:first-child {
+    display: grid;
+    gap: 4px;
+}
+
+.signal-action-panel strong {
+    color: var(--text);
+    font-size: 14px;
+}
+
+.signal-action-panel span {
+    color: var(--muted);
+    font-size: 12px;
+}
+
+.signal-action-buttons {
+    display: flex;
+    gap: 8px;
+    margin-top: 10px;
+}
+
+.signal-action-buttons button,
+.btn-qc-signal {
+    border: 0;
+    border-radius: 6px;
+    color: #fff;
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 800;
+    min-height: 30px;
+    padding: 6px 10px;
+}
+
+.signal-action-buttons button:disabled,
+.btn-qc-signal:disabled {
+    cursor: not-allowed;
+    opacity: 0.55;
+}
+
+/* ===== 성과 그리드 ===== */
+.perf-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1.5rem;
+    margin-top: 1rem;
+}
+
+.perf-card {
+    background: var(--bg-card, #1e1e2e);
+    border: 1px solid var(--border, #333);
+    border-radius: 8px;
+    padding: 1.5rem;
+}
+
+.perf-card h3 {
+    margin: 0 0 1rem;
+    font-size: 1rem;
+    color: var(--text-muted, #aaa);
+}
+
+.stat-row {
+    display: flex;
+    justify-content: space-between;
+    padding: 0.4rem 0;
+    border-bottom: 1px solid var(--border, #333);
+    font-size: 0.875rem;
+}
+
+.positions-list,
+.executions-list {
+    margin-top: 1rem;
+    font-size: 0.85rem;
+    color: var(--muted, #94a3b8);
+}
+
+/* ===== 실계좌 스위치 패널 ===== */
+.live-switch-panel {
+    background: #1a1a2e;
+    border: 1px solid #e74c3c44;
+    border-radius: 8px;
+    padding: 1.5rem;
+    margin-bottom: 1.5rem;
+}
+
+.switch-warning {
+    color: #e74c3c;
+    font-size: 0.9rem;
+    margin-bottom: 1rem;
+    padding: 0.75rem;
+    background: #e74c3c11;
+    border-radius: 4px;
+}
+
+.switch-controls {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
+
+.switch-item {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+}
+
+.switch-item label:first-child {
+    min-width: 150px;
+    color: var(--text-muted, #aaa);
+}
+
+/* ===== 토글 스위치 ===== */
+.toggle-switch {
+    position: relative;
+    display: inline-block;
+    width: 50px;
+    height: 26px;
+    min-width: unset;
+    cursor: pointer;
+}
+
+.toggle-switch input { opacity: 0; width: 0; height: 0; }
+
+.slider {
+    position: absolute;
+    cursor: pointer;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: #444;
+    border-radius: 26px;
+    transition: background 0.3s;
+}
+
+.slider:before {
+    position: absolute;
+    content: "";
+    height: 20px;
+    width: 20px;
+    left: 3px;
+    bottom: 3px;
+    background: white;
+    border-radius: 50%;
+    transition: transform 0.3s;
+}
+
+input:checked + .slider { background: #2ecc71; }
+input:checked + .slider:before { transform: translateX(24px); }
+
+.status-badge.off { background: #444; color: #aaa; }
+.status-badge.on  { background: #2ecc7133; color: #2ecc71; }
+
+/* ===== 비활성 메시지 ===== */
+.disabled-msg {
+    text-align: center;
+    color: #666;
+    padding: 3rem;
+    border: 1px dashed #333;
+    border-radius: 8px;
+    margin-top: 1rem;
+}
+
+/* ===== 인증 상태 ===== */
+.auth-status { margin-top: 0.75rem; font-size: 0.9rem; }
+.auth-status.success { color: #2ecc71; }
+.auth-status.error { color: #e74c3c; }
+
+/* ===== 설정 섹션 ===== */
+.settings-section {
+    background: var(--bg-card, #1e1e2e);
+    border: 1px solid var(--border, #333);
+    border-radius: 8px;
+    padding: 1.5rem;
+    margin-bottom: 1.5rem;
+}
+
+.settings-section h3 {
+    margin: 0 0 1rem;
+    font-size: 1rem;
+}
+
+.settings-section button {
+    margin-top: 0.5rem;
+    padding: 0.5rem 1.25rem;
+    background: #3b82f6;
+    color: #fff;
+    border: none;
+    border-radius: 6px;
+    font-size: 0.875rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.2s;
+}
+
+.settings-section button:hover { background: #2563eb; }
+
+.form-group {
+    margin-bottom: 0.75rem;
+}
+
+.form-group label {
+    display: block;
+    font-size: 0.85rem;
+    color: var(--text-muted, #aaa);
+    margin-bottom: 0.3rem;
+}
+
+.form-group input {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 0.5rem 0.75rem;
+    background: #111;
+    border: 1px solid #333;
+    border-radius: 4px;
+    color: #eee;
+    font-size: 0.9rem;
+}
+
+.auth-steps {
+    margin-top: 1.5rem;
+    padding-top: 1.5rem;
+    border-top: 1px solid #333;
+}
+
+.auth-steps h4 {
+    margin: 0 0 1rem;
+    font-size: 0.95rem;
+    color: var(--text-muted, #aaa);
+}
+
+/* ===== 반응형 ===== */
+@media (max-width: 780px) {
+    .perf-grid {
+        grid-template-columns: 1fr;
+    }
+}
+

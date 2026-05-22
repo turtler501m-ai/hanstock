@@ -6,11 +6,26 @@ from dotenv import load_dotenv
 load_dotenv(override=True)
 
 class Settings(BaseSettings):
-    # KIS API Credentials
+    # KIS API Credentials (국내주식)
     kistock_app_key: str = ""
     kistock_app_secret: str = ""
     kistock_account: str = ""
-    
+
+    # KIS 해외선물 모의계좌
+    kis_futures_demo_app_key: Optional[str] = None
+    kis_futures_demo_app_secret: Optional[str] = None
+    kis_futures_demo_account: Optional[str] = None
+
+    # KIS 해외선물 실계좌
+    kis_futures_real_app_key: Optional[str] = None
+    kis_futures_real_app_secret: Optional[str] = None
+    kis_futures_real_account: Optional[str] = None
+
+    # Telegram
+    telegram_api_id: Optional[str] = None
+    telegram_api_hash: Optional[str] = None
+    telegram_target_channels: Optional[str] = None
+
     # Notifications
     slack_webhook_url: Optional[str] = ""
     

@@ -21,6 +21,7 @@ class FuturesSignal:
     entry: float
     stop_loss: float
     take_profits: tuple[float, ...]
+    qty: int = 1
     status: str = "parsed"
 
     def to_record(self) -> dict[str, Any]:
