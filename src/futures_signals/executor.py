@@ -216,13 +216,7 @@ class FuturesExecutor:
     def _execute_bybit(self, signal, qty: int) -> dict:
         """Bybit 선물 주문"""
         try:
-            import sys
-            import os as _os
-            # 루트 디렉토리를 path에 추가 (bybit_auto_trade.py가 프로젝트 루트에 위치)
-            root = _os.path.dirname(_os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))))
-            if root not in sys.path:
-                sys.path.insert(0, root)
-            from bybit_auto_trade import BybitTrader
+            from src.api.bybit_api import BybitTrader
             trader = BybitTrader()
             symbol = _normalize_futures_symbol(signal.symbol)
             result = trader.process_signal({

@@ -41,7 +41,7 @@ FINRL_DIR = BASE_DIR / "vendor" / "FinRL"
 BALANCE_CACHE = trader.RUNTIME_DIR / "balance_snapshot.json"
 CANDIDATE_CACHE = trader.RUNTIME_DIR / "candidate_snapshot.json"
 AUTO_APPROVAL_STATE = trader.RUNTIME_DIR / "auto_approval.json"
-QUANTCONNECT_MNQ_DIR = BASE_DIR / "quantconnect" / "mnq_paper_auto"
+QUANTCONNECT_MNQ_DIR = BASE_DIR / "src" / "integrations" / "quantconnect" / "mnq_paper_auto"
 QUANTCONNECT_MNQ_RESULTS = trader.RUNTIME_DIR / "quantconnect_mnq_results.json"
 QUANTCONNECT_AUTH_CACHE = trader.RUNTIME_DIR / "quantconnect_auth_cache.json"
 QUANTCONNECT_CLOUD_CACHE = trader.RUNTIME_DIR / "quantconnect_cloud_cache.json"
@@ -1291,7 +1291,7 @@ def _quantconnect_mnq_status() -> dict:
     load_dotenv(dotenv_path=ENV_PATH, override=True)
     algorithm_path = QUANTCONNECT_MNQ_DIR / "main.py"
     config_path = QUANTCONNECT_MNQ_DIR / "config.json"
-    doc_path = BASE_DIR / ".doc" / "quantconnect-mnq-paper-auto.md"
+    doc_path = BASE_DIR / "doc" / "S1.한스톡사용설명서.md"
     config = _read_json_file(config_path, {})
     if not isinstance(config, dict):
         config = {}

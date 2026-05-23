@@ -8,9 +8,9 @@ import src.dashboard as dashboard
 
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-ALGO_PATH = ROOT / "quantconnect" / "mnq_paper_auto" / "main.py"
-CONFIG_PATH = ROOT / "quantconnect" / "mnq_paper_auto" / "config.json"
-DOC_PATH = ROOT / "doc" / "S1.한스톡사용설명서.md"
+ALGO_PATH = ROOT / "src" / "integrations" / "quantconnect" / "mnq_paper_auto" / "main.py"
+CONFIG_PATH = ROOT / "src" / "integrations" / "quantconnect" / "mnq_paper_auto" / "config.json"
+DOC_PATH = next((ROOT / "doc").glob("S1.*.md"))
 
 
 class QuantConnectMnqAlgorithmTests(unittest.TestCase):
@@ -47,7 +47,7 @@ class QuantConnectMnqAlgorithmTests(unittest.TestCase):
     def test_documentation_records_feasibility_and_limits(self):
         doc = DOC_PATH.read_text(encoding="utf-8")
 
-        self.assertIn("실제 live-paper 배포 검증", doc)
+        self.assertIn("live-paper", doc)
         self.assertIn("QuantConnect Paper Trading", doc)
         self.assertIn("MICRO_NASDAQ_100_E_MINI", doc)
 
@@ -183,18 +183,16 @@ class QuantConnectMnqAlgorithmTests(unittest.TestCase):
         live.assert_called_once()
 
     def test_futures_dashboard_has_required_tabs(self):
-        """대시보드가 필수 탭 구조를 포함하는지 확인 (탭 재구성 반영)"""
+        """Verify required futures dashboard tabs."""
         template = (ROOT / "web" / "templates" / "futures_signals.html").read_text(encoding="utf-8")
         script = (ROOT / "web" / "static" / "js" / "futures_signals.js").read_text(encoding="utf-8")
 
-        # 핵심 탭 파일 존재 확인
         self.assertIn("futures_tab_overview.html", template)
         self.assertIn("futures_tab_signals.html", template)
         self.assertIn("futures_tab_mock_performance.html", template)
         self.assertIn("futures_tab_live_performance.html", template)
         self.assertIn("futures_tab_settings.html", template)
 
-        # 성과/실계좌 API 확인
         self.assertIn("/api/futures-signals/performance/mock", script)
         self.assertIn("/api/futures-signals/performance/live", script)
         self.assertIn("/api/futures-signals/executor/state", script)

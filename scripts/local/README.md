@@ -1,27 +1,50 @@
 # Local Windows Scripts
 
-로컬 개발 PC에서 사용하는 Windows 실행 스크립트입니다.
+로컬 Windows 개발 PC에서 사용하는 스크립트입니다.
+
+## 대시보드 서버
+
+권장 명령은 프로젝트 루트의 래퍼입니다.
+
+```powershell
+.\server.cmd restart
+.\server.cmd status
+.\server.cmd logs
+.\server.cmd tail
+```
+
+직접 호출하려면 아래 명령을 사용합니다.
 
 ```powershell
 .\scripts\local\server.cmd restart
-.\scripts\local\server.cmd status
-.\scripts\local\server.cmd logs
-.\scripts\local\server.cmd tail
 ```
 
-Telegram poll 1회 실행:
+`scripts/local/server.cmd`는 `tools/server.ps1`을 호출합니다.
+
+## 로컬 검증
+
+```powershell
+.\verify.cmd
+```
+
+내부적으로 `tools/verify-local.ps1`을 실행합니다.
+
+## Telegram 1회 수집
 
 ```powershell
 .\scripts\local\telegram_poll.ps1
 ```
 
-VM 자동 배포:
+## VM 배포와 접속
 
 ```powershell
-.\scripts\local\deploy-vm.ps1
+.\deploy-vm.ps1
+.\deploy-vm.ps1 -SkipPush
+.\deploy-vm.ps1 -FreshClone
+.\connect-vm.ps1
 ```
 
-기본값은 기존 `hanstock-server5.ps1` 접속 정보와 같습니다.
+기본 VM 대상:
 
 ```text
 GCP instance: hanstock-server5
@@ -32,16 +55,12 @@ key: ~/.ssh/google_compute_engine
 repo: ~/hanstock
 ```
 
-VM SSH 접속:
+환경변수로 대상을 바꿀 수 있습니다.
 
 ```powershell
-.\scripts\local\connect-vm.ps1
+$env:HANSTOCK_GCP_INSTANCE="hanstock-server5"
+$env:HANSTOCK_GCP_ZONE="us-central1-b"
+$env:HANSTOCK_GCP_PROJECT="hanstock-server"
+$env:HANSTOCK_VM_USER="turtler800"
+$env:HANSTOCK_VM_PATH="~/hanstock"
 ```
-
-VM 폴더를 백업하고 새로 clone:
-
-```powershell
-.\scripts\local\deploy-vm.ps1 -FreshClone
-```
-
-VM에서는 이 폴더의 스크립트를 사용하지 않습니다.

@@ -14,6 +14,8 @@ This is a Python trading and dashboard project.
 - `web/templates/`: dashboard templates
 - `web/static/`: CSS and JavaScript
 - `tests/`: unittest test suite
+- `config/`: non-secret checked-in configuration such as Telegram channel definitions
+- `src/integrations/`: external platform artifacts such as QuantConnect algorithms
 - `tools/`: local verification and utility scripts
 - `scripts/local/`: Windows local development scripts
 - `scripts/vm/`: VM/Linux operation scripts
@@ -27,6 +29,20 @@ Main entry points:
 - VM server: `scripts/vm/server.sh`
 
 Runtime artifacts belong in `.runtime/`, `logs/`, or `data/`. Do not place generated runtime files under `src/`, `web/`, or `tests/`.
+
+Keep the repository root clean. Only project-level files such as `README.md`, `AGENTS.md`, `requirements.txt`, `.env.example`, `.editorconfig`, `.gitattributes`, and `.gitignore` should live at the root.
+
+Placement rules:
+
+- New application code goes under `src/`.
+- API clients go under `src/api/`.
+- External platform integrations go under `src/integrations/` unless a more specific existing package owns them.
+- Checked-in non-secret configuration goes under `config/`.
+- Local Windows scripts go under `scripts/local/`.
+- VM/Linux scripts go under `scripts/vm/`.
+- Verification and maintenance tools go under `tools/`.
+- Documentation is consolidated in `doc/S1.한스톡사용설명서.md`.
+- Do not commit personal IDE settings; `.vscode/` is ignored.
 
 ## Local Development
 

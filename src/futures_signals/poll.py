@@ -372,10 +372,10 @@ def store_signals(channel_key: str, new_msgs: list[dict], signals: list[dict]) -
 
 
 def load_channels() -> list[dict[str, str]]:
-    """Load channels from channels.json."""
-    channels_path = Path("channels.json")
+    """Load signal-tracking channels from config/channels.json."""
+    channels_path = Path("config/channels.json")
     if not channels_path.exists():
-        channels_path = Path(__file__).parent.parent / "channels.json"
+        channels_path = Path(__file__).resolve().parents[2] / "config" / "channels.json"
     if not channels_path.exists():
         return []
     with open(channels_path, encoding="utf-8") as f:

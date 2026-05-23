@@ -72,7 +72,7 @@ def telethon_available() -> bool:
     return importlib.util.find_spec("telethon") is not None
 
 
-def channels_from_legacy_json(path: str | Path = "channels.json") -> tuple[str, ...]:
+def channels_from_legacy_json(path: str | Path = "config/channels.json") -> tuple[str, ...]:
     legacy_path = Path(path)
     if not legacy_path.exists():
         return ()
