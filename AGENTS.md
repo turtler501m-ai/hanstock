@@ -1,12 +1,34 @@
 # Repository Guidelines
 
-## Project Structure & Module Organization
+## Project Structure
 
-This is a Python trading and dashboard project. Core application code lives in `src/`: API clients under `src/api/`, persistence under `src/db/`, signal collection under `src/futures_signals/`, notification helpers under `src/notifier/`, strategy logic under `src/strategy/`, and shared utilities under `src/utils/`. The FastAPI dashboard entry point is `src/dashboard.py`; the trading engine entry point is `src/trader.py`.
+This is a Python trading and dashboard project.
 
-Tests are in `tests/` and follow `test_*.py` naming. Web assets are split between `web/templates/` for Jinja templates and `web/static/` for CSS and JavaScript. Operational scripts are in the repository root and `tools/`. Runtime artifacts such as logs, caches, databases, and generated files belong in `logs/`, `data/`, `.runtime/`, or `__pycache__/`, not in source directories.
+- `src/`: application code
+- `src/api/`: KIS, KIS futures, QuantConnect API clients
+- `src/db/`: persistence helpers
+- `src/futures_signals/`: Telegram futures signal collection, parsing, verification, execution
+- `src/notifier/`: notification helpers
+- `src/strategy/`: trading strategy, indicators, risk, allocation
+- `src/utils/`: shared utilities
+- `web/templates/`: dashboard templates
+- `web/static/`: CSS and JavaScript
+- `tests/`: unittest test suite
+- `tools/`: local verification and utility scripts
+- `scripts/local/`: Windows local development scripts
+- `scripts/vm/`: VM/Linux operation scripts
+- `doc/S1.한스톡사용설명서.md`: consolidated project manual
 
-## Build, Test, and Development Commands
+Main entry points:
+
+- Dashboard: `src/dashboard.py`
+- Trading engine: `src/trader.py`
+- Local server: `scripts/local/server.cmd`
+- VM server: `scripts/vm/server.sh`
+
+Runtime artifacts belong in `.runtime/`, `logs/`, or `data/`. Do not place generated runtime files under `src/`, `web/`, or `tests/`.
+
+## Local Development
 
 Set up a local environment:
 
@@ -23,7 +45,19 @@ Run the dashboard locally:
 .\scripts\local\server.cmd restart
 ```
 
-Open `http://127.0.0.1:8000`. Use `.\scripts\local\server.cmd status`, `logs`, or `tail` to inspect the background server.
+Inspect the local server:
+
+```powershell
+.\scripts\local\server.cmd status
+.\scripts\local\server.cmd logs
+.\scripts\local\server.cmd tail
+```
+
+Open:
+
+```text
+http://127.0.0.1:8000
+```
 
 Run the trading engine directly:
 
@@ -31,25 +65,98 @@ Run the trading engine directly:
 python src\trader.py
 ```
 
-Run local verification and tests:
+## VM Operation
+
+VM code should be updated from Git, not edited directly on the VM.
+
+Deploy/update from local:
+
+```powershell
+.\scripts\local\deploy-vm.ps1
+```
+
+Recreate the VM project folder from a fresh clone:
+
+```powershell
+.\scripts\local\deploy-vm.ps1 -FreshClone
+```
+
+Open SSH to the VM:
+
+```powershell
+.\scripts\local\connect-vm.ps1
+```
+
+Run directly on the VM:
+
+```bash
+./scripts/vm/update.sh main
+./scripts/vm/server.sh restart
+./scripts/vm/server.sh status
+```
+
+## Testing
+
+Run local verification before committing changes that affect trading logic, dashboard routes, persistence, configuration, or deployment scripts:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File tools\verify-local.ps1
 python -m unittest discover -s tests
 ```
 
-## Coding Style & Naming Conventions
+For encoding checks:
 
-Follow `.editorconfig`: UTF-8, LF endings, final newline, and trimmed trailing whitespace for code and text files. Use Python modules and functions in `snake_case`, classes in `PascalCase`, and constants/environment variables in `UPPER_SNAKE_CASE`. Keep configuration in `.env` and `src/config.py`; do not hardcode credentials or account identifiers.
+```powershell
+powershell -ExecutionPolicy Bypass -File tools\check-encoding.ps1
+```
 
-## Testing Guidelines
+Tests use `test_*.py` naming under `tests/`. Prefer deterministic tests with mocked KIS, Telegram, Slack, QuantConnect, Bybit, and network responses.
 
-Add tests next to related coverage in `tests/`, using names like `test_trader_core.py` or `test_futures_signal_parser.py`. Prefer deterministic unit tests with mocked API responses for KIS, Telegram, Slack, and exchange integrations. Run the full unittest discovery before committing changes that affect trading logic, dashboard routes, persistence, or configuration.
+## Coding Style
 
-## Commit & Pull Request Guidelines
+Follow `.editorconfig`: UTF-8, LF endings, final newline, and trimmed trailing whitespace for code and text files.
 
-Recent history uses short, descriptive commit subjects, sometimes in Korean, such as `대시보드 탭 분리 및 계좌정보 추가`. Keep subjects concise and behavior-focused. Pull requests should describe the change, list verification commands run, call out `.env` or migration impacts, and include screenshots for dashboard UI changes.
+Use:
 
-## Security & Configuration Tips
+- Python modules/functions: `snake_case`
+- Classes: `PascalCase`
+- Constants and environment variables: `UPPER_SNAKE_CASE`
 
-Treat live trading as guarded behavior. Keep `DRY_RUN=true`, `TRADING_ENV=demo`, and `ENABLE_LIVE_TRADING=false` unless intentionally testing live execution. Never commit `.env`, API keys, account numbers, tokens, local databases, or logs.
+Keep configuration in `.env`, `.env.example`, and `src/config.py`. Do not hardcode credentials, account identifiers, tokens, or VM-specific secrets.
+
+## Git Workflow
+
+Use short, behavior-focused Korean or English commit subjects.
+
+Before commit:
+
+```powershell
+git status
+python -m unittest discover -s tests
+```
+
+Do not include unrelated local changes in a cleanup or infrastructure commit. If dashboard UI files are already modified for another task, leave them unstaged unless the current task explicitly includes them.
+
+## Security
+
+Treat live trading as guarded behavior. Keep these defaults unless intentionally testing live execution:
+
+```text
+DRY_RUN=true
+TRADING_ENV=demo
+ENABLE_LIVE_TRADING=false
+REQUIRE_APPROVAL=true
+```
+
+Never commit:
+
+- `.env`
+- API keys, app secrets, account numbers, tokens
+- Telegram session files
+- local databases
+- logs
+- `.runtime/`
+- `data/*.db`
+- `data/*.sqlite`
+
+VM `.env` and local `.env` are separate operational files. Do not copy secrets into the repository.
