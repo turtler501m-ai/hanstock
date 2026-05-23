@@ -561,7 +561,7 @@ async function renderBalance() {
         ];
 
         if (!balance.holdings.length) {
-            setTableMessage('#table-holdings tbody', 5, '보유 종목이 없습니다');
+            setTableMessage('#table-holdings tbody', 7, '보유 종목이 없습니다');
         }
 
         balance.holdings.forEach((holding, idx) => {
@@ -574,14 +574,29 @@ async function renderBalance() {
                 </td>
                 <td>${Number(holding.qty).toLocaleString()}</td>
                 <td>${formatCurrency(holding.price)}</td>
+                <td>${formatCurrency(holding.value || Number(holding.qty || 0) * Number(holding.price || 0))}</td>
                 <td class="${rtClass}">${formatPercent(holding.rt)}</td>
                 <td class="${rtClass}">${formatCurrency(holding.pnl)}</td>
+                <td>
+                    <button type="button" class="button-ghost queue-order"
+                        data-symbol="${escapeHtml(holding.symbol)}"
+                        data-name="${escapeHtml(holding.name)}"
+                        data-action="sell"
+                        data-qty="${Number(holding.qty || 0)}"
+                        data-price="0"
+                        data-reason="dashboard sell current holding"
+                        data-source="dashboard_holding_sell"
+                        style="padding:3px 8px;font-size:0.75rem;">전량</button>
+                </td>
             `;
             tbodyHoldings.appendChild(tr);
 
             chartLabels.push(holding.name || holding.symbol);
             chartData.push(holding.value || holding.qty * holding.price);
             chartColors.push(colors[idx % colors.length]);
+        });
+        tbodyHoldings.querySelectorAll('.queue-order').forEach((button) => {
+            button.addEventListener('click', () => createApprovalFromButton(button), { once: true });
         });
 
         renderPortfolioChart(chartLabels, chartData, chartColors);
@@ -600,7 +615,7 @@ async function renderBalance() {
         setElementText('val-pnl', '불러오기 실패');
         setElementText('val-return', '-');
         setStatus(`계좌 API 오류: ${err.message}`);
-        setTableMessage('#table-holdings tbody', 5, err.message);
+        setTableMessage('#table-holdings tbody', 7, err.message);
     }
 }
 
@@ -906,6 +921,32 @@ function bindQueueButtons() {
     document.querySelectorAll('.queue-order').forEach((button) => {
         button.addEventListener('click', () => createApprovalFromButton(button), { once: true });
     });
+}
+
+async function sellAllHoldings() {
+    const button = document.getElementById('btn-sell-all-holdings');
+    if (!window.confirm('현재 보유 종목을 전량 시장가 매도 승인으로 등록할까요?')) {
+        return;
+    }
+    if (button) {
+        button.disabled = true;
+    }
+    try {
+        const result = await postJson('/api/holdings/sell-all', {});
+        if (result.status === 'empty') {
+            setStatus('매도할 보유 종목이 없습니다.', true);
+            return;
+        }
+        const details = `대기 ${result.pending_count || 0}건, 체결 ${result.executed_count || 0}건, 실패 ${result.failed_count || 0}건`;
+        setStatus(`전량 매도 요청 ${result.created_count || 0}건을 등록했습니다. ${details}`, (result.failed_count || 0) === 0);
+        await Promise.all([renderApprovals(), renderTrades(), renderBalance()]);
+    } catch (err) {
+        setStatus(`전량 매도 요청 실패: ${err.message}`);
+    } finally {
+        if (button) {
+            button.disabled = false;
+        }
+    }
 }
 
 async function renderApprovals() {
@@ -1288,6 +1329,7 @@ document.getElementById('btn-approvals').addEventListener('click', renderApprova
 document.getElementById('btn-ai-allocation').addEventListener('click', renderAiAllocation);
 document.getElementById('btn-optimizer').addEventListener('click', renderOptimizer);
 document.getElementById('btn-auto-approval').addEventListener('click', toggleAutoApproval);
+document.getElementById('btn-sell-all-holdings').addEventListener('click', sellAllHoldings);
 document.getElementById('btn-dry-run').addEventListener('click', () => toggleRuntimeOrderMode('btn-dry-run', 'DRY_RUN', '주문차단'));
 setTableMessage('#table-signals tbody', 7, '진단하기를 누르면 보유 종목 신호를 확인합니다');
 setTableMessage('#table-candidates tbody', 8, '찾기를 누르면 관심종목에서 매수 후보를 검색합니다');

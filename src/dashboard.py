@@ -281,6 +281,13 @@ def _save_balance_cache(balance_data: dict) -> None:
     )
 
 
+def _clear_balance_cache() -> None:
+    try:
+        BALANCE_CACHE.unlink(missing_ok=True)
+    except Exception:
+        pass
+
+
 def _load_balance_cache() -> dict | None:
     if not BALANCE_CACHE.exists():
         return None
@@ -2357,6 +2364,51 @@ def create_approval(payload: dict = Body(...)):
         result["auto_approved"] = True
         return result
     return {"id": approval_id, "status": "pending"}
+
+
+@app.post("/api/holdings/sell-all")
+def sell_all_holdings(payload: dict | None = Body(default=None)):
+    missing = _required_env_missing()
+    if missing:
+        raise HTTPException(status_code=503, detail=f"Missing environment variables: {', '.join(missing)}")
+
+    try:
+        api = _get_api()
+        parsed = _parse_balance(_get_balance_data(api, allow_cache=False))
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"KIS balance API request failed: {e}") from e
+
+    orders = []
+    for holding in parsed.get("holdings", []):
+        symbol = str(holding.get("symbol", "")).strip()
+        qty = _to_int(holding.get("qty"))
+        if not symbol or qty <= 0:
+            continue
+        orders.append({
+            "symbol": symbol,
+            "name": str(holding.get("name") or symbol),
+            "action": "sell",
+            "qty": qty,
+            "price": 0,
+            "reason": "dashboard sell all holdings",
+            "source": "dashboard_sell_all",
+        })
+
+    if not orders:
+        return {"status": "empty", "created_count": 0, "orders": []}
+
+    created = [create_approval(order) for order in orders]
+    _clear_balance_cache()
+
+    return {
+        "status": "created",
+        "created_count": len(created),
+        "pending_count": sum(1 for item in created if isinstance(item, dict) and item.get("status") == "pending"),
+        "executed_count": sum(1 for item in created if isinstance(item, dict) and item.get("status") == "executed"),
+        "failed_count": sum(1 for item in created if isinstance(item, dict) and item.get("status") == "failed"),
+        "auto_approved": any(item.get("auto_approved") for item in created if isinstance(item, dict)),
+        "orders": created,
+    }
 
 
 def _load_pending_approval(approval_id: int) -> dict:

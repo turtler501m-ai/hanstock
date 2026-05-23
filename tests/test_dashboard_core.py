@@ -234,6 +234,57 @@ class DashboardCoreTests(unittest.TestCase):
             dashboard.trader.DRY_RUN = original_dry_run
             dashboard.trader.ORDER_SUBMISSION_ENABLED = original_order_submission
 
+    def test_sell_all_holdings_queues_market_sell_for_each_current_holding(self):
+        original_db_path = dashboard.trader.config.trade_db_path
+        original_get_api = dashboard._get_api
+        original_get_balance_data = dashboard._get_balance_data
+        original_auto_approval = dashboard._auto_approval_enabled
+        original_clear_balance_cache = dashboard._clear_balance_cache
+        original_required_env_missing = dashboard._required_env_missing
+
+        try:
+            with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+                dashboard.trader.config.trade_db_path = f"{tmpdir}/trades.sqlite"
+                dashboard._get_api = lambda: object()
+                dashboard._get_balance_data = lambda api, allow_cache=True: {
+                    "output1": [
+                        {
+                            "pdno": "005930",
+                            "prdt_name": "Samsung",
+                            "hldg_qty": "2",
+                            "prpr": "70000",
+                        },
+                        {
+                            "pdno": "000660",
+                            "prdt_name": "SK Hynix",
+                            "hldg_qty": "0",
+                            "prpr": "120000",
+                        },
+                    ],
+                    "output2": [{}],
+                }
+                dashboard._auto_approval_enabled = lambda: False
+                dashboard._clear_balance_cache = lambda: None
+                dashboard._required_env_missing = lambda: []
+
+                result = dashboard.sell_all_holdings({})
+
+                self.assertEqual(result["created_count"], 1)
+                self.assertEqual(result["pending_count"], 1)
+                approvals = dashboard.get_approvals()["approvals"]
+                self.assertEqual(approvals[0]["symbol"], "005930")
+                self.assertEqual(approvals[0]["action"], "sell")
+                self.assertEqual(approvals[0]["qty"], 2)
+                self.assertEqual(approvals[0]["price"], 0)
+                self.assertEqual(approvals[0]["source"], "dashboard_sell_all")
+        finally:
+            dashboard.trader.config.trade_db_path = original_db_path
+            dashboard._get_api = original_get_api
+            dashboard._get_balance_data = original_get_balance_data
+            dashboard._auto_approval_enabled = original_auto_approval
+            dashboard._clear_balance_cache = original_clear_balance_cache
+            dashboard._required_env_missing = original_required_env_missing
+
     def test_candidate_orders_use_scan_price_without_quote_lookup(self):
         original_max_positions = dashboard.trader.MAX_POSITIONS
         try:
