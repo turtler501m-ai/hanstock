@@ -1,4 +1,4 @@
-# Architecture
+﻿# Architecture
 
 ## 디렉터리 구조
 
@@ -29,12 +29,12 @@ quantconnect/          MNQ paper auto 알고리즘
 - 트레이더 직접 실행: `python src\trader.py`
 - 스케줄러: `src/scheduler.py`
 - 해외선물 Telegram poller: `src/futures_signals/poll.py`
-- 로컬 서버 스크립트: `server.cmd`, `tools/server.ps1`
-- VM 서버 스크립트: `server.sh`
+- 로컬 서버 스크립트: `scripts/local/server.cmd`, `tools/server.ps1`
+- VM 서버 스크립트: `scripts/vm/server.sh`
 
 ## 대시보드 흐름
 
-1. `server.cmd` 또는 `server.sh`가 `uvicorn src.dashboard:app`을 실행합니다.
+1. `scripts/local/server.cmd` 또는 `scripts/vm/server.sh`가 `uvicorn src.dashboard:app`을 실행합니다.
 2. `src/dashboard.py`가 `.env`를 로드하고 FastAPI 앱을 구성합니다.
 3. 정적 파일은 `web/static`, 화면은 `web/templates`에서 제공합니다.
 4. API 라우트는 KIS, SQLite, 캐시 파일, QuantConnect, Telegram collector 상태를 읽어 화면에 전달합니다.

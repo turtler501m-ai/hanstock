@@ -5,7 +5,7 @@ $OutputEncoding = [System.Text.UTF8Encoding]::new($false)
 $env:PYTHONUTF8 = "1"
 $env:PYTHONIOENCODING = "utf-8"
 
-$Root = Split-Path -Parent $MyInvocation.MyCommand.Path
+$Root = Resolve-Path (Join-Path (Split-Path -Parent $MyInvocation.MyCommand.Path) "..\..")
 Set-Location $Root
 
 New-Item -ItemType Directory -Force -Path ".runtime" | Out-Null

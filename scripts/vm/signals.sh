@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-cd "$(dirname "$0")"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+cd "$SCRIPT_DIR/../.."
 
 .venv/bin/python << 'PYEOF'
 import sqlite3

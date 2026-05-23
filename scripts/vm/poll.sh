@@ -2,7 +2,8 @@
 # Poll signal-tracking channels every 5 minutes (han2 version)
 set -euo pipefail
 
-cd "$(dirname "$0")"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+cd "$SCRIPT_DIR/../.."
 PY=".venv/bin/python"
 LOCK_FILE=".runtime/poll.lock"
 mkdir -p .runtime

@@ -1,4 +1,4 @@
-# Risk and Security
+﻿# Risk and Security
 
 ## 실거래 안전장치
 
@@ -42,7 +42,7 @@ REQUIRE_APPROVAL=true
 
 ## 장애 대응 순서
 
-1. `./server.sh status` 또는 `.\server.cmd status`로 서버 상태 확인
+1. `./scripts/vm/server.sh status` 또는 `.\scripts\local\server.cmd status`로 서버 상태 확인
 2. `logs` 또는 `.runtime`의 stderr 로그 확인
 3. `.env` 설정 확인
 4. `python -m unittest discover -s tests` 실행

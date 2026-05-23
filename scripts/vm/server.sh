@@ -4,7 +4,7 @@ PORT="${PORT:-8000}"
 LINES="${LINES:-80}"
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-ROOT_DIR="$SCRIPT_DIR"
+ROOT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 cd "$ROOT_DIR" || exit 1
 RUNTIME_DIR="$ROOT_DIR/.runtime"
 PID_FILE="$RUNTIME_DIR/dashboard-server.pid"
@@ -113,7 +113,7 @@ start_server() {
     if [ -n "$listening_pids" ]; then
         echo "[server] listening PID: $listening_pids"
     else
-        echo "[server] not listening yet; check logs with: server.sh logs"
+        echo "[server] not listening yet; check logs with: ./scripts/vm/server.sh logs"
     fi
 }
 

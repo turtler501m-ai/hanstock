@@ -1,17 +1,17 @@
-# Operations
+﻿# Operations
 
 ## 대시보드 운영
 
 Windows 로컬:
 
 ```powershell
-.\server.cmd restart
+.\scripts\local\server.cmd restart
 ```
 
 Linux/VM:
 
 ```bash
-./server.sh restart
+./scripts/vm/server.sh restart
 ```
 
 공통 접속 주소:

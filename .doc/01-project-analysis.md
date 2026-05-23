@@ -1,4 +1,4 @@
-# Project Analysis
+﻿# Project Analysis
 
 ## 프로젝트 목적
 
@@ -21,7 +21,7 @@
 - 기준 원격 저장소: `https://github.com/turtler501m-ai/hanstock.git`
 - 기준 브랜치: `main`
 - 개발 위치: `C:\0.DOC\workspace`
-- VM 반영 방식: `git pull origin main` 후 `./server.sh restart`
+- VM 반영 방식: `git pull origin main` 후 `./scripts/vm/server.sh restart`
 
 ## 강점
 
@@ -32,8 +32,8 @@
 
 ## 확인된 리스크
 
-- README, GitHub Actions 등 일부 기존 문서/문자열에 인코딩 깨짐이 남아 있습니다.
+- GitHub Actions 등 일부 기존 운영 파일에 인코딩 깨짐이 남아 있습니다.
 - `src/dashboard.py`가 3000줄 이상으로 커져 라우트, 서비스, 환경설정, QuantConnect, 시그널 기능이 한 파일에 섞여 있습니다.
 - `.github/workflows/auto_trade.yml`은 일부 한글이 깨져 있고, `database` 브랜치 push 방식도 현재 운영 정책과 재검토가 필요합니다.
 - `src/futures_signals/poll.py`에는 기본 Telegram API ID/HASH fallback 값이 코드에 있습니다. 실제 값이면 즉시 제거해야 합니다.
-- VM 운영은 아직 새 저장소 clone 또는 remote 변경 작업이 필요할 수 있습니다.
+- VM 운영은 새 `scripts/vm` 경로 기준으로 clone 또는 remote 변경 작업이 필요할 수 있습니다.

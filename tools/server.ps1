@@ -21,9 +21,9 @@ function Get-PythonPath {
         return $env:PYTHON
     }
 
-    $defaultPython = "C:\Users\bok\AppData\Local\Programs\Python\Python314\python.exe"
-    if (Test-Path $defaultPython) {
-        return $defaultPython
+    $venvPython = Join-Path $Root ".venv\Scripts\python.exe"
+    if (Test-Path -LiteralPath $venvPython) {
+        return $venvPython
     }
 
     $pythonCommand = Get-Command python -ErrorAction SilentlyContinue

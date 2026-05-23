@@ -20,10 +20,10 @@ copy .env.example .env
 Run the dashboard locally:
 
 ```powershell
-.\server.cmd restart
+.\scripts\local\server.cmd restart
 ```
 
-Open `http://127.0.0.1:8000`. Use `.\server.cmd status`, `logs`, or `tail` to inspect the background server.
+Open `http://127.0.0.1:8000`. Use `.\scripts\local\server.cmd status`, `logs`, or `tail` to inspect the background server.
 
 Run the trading engine directly:
 

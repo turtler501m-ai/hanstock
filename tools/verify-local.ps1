@@ -6,10 +6,25 @@ $env:PYTHONUTF8 = "1"
 $env:PYTHONIOENCODING = "utf-8"
 $env:PYTHONDONTWRITEBYTECODE = "1"
 
-$python = "C:\Users\bok\AppData\Local\Programs\Python\Python314\python.exe"
-if (-not (Test-Path -LiteralPath $python)) {
-    $python = "python"
+function Get-PythonPath {
+    $venvPython = Join-Path (Resolve-Path ".") ".venv\Scripts\python.exe"
+    if (Test-Path -LiteralPath $venvPython) {
+        return $venvPython
+    }
+
+    if ($env:PYTHON -and (Test-Path -LiteralPath $env:PYTHON)) {
+        return $env:PYTHON
+    }
+
+    $pythonCommand = Get-Command python -ErrorAction SilentlyContinue
+    if ($pythonCommand) {
+        return $pythonCommand.Source
+    }
+
+    throw "python executable not found"
 }
+
+$python = Get-PythonPath
 
 powershell -ExecutionPolicy Bypass -File tools\check-encoding.ps1
 & $python -c "import pathlib; [compile(p.read_text(encoding='utf-8'), str(p), 'exec') for root in ('src','tests') for p in pathlib.Path(root).rglob('*.py')]"

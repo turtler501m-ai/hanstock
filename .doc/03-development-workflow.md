@@ -1,4 +1,4 @@
-# Development Workflow
+﻿# Development Workflow
 
 ## 기본 원칙
 
@@ -20,7 +20,7 @@ copy .env.example .env
 ## 로컬 실행
 
 ```powershell
-.\server.cmd restart
+.\scripts\local\server.cmd restart
 ```
 
 접속:
@@ -32,9 +32,9 @@ http://127.0.0.1:8000
 상태/로그:
 
 ```powershell
-.\server.cmd status
-.\server.cmd logs
-.\server.cmd tail
+.\scripts\local\server.cmd status
+.\scripts\local\server.cmd logs
+.\scripts\local\server.cmd tail
 ```
 
 ## 검증
@@ -70,15 +70,15 @@ python3 -m pip install -r requirements.txt
 cd /path/to/hanstock
 git pull origin main
 python3 -m pip install -r requirements.txt
-./server.sh restart
-./server.sh status
+./scripts/vm/server.sh restart
+./scripts/vm/server.sh status
 ```
 
 로그:
 
 ```bash
-./server.sh logs
-./server.sh tail
+./scripts/vm/server.sh logs
+./scripts/vm/server.sh tail
 ```
 
 ## 변경 전 체크리스트
