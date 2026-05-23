@@ -10,6 +10,7 @@
 - [04-operations.md](04-operations.md): 대시보드/트레이더/시그널 수집 운영 방법
 - [05-risk-security.md](05-risk-security.md): 실거래 안전장치, 환경변수, 보안 주의사항
 - [06-cleanup-roadmap.md](06-cleanup-roadmap.md): 정리된 사항과 다음 개선 과제
+- [quantconnect-mnq-paper-auto.md](quantconnect-mnq-paper-auto.md): QuantConnect MNQ paper live 알고리즘 운영 기준
 
 ## 기준 원칙
 
