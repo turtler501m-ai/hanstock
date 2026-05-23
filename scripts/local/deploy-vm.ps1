@@ -44,6 +44,20 @@ function Get-SshPath {
     throw "OpenSSH client was not found."
 }
 
+function Get-ScpPath {
+    $default = Join-Path $env:WINDIR "System32\OpenSSH\scp.exe"
+    if (Test-Path -LiteralPath $default) {
+        return $default
+    }
+
+    $command = Get-Command scp -ErrorAction SilentlyContinue
+    if ($command) {
+        return $command.Source
+    }
+
+    throw "OpenSSH scp client was not found."
+}
+
 function Resolve-GcpHost {
     param(
         [string]$InstanceName,
@@ -121,6 +135,7 @@ $remoteCommand = $remoteCommand.
     Replace("__REPO_URL__", $repoUrl).
     Replace("__BACKUP_ROOT__", $BackupRoot).
     Replace("__FRESH_CLONE__", $(if ($FreshClone) { "1" } else { "0" }))
+$remoteCommand = $remoteCommand -replace "`r`n", "`n" -replace "`r", "`n"
 
 Write-Host "[deploy] target: $target"
 Write-Host "[deploy] repo: $RepoPath"
@@ -129,10 +144,30 @@ if ($FreshClone) {
     Write-Host "[deploy] fresh clone: enabled"
     Write-Host "[deploy] backup root: $BackupRoot"
 }
-if (Test-Path -LiteralPath $KeyPath) {
-    $remoteCommand | & $ssh -i $KeyPath -o StrictHostKeyChecking=accept-new -o ConnectTimeout=15 $target "bash -s"
-} else {
-    $remoteCommand | & $ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=15 $target "bash -s"
+
+$scp = Get-ScpPath
+$tempScript = Join-Path ([System.IO.Path]::GetTempPath()) ("hanstock-deploy-{0}.sh" -f ([guid]::NewGuid().ToString("N")))
+$remoteScript = "/tmp/hanstock-deploy-$(Get-Random).sh"
+$utf8NoBom = New-Object System.Text.UTF8Encoding -ArgumentList $false
+[System.IO.File]::WriteAllText($tempScript, $remoteCommand, $utf8NoBom)
+
+try {
+    if (Test-Path -LiteralPath $KeyPath) {
+        & $scp -i $KeyPath -o StrictHostKeyChecking=accept-new -o ConnectTimeout=15 $tempScript "${target}:$remoteScript"
+        if ($LASTEXITCODE -ne 0) {
+            throw "VM deploy upload failed with exit code $LASTEXITCODE"
+        }
+        & $ssh -i $KeyPath -o StrictHostKeyChecking=accept-new -o ConnectTimeout=15 $target "bash '$remoteScript'; status=`$?; rm -f '$remoteScript'; exit `$status"
+    } else {
+        & $scp -o StrictHostKeyChecking=accept-new -o ConnectTimeout=15 $tempScript "${target}:$remoteScript"
+        if ($LASTEXITCODE -ne 0) {
+            throw "VM deploy upload failed with exit code $LASTEXITCODE"
+        }
+        & $ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=15 $target "bash '$remoteScript'; status=`$?; rm -f '$remoteScript'; exit `$status"
+    }
+}
+finally {
+    Remove-Item -LiteralPath $tempScript -Force -ErrorAction SilentlyContinue
 }
 
 if ($LASTEXITCODE -ne 0) {
