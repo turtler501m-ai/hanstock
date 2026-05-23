@@ -15,4 +15,13 @@ Telegram poll 1회 실행:
 .\scripts\local\telegram_poll.ps1
 ```
 
+VM 자동 배포:
+
+```powershell
+$env:HANSTOCK_VM_HOST="1.2.3.4"
+$env:HANSTOCK_VM_USER="ubuntu"
+$env:HANSTOCK_VM_PATH="~/hanstock"
+.\scripts\local\deploy-vm.ps1
+```
+
 VM에서는 이 폴더의 스크립트를 사용하지 않습니다.

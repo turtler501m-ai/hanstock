@@ -19,6 +19,15 @@ Telegram poll 1회 실행:
 .\scripts\local\telegram_poll.ps1
 ```
 
+VM 자동 배포:
+
+```powershell
+$env:HANSTOCK_VM_HOST="1.2.3.4"
+$env:HANSTOCK_VM_USER="ubuntu"
+$env:HANSTOCK_VM_PATH="~/hanstock"
+.\scripts\local\deploy-vm.ps1
+```
+
 ## VM/Linux
 
 위치: `scripts/vm/`
@@ -36,6 +45,12 @@ Telegram poll 1회 실행:
 ./scripts/vm/poll.sh
 ./scripts/vm/polld.sh
 ./scripts/vm/signals.sh
+```
+
+VM 내부 업데이트:
+
+```bash
+./scripts/vm/update.sh main
 ```
 
 ## 원칙

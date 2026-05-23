@@ -77,6 +77,23 @@ python3 -m pip install -r requirements.txt
 ./scripts/vm/server.sh tail
 ```
 
+## 자동 배포
+
+로컬에서 VM으로 pull/restart까지 자동 실행:
+
+```powershell
+$env:HANSTOCK_VM_HOST="1.2.3.4"
+$env:HANSTOCK_VM_USER="ubuntu"
+$env:HANSTOCK_VM_PATH="~/hanstock"
+.\scripts\local\deploy-vm.ps1
+```
+
+VM 내부에서 직접 최신 버전을 반영할 때:
+
+```bash
+./scripts/vm/update.sh main
+```
+
 ## 주요 진입점
 
 - 대시보드: `src.dashboard:app`

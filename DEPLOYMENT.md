@@ -68,6 +68,30 @@ python3 -m pip install -r requirements.txt
 ./scripts/vm/server.sh tail
 ```
 
+## 자동 배포
+
+로컬에서 커밋까지 완료한 뒤, SSH로 VM에 접속해 pull/restart까지 한 번에 실행할 수 있습니다.
+
+```powershell
+$env:HANSTOCK_VM_HOST="1.2.3.4"
+$env:HANSTOCK_VM_USER="ubuntu"
+$env:HANSTOCK_VM_PATH="~/hanstock"
+.\scripts\local\deploy-vm.ps1
+```
+
+작동 순서:
+
+1. 로컬 작업트리가 깨끗한지 확인
+2. `git push origin main`
+3. VM에서 `./scripts/vm/update.sh main` 실행
+4. VM에서 `git pull --ff-only`, `pip install -r requirements.txt`, 서버 재시작
+
+이미 push 된 원격 상태만 VM에 반영하려면:
+
+```powershell
+.\scripts\local\deploy-vm.ps1 -SkipPush
+```
+
 시그널 수집:
 
 ```bash
