@@ -13,6 +13,8 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+$OutputEncoding = New-Object System.Text.UTF8Encoding -ArgumentList $false
+[Console]::OutputEncoding = New-Object System.Text.UTF8Encoding -ArgumentList $false
 
 function Get-GcloudPath {
     $default = Join-Path $env:LOCALAPPDATA "Google\Cloud SDK\google-cloud-sdk\bin\gcloud.cmd"
