@@ -1,10 +1,13 @@
 __pycache__/
 *.pyc
 .env
+.venv/
 logs/
 *.log
 .runtime/
 .DS_Store
+.idea/workspace.iml
+.idea/workspace.xml
 data/kis_token.json
 data/kis_*token*.json
 data/*.db
@@ -16,3 +19,7 @@ data/trades.json
 test_debug.ps1
 bybit_test.py
 bybit_test_full.py
+
+# Temporary side-by-side source snapshots kept while consolidating loc/vm.
+hanstock_loc/
+hanstock_vm/
