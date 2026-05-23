@@ -5,7 +5,7 @@
 - `hanstock_loc/`, `hanstock_vm/` 중복 폴더 제거
 - 기준 원격 저장소를 `https://github.com/turtler501m-ai/hanstock.git`로 통합
 - 로컬 실행 스크립트는 `scripts/local`, VM 실행 스크립트는 `scripts/vm`으로 분리
-- 오래된 `.doc/`, `docs/` 문서를 제거하고 현재 프로젝트 기준 문서로 재작성
+- 오래된 문서를 제거하고 `doc/S1.한스톡사용설명서` 기준 문서로 재작성
 
 ## 우선순위 높은 개선
 
@@ -45,4 +45,4 @@
 - 오래된 mock/test helper 파일 정리
 - `vendor/` 사용 정책 명확화
 - QuantConnect 문서와 대시보드 UI 문구 정리
-- 로컬/VM 스크립트 사용법을 README와 `.doc` 기준으로 계속 동기화
+- 로컬/VM 스크립트 사용법을 README와 `doc/S1.한스톡사용설명서` 기준으로 계속 동기화

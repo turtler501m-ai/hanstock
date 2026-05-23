@@ -31,6 +31,12 @@ VM 자동 배포:
 .\scripts\local\connect-vm.ps1
 ```
 
+VM 폴더를 백업하고 새로 clone:
+
+```powershell
+.\scripts\local\deploy-vm.ps1 -FreshClone
+```
+
 ## VM/Linux
 
 위치: `scripts/vm/`

@@ -38,4 +38,10 @@ VM SSH 접속:
 .\scripts\local\connect-vm.ps1
 ```
 
+VM 폴더를 백업하고 새로 clone:
+
+```powershell
+.\scripts\local\deploy-vm.ps1 -FreshClone
+```
+
 VM에서는 이 폴더의 스크립트를 사용하지 않습니다.

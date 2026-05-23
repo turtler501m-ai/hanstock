@@ -7,6 +7,8 @@ param(
     [string]$Zone = $(if ($env:HANSTOCK_GCP_ZONE) { $env:HANSTOCK_GCP_ZONE } else { "us-central1-b" }),
     [string]$Project = $(if ($env:HANSTOCK_GCP_PROJECT) { $env:HANSTOCK_GCP_PROJECT } else { "hanstock-server" }),
     [string]$KeyPath = $(if ($env:HANSTOCK_SSH_KEY) { $env:HANSTOCK_SSH_KEY } else { (Join-Path $env:USERPROFILE ".ssh\google_compute_engine") }),
+    [string]$BackupRoot = $(if ($env:HANSTOCK_VM_BACKUP_ROOT) { $env:HANSTOCK_VM_BACKUP_ROOT } else { "~/hanstock_backups" }),
+    [switch]$FreshClone,
     [switch]$SkipPush
 )
 
@@ -85,12 +87,27 @@ set -e
 BRANCH="__BRANCH__"
 REPO_PATH="__REPO_PATH__"
 REPO_URL="__REPO_URL__"
+BACKUP_ROOT="__BACKUP_ROOT__"
+FRESH_CLONE="__FRESH_CLONE__"
 
 REPO_PATH="${REPO_PATH/#\~/$HOME}"
+BACKUP_ROOT="${BACKUP_ROOT/#\~/$HOME}"
+
+if [ "$FRESH_CLONE" = "1" ] && [ -e "$REPO_PATH" ]; then
+  stamp="$(date +%Y%m%d-%H%M%S)"
+  backup_path="$BACKUP_ROOT/hanstock-$stamp"
+  mkdir -p "$BACKUP_ROOT"
+  echo "[deploy] moving existing repo to $backup_path"
+  mv "$REPO_PATH" "$backup_path"
+fi
 
 if [ ! -d "$REPO_PATH/.git" ]; then
   mkdir -p "$(dirname "$REPO_PATH")"
   git clone "$REPO_URL" "$REPO_PATH"
+  if [ -n "${backup_path:-}" ] && [ -f "$backup_path/.env" ] && [ ! -f "$REPO_PATH/.env" ]; then
+    echo "[deploy] copying .env from backup"
+    cp "$backup_path/.env" "$REPO_PATH/.env"
+  fi
 fi
 cd "$REPO_PATH"
 ./scripts/vm/update.sh "$BRANCH"
@@ -99,11 +116,17 @@ cd "$REPO_PATH"
 $remoteCommand = $remoteCommand.
     Replace("__BRANCH__", $Branch).
     Replace("__REPO_PATH__", $RepoPath).
-    Replace("__REPO_URL__", $repoUrl)
+    Replace("__REPO_URL__", $repoUrl).
+    Replace("__BACKUP_ROOT__", $BackupRoot).
+    Replace("__FRESH_CLONE__", $(if ($FreshClone) { "1" } else { "0" }))
 
 Write-Host "[deploy] target: $target"
 Write-Host "[deploy] repo: $RepoPath"
 Write-Host "[deploy] branch: $Branch"
+if ($FreshClone) {
+    Write-Host "[deploy] fresh clone: enabled"
+    Write-Host "[deploy] backup root: $BackupRoot"
+}
 if (Test-Path -LiteralPath $KeyPath) {
     $remoteCommand | & $ssh -i $KeyPath -o StrictHostKeyChecking=accept-new -o ConnectTimeout=15 $target "bash -s"
 } else {

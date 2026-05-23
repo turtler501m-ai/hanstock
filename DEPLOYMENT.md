@@ -100,6 +100,14 @@ repo=~/hanstock
 .\scripts\local\deploy-vm.ps1 -SkipPush
 ```
 
+VM 폴더를 새로 clone해서 현행화하려면:
+
+```powershell
+.\scripts\local\deploy-vm.ps1 -FreshClone
+```
+
+이 경우 기존 `~/hanstock`은 `~/hanstock_backups/hanstock-YYYYMMDD-HHMMSS`로 이동하고, 새 `~/hanstock`을 clone합니다. 기존 `.env`가 있으면 새 폴더로 복사합니다.
+
 시그널 수집:
 
 ```bash

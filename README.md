@@ -97,6 +97,12 @@ VM 내부에서 직접 최신 버전을 반영할 때:
 ./scripts/vm/update.sh main
 ```
 
+VM 폴더를 새로 받아 현행화하려면 기존 폴더를 백업하고 다시 clone합니다. 기존 폴더에 `.env`가 있으면 새 폴더로 복사됩니다.
+
+```powershell
+.\scripts\local\deploy-vm.ps1 -FreshClone
+```
+
 ## 주요 진입점
 
 - 대시보드: `src.dashboard:app`
@@ -118,4 +124,4 @@ REQUIRE_APPROVAL=true
 
 ## 문서
 
-프로젝트 분석과 운영 문서는 `.doc/`에 있습니다.
+프로젝트 분석과 운영 문서는 `doc/S1.한스톡사용설명서/`에 있습니다.

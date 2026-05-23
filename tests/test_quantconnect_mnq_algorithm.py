@@ -10,7 +10,7 @@ import src.dashboard as dashboard
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 ALGO_PATH = ROOT / "quantconnect" / "mnq_paper_auto" / "main.py"
 CONFIG_PATH = ROOT / "quantconnect" / "mnq_paper_auto" / "config.json"
-DOC_PATH = ROOT / ".doc" / "quantconnect-mnq-paper-auto.md"
+DOC_PATH = ROOT / "doc" / "S1.한스톡사용설명서" / "quantconnect-mnq-paper-auto.md"
 
 
 class QuantConnectMnqAlgorithmTests(unittest.TestCase):
