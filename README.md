@@ -82,10 +82,13 @@ python3 -m pip install -r requirements.txt
 로컬에서 VM으로 pull/restart까지 자동 실행:
 
 ```powershell
-$env:HANSTOCK_VM_HOST="1.2.3.4"
-$env:HANSTOCK_VM_USER="ubuntu"
-$env:HANSTOCK_VM_PATH="~/hanstock"
 .\scripts\local\deploy-vm.ps1
+```
+
+기본 VM 대상은 `hanstock-server5`입니다. SSH 접속만 열려면:
+
+```powershell
+.\scripts\local\connect-vm.ps1
 ```
 
 VM 내부에서 직접 최신 버전을 반영할 때:

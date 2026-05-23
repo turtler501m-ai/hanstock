@@ -22,10 +22,13 @@ Telegram poll 1회 실행:
 VM 자동 배포:
 
 ```powershell
-$env:HANSTOCK_VM_HOST="1.2.3.4"
-$env:HANSTOCK_VM_USER="ubuntu"
-$env:HANSTOCK_VM_PATH="~/hanstock"
 .\scripts\local\deploy-vm.ps1
+```
+
+기본 VM 대상은 `hanstock-server5`입니다. SSH 접속만 열려면:
+
+```powershell
+.\scripts\local\connect-vm.ps1
 ```
 
 ## VM/Linux

@@ -73,10 +73,18 @@ python3 -m pip install -r requirements.txt
 로컬에서 커밋까지 완료한 뒤, SSH로 VM에 접속해 pull/restart까지 한 번에 실행할 수 있습니다.
 
 ```powershell
-$env:HANSTOCK_VM_HOST="1.2.3.4"
-$env:HANSTOCK_VM_USER="ubuntu"
-$env:HANSTOCK_VM_PATH="~/hanstock"
 .\scripts\local\deploy-vm.ps1
+```
+
+기본값은 기존 VM 접속 스크립트와 같습니다.
+
+```text
+instance=hanstock-server5
+zone=us-central1-b
+project=hanstock-server
+user=turtler800
+ssh key=~/.ssh/google_compute_engine
+repo=~/hanstock
 ```
 
 작동 순서:
