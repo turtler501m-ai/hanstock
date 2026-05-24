@@ -7,6 +7,7 @@ from src.config import config
 from src.utils.logger import logger
 from src.notifier.slack import slack_error
 from src.strategy.indicators import calc_rsi, calc_sma, calc_macd, calc_bollinger
+from src.strategy.features import build_strategy_features
 from src.strategy.predict import ModelPredictor
 from src.strategy.allocator import PortfolioAllocator
 
@@ -138,6 +139,7 @@ def calc_strategy_profile(prices: list[float], highs: list[float] | None = None,
         score += 1
         reasons.append("SMA20>SMA60")
 
+    feature_payload = build_strategy_features(prices, highs, volumes, strategy_score=score)
     return {
         "score": score,
         "reasons": reasons,
@@ -154,6 +156,7 @@ def calc_strategy_profile(prices: list[float], highs: list[float] | None = None,
         "macd_hist": macd["hist"],
         "macd_bull_cross": macd["bull_cross"],
         "macd_bear_cross": macd["bear_cross"],
+        "features": feature_payload,
     }
 
 
@@ -241,7 +244,7 @@ def generate_ai_weight_plan(holdings: list[dict], total_eval: int) -> dict:
         for item in scored:
             ticker = item.get("symbol", "")
             if score_sum > 0:
-                ai_weights[ticker] = (item["score"] / score_sum) * (1.0 + (np.random.random()-0.5)*0.1) # Add slight jitter
+                ai_weights[ticker] = item["score"] / score_sum
             else:
                 ai_weights[ticker] = 0.0
 
@@ -440,6 +443,7 @@ def find_candidates(
     scan_summary: list[dict] = []  # 기준 미달 포함 전체 분석 결과
     symbols = [f"{code}.KS" for code in scan_list]
     predictor = ModelPredictor()
+    ai_candidate_limit = max(0, int(getattr(config, "ai_candidate_limit", 5) or 5))
 
     batch = None
     scan_error: str | None = None
@@ -487,17 +491,35 @@ def find_candidates(
                 continue
 
             current = float(closes.iloc[-1])
-            profile = calc_strategy_profile(closes.tolist(), highs.tolist(), volumes.tolist())
-            profile["strategy_score"] = profile["score"]
-            
-            score = predictor.predict_score(profile)
+            price_series = closes.tolist()
+            high_series = highs.tolist()
+            volume_series = volumes.tolist()
+            profile = calc_strategy_profile(price_series, high_series, volume_series)
+            feature_payload = build_strategy_features(
+                price_series,
+                high_series,
+                volume_series,
+                strategy_score=profile["score"],
+            )
+            score = float(profile["score"])
             reasons = profile["reasons"]
 
             entry = {
                 "ticker": code,
                 "name": STOCK_NAMES.get(code, code),
                 "current_price": current,
-                "score": score,
+                "score": round(score, 4),
+                "rule_score": round(score, 4),
+                "ml_score": None,
+                "final_score": round(score, 4),
+                "ai_enabled": predictor.enabled,
+                "ai_model_status": "queued" if predictor.enabled else "disabled",
+                "ai_model_version": predictor.model_name,
+                "feature_version": feature_payload.get("feature_version", "features_v1"),
+                "ai_score_weight": predictor.score_weight if predictor.enabled else 0.0,
+                "ai_fallback_reason": "OpenAI pending for top candidates" if predictor.enabled else None,
+                "top_features": feature_payload.get("top_features", []),
+                "feature_payload": feature_payload,
                 "min_score": min_score,
                 "passed": score >= min_score,
                 "reasons": reasons,
@@ -518,6 +540,31 @@ def find_candidates(
                 logger.info(f"[SKIP] {code} score={score}/{min_score} ({', '.join(reasons) if reasons else '신호없음'})")
         except Exception as e:
             logger.info(f"[WARN] Candidate scan failed for {code}: {e}")
+
+    if predictor.enabled and predictor.api_key and ai_candidate_limit > 0 and scan_summary:
+        ai_targets = sorted(
+            scan_summary,
+            key=lambda item: (-float(item.get("score", 0) or 0), item.get("ticker", "")),
+        )[:ai_candidate_limit]
+        for entry in ai_targets:
+            try:
+                prediction = predictor.predict(entry.get("feature_payload", {}))
+                entry["score"] = round(float(prediction["final_score"]), 4)
+                entry["ml_score"] = (
+                    round(float(prediction["ml_score"]), 4)
+                    if prediction.get("ml_score") is not None
+                    else None
+                )
+                entry["final_score"] = round(float(prediction["final_score"]), 4)
+                entry["ai_enabled"] = prediction["ai_enabled"]
+                entry["ai_model_status"] = prediction["model_status"]
+                entry["ai_model_version"] = prediction["model_version"]
+                entry["feature_version"] = prediction["feature_version"]
+                entry["ai_score_weight"] = prediction["score_weight"]
+                entry["ai_fallback_reason"] = prediction["fallback_reason"]
+                entry["top_features"] = prediction["top_features"]
+            except Exception as e:
+                logger.info(f"[WARN] OpenAI scoring failed for {entry.get('ticker')}: {e}")
 
     candidates.sort(key=lambda x: -x["score"])
     scan_summary.sort(key=lambda x: -x["score"])
@@ -612,5 +659,3 @@ def generate_signal(stock: dict, daily_data: list) -> dict:
     if sma20 > sma60 > 0 and rt < 0:
         return {"action": "buy", "qty": split_qty, "price": int(current), "reason": f"golden cross SMA20={sma20:.0f}>SMA60={sma60:.0f}", "indicators": indicators}
     return {"action": "hold", "qty": 0, "price": 0, "reason": f"hold {rt:+.1f}% RSI={rsi}", "indicators": indicators}
-
-

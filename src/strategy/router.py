@@ -15,6 +15,19 @@ class OrderRouter:
         self.real_orders_enabled = (not self.dry_run) and self.env == "real" and self.enable_live
         self.submission_enabled = (not self.dry_run) and (self.env == "demo" or self.real_orders_enabled)
 
+    def _current_holding_qty(self, symbol: str) -> int:
+        try:
+            balance = self.api.get_balance()
+        except Exception:
+            return 0
+        for holding in balance.get("output1", []) or []:
+            if str(holding.get("pdno") or "") == str(symbol):
+                try:
+                    return int(float(holding.get("hldg_qty") or 0))
+                except (TypeError, ValueError):
+                    return 0
+        return 0
+
     def route(self, symbol: str, name: str, action: str, qty: int, price: int, reason: str, indicators: dict) -> dict:
         # Decision Log 기록
         save_decision_log(symbol, name, action, qty, price, reason, indicators, True)
@@ -31,10 +44,26 @@ class OrderRouter:
             return {"ok": True, "msg": "Added to approval queue", "status": "pending"}
             
         # 직접 KIS API 호출
+        pre_order_qty = self._current_holding_qty(symbol)
         result = self.api.place_order(symbol, action, price, qty)
         ok = result.get("rt_cd") == "0"
         logger.info(f"[ROUTER] Live Execution {'OK' if ok else 'FAILED'}: {result.get('msg1', '')}")
-        save_trade(symbol, name, action, qty, price, reason, ok, True)
+        save_trade(
+            symbol,
+            name,
+            action,
+            qty,
+            price,
+            reason,
+            ok,
+            True,
+            broker_result=result,
+            order_status="submitted" if ok else "failed",
+            response_msg=str(result.get("msg1", "")),
+            filled_qty=0,
+            filled_price=0,
+            pre_order_qty=pre_order_qty,
+        )
         return {"ok": ok, "msg": result.get("msg1", ""), "status": "live"}
 
     def _insert_approval(self, symbol: str, name: str, action: str, qty: int, price: int, reason: str) -> None:

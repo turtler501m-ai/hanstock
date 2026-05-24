@@ -1,15 +1,16 @@
+import json
 import os
+import pickle
 import sqlite3
+from datetime import datetime
 import pandas as pd
-import numpy as np
 from pathlib import Path
+from src.config import config
+from src.strategy.features import FEATURE_VERSION, MODEL_FEATURE_COLUMNS
 from src.utils.logger import logger
 
-# Note: 실습을 위해 가벼운 LightGBM 모델 훈련 스크립트 뼈대입니다.
-# 실행 시 pip install lightgbm scikit-learn 이 필요합니다.
-
 def fetch_decision_logs():
-    db_path = ".runtime/trades.sqlite"
+    db_path = config.trade_db_path
     if not os.path.exists(db_path):
         logger.error("DB 파일을 찾을 수 없습니다.")
         return None
@@ -20,26 +21,83 @@ def fetch_decision_logs():
     conn.close()
     return df
 
+def _load_indicators(value) -> dict:
+    if isinstance(value, dict):
+        return value
+    if not value:
+        return {}
+    try:
+        return json.loads(value)
+    except (TypeError, ValueError):
+        return {}
+
+def _build_training_frame(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.Series] | None:
+    if "label" in df.columns:
+        label_column = "label"
+    elif "future_return_20d" in df.columns:
+        label_column = "future_return_20d"
+    else:
+        logger.warning("label 또는 future_return_20d 컬럼이 없어 학습할 수 없습니다.")
+        return None
+
+    rows = []
+    for _, row in df.iterrows():
+        indicators = _load_indicators(row.get("indicators"))
+        merged = {**indicators}
+        for column in MODEL_FEATURE_COLUMNS:
+            if column in row and pd.notna(row[column]):
+                merged[column] = row[column]
+        rows.append({column: float(merged.get(column, 0.0) or 0.0) for column in MODEL_FEATURE_COLUMNS})
+
+    x_train = pd.DataFrame(rows, columns=MODEL_FEATURE_COLUMNS)
+    y_train = df[label_column].astype(float)
+    return x_train, y_train
+
 def train_model():
     df = fetch_decision_logs()
     if df is None or df.empty:
         logger.warning("학습할 데이터(decision_logs)가 부족합니다.")
         return
 
-    logger.info(f"{len(df)}건의 로그 데이터를 바탕으로 LightGBM 랭커 모델을 학습합니다...")
-    
-    # TODO: df['indicators'] (JSON)를 파싱하여 X_train을 만들고, 미래 수익률을 Y_train으로 만듭니다.
-    # import lightgbm as lgb
-    # model = lgb.LGBMRegressor()
-    # model.fit(X_train, y_train)
-    
-    # 모델 저장 (MLOps 버저닝)
-    models_dir = Path("data/models")
+    frame = _build_training_frame(df)
+    if frame is None:
+        return
+    x_train, y_train = frame
+
+    try:
+        import lightgbm as lgb
+    except ImportError:
+        logger.error("lightgbm이 설치되어 있지 않습니다. `pip install lightgbm` 후 다시 실행하세요.")
+        return
+
+    logger.info(f"{len(df)}건의 로그 데이터를 바탕으로 LightGBM 모델을 학습합니다...")
+    if set(y_train.dropna().unique()).issubset({0.0, 1.0}):
+        model = lgb.LGBMClassifier(random_state=42)
+    else:
+        model = lgb.LGBMRegressor(random_state=42)
+    model.fit(x_train, y_train)
+
+    models_dir = Path(".runtime") / "models"
     models_dir.mkdir(parents=True, exist_ok=True)
-    
-    # with open(models_dir / "ranker_v1.pkl", "wb") as f:
-    #     pickle.dump(model, f)
-    logger.info("모델 학습 및 저장 완료 (data/models/ranker_v1.pkl)")
+    model_path = models_dir / f"{config.ai_model_version}.pkl"
+    meta_path = models_dir / f"{config.ai_model_version}.json"
+    with open(model_path, "wb") as f:
+        pickle.dump(model, f)
+    meta_path.write_text(
+        json.dumps(
+            {
+                "model_version": config.ai_model_version,
+                "feature_version": FEATURE_VERSION,
+                "trained_at": datetime.now().isoformat(),
+                "train_rows": int(len(x_train)),
+                "feature_columns": MODEL_FEATURE_COLUMNS,
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    logger.info(f"모델 학습 및 저장 완료 ({model_path})")
 
 if __name__ == "__main__":
     train_model()

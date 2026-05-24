@@ -42,6 +42,8 @@
 .\deploy-vm.ps1 -SkipPush
 .\deploy-vm.ps1 -FreshClone
 .\connect-vm.ps1
+.\check-vm.ps1
+.\vm-dashboard.ps1
 ```
 
 기본 VM 대상:

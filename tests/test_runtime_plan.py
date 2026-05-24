@@ -188,6 +188,76 @@ class RuntimePlanTests(unittest.TestCase):
         save_trade.assert_not_called()
         slack_order.assert_not_called()
 
+    def test_run_can_limit_execution_to_ai_rebalance_category(self):
+        balance = {
+            "output1": [],
+            "output2": [
+                {
+                    "dnca_tot_amt": "100000",
+                    "tot_evlu_amt": "100000",
+                    "evlu_pfls_smtl_amt": "0",
+                }
+            ],
+        }
+        api = self.make_api(balance=balance)
+        runtime_bundle = {
+            "plan": [
+                {
+                    "symbol": "005930",
+                    "name": "Samsung",
+                    "action": "sell",
+                    "qty": 1,
+                    "price": 70000,
+                    "reason": "trim",
+                    "category": "position",
+                },
+                {
+                    "symbol": "000660",
+                    "name": "SK Hynix",
+                    "action": "sell",
+                    "qty": 1,
+                    "price": 120000,
+                    "reason": "AI rebalance",
+                    "category": "ai_rebalance",
+                },
+            ],
+            "candidate_scan": {"candidates": []},
+            "remaining_cash": 100000,
+            "cash": 100000,
+            "daily_loss_halt": False,
+            "ai_rebalance_rows": [],
+        }
+
+        with (
+            patch("src.trader.check_secrets"),
+            patch("src.trader.init_db"),
+            patch("src.trader.init_approval_db"),
+            patch("src.trader.KIStockAPI", return_value=api),
+            patch("src.trader.slack_session_start"),
+            patch("src.trader.slack_session_end"),
+            patch("src.trader.check_daily_loss", return_value=False),
+            patch("src.trader.build_runtime_plan", return_value=runtime_bundle),
+            patch("src.trader.queue_approval", return_value=202) as queue_approval,
+        ):
+            result = trader.run(
+                mode="analysis_only",
+                include_ai_rebalance=True,
+                execution_categories={"ai_rebalance"},
+            )
+
+        self.assertEqual(result["results"][0]["decision"], "skip")
+        self.assertEqual(result["results"][0]["skip_reason"], "category filtered")
+        self.assertEqual(result["results"][1]["approval_id"], 202)
+        queue_approval.assert_called_once_with(
+            "000660",
+            "SK Hynix",
+            "sell",
+            1,
+            120000,
+            "AI rebalance",
+            source="trader",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

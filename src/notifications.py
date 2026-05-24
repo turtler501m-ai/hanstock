@@ -89,16 +89,16 @@ def build_session_start_payload(
 ) -> dict[str, Any]:
     ts = format_kst_timestamp(now)
     return build_slack_payload(
-        text=f"Seven Split started at {ts}",
+        text=f"세븐 스플릿 자동매매 시작 - {ts}",
         blocks=[
-            {"type": "header", "text": {"type": "plain_text", "text": "Seven Split Auto Trading"}},
+            {"type": "header", "text": {"type": "plain_text", "text": "세븐 스플릿 자동매매 시작"}},
             {"type": "section", "fields": [
-                {"type": "mrkdwn", "text": f"*Time*\n{ts}"},
-                {"type": "mrkdwn", "text": f"*Mode*\n{mode}"},
-                {"type": "mrkdwn", "text": f"*API Env*\n{trading_env}"},
-                {"type": "mrkdwn", "text": f"*Cash*\n{cash:,} KRW"},
-                {"type": "mrkdwn", "text": f"*Total Value*\n{total:,} KRW"},
-                {"type": "mrkdwn", "text": f"*Holdings*\n{stock_count}"},
+                {"type": "mrkdwn", "text": f"*시간*\n{ts}"},
+                {"type": "mrkdwn", "text": f"*실행 모드*\n{mode}"},
+                {"type": "mrkdwn", "text": f"*API 환경*\n{trading_env}"},
+                {"type": "mrkdwn", "text": f"*예수금*\n{cash:,}원"},
+                {"type": "mrkdwn", "text": f"*총 평가금액*\n{total:,}원"},
+                {"type": "mrkdwn", "text": f"*보유 종목*\n{stock_count}개"},
             ]},
         ],
         color="#2196F3",
@@ -116,25 +116,25 @@ def build_order_payload(
     indicators: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     details = indicators or {}
-    action_label = "BUY" if action == "buy" else "SELL"
-    status = "OK" if ok else "FAILED"
-    price_str = f"{price:,} KRW" if price else "market"
-    amount_str = f"{qty * price:,} KRW" if price else "-"
+    action_label = "매수" if action == "buy" else "매도"
+    status = "성공" if ok else "실패"
+    price_str = f"{price:,}원" if price else "시장가"
+    amount_str = f"{qty * price:,}원" if price else "-"
     rsi_value = details.get("rsi", "-")
     rsi_str = f"{rsi_value:.1f}" if isinstance(rsi_value, float) else str(rsi_value)
     return build_slack_payload(
-        text=f"{action_label} {name} {qty} shares {status}",
+        text=f"{action_label} {name} {qty}주 {status}",
         blocks=[
             {"type": "section", "text": {"type": "mrkdwn", "text": f"*{action_label}* {name} (`{symbol}`) {status}"}},
             {"type": "section", "fields": [
-                {"type": "mrkdwn", "text": f"*Qty*\n{qty}"},
-                {"type": "mrkdwn", "text": f"*Price*\n{price_str}"},
-                {"type": "mrkdwn", "text": f"*Amount*\n{amount_str}"},
+                {"type": "mrkdwn", "text": f"*수량*\n{qty}주"},
+                {"type": "mrkdwn", "text": f"*가격*\n{price_str}"},
+                {"type": "mrkdwn", "text": f"*금액*\n{amount_str}"},
                 {"type": "mrkdwn", "text": f"*RSI*\n{rsi_str}"},
                 {"type": "mrkdwn", "text": f"*SMA20/60*\n{details.get('sma20', 0):.0f} / {details.get('sma60', 0):.0f}"},
-                {"type": "mrkdwn", "text": f"*Return*\n{details.get('rt', 0):+.2f}%"},
+                {"type": "mrkdwn", "text": f"*수익률*\n{details.get('rt', 0):+.2f}%"},
             ]},
-            {"type": "context", "elements": [{"type": "mrkdwn", "text": f"Reason: {reason}"}]},
+            {"type": "context", "elements": [{"type": "mrkdwn", "text": f"사유: {reason}"}]},
         ],
         color="#36a64f" if ok else "#e74c3c",
     )
@@ -143,14 +143,17 @@ def build_order_payload(
 def build_candidates_payload(candidates: list[dict[str, Any]]) -> dict[str, Any] | None:
     if not candidates:
         return None
-    lines = [
-        f"*{item['ticker']}* {item['current_price']:,.0f} KRW | score {item['score']} | {', '.join(item['reasons'])}"
-        for item in candidates
-    ]
+    lines = []
+    for item in candidates:
+        ticker = item["ticker"]
+        label = item.get("name") or ticker
+        lines.append(
+            f"*{label}* (`{ticker}`) {item['current_price']:,.0f}원 | 점수 {item['score']} | {', '.join(item['reasons'])}"
+        )
     return build_slack_payload(
-        text=f"New buy candidates: {len(candidates)}",
+        text=f"신규 매수 후보 {len(candidates)}종목",
         blocks=[
-            {"type": "header", "text": {"type": "plain_text", "text": "Buy Candidates"}},
+            {"type": "header", "text": {"type": "plain_text", "text": "매수 후보 종목"}},
             {"type": "section", "text": {"type": "mrkdwn", "text": "\n".join(lines)}},
         ],
         color="#9C27B0",
@@ -168,7 +171,7 @@ def build_session_end_payload(
     ts = format_kst_timestamp(now)
     if not results:
         return build_slack_payload(
-            text=f"Seven Split finished at {ts}: no orders",
+            text=f"세븐 스플릿 자동매매 종료 - {ts}: 주문 없음",
             color="#9E9E9E",
         )
 
@@ -179,28 +182,31 @@ def build_session_end_payload(
     fail_count = sum(1 for item in executed if not item["ok"])
     lines = []
     for item in results:
-        prefix = "QUEUED" if item.get("decision") == "queue" else item["action"].upper()
-        lines.append(f"{prefix} {item['name']} {item['qty']} shares - {item['reason']}")
+        if item.get("decision") == "queue":
+            prefix = "승인대기"
+        else:
+            prefix = "매수" if item["action"] == "buy" else "매도"
+        lines.append(f"{prefix} {item['name']} {item['qty']}주 - {item['reason']}")
 
     return build_slack_payload(
-        text=f"Seven Split finished at {ts}",
+        text=f"세븐 스플릿 자동매매 종료 - {ts}",
         blocks=[
-            {"type": "header", "text": {"type": "plain_text", "text": "Seven Split Finished"}},
+            {"type": "header", "text": {"type": "plain_text", "text": "세븐 스플릿 자동매매 종료"}},
             {"type": "section", "fields": [
-                {"type": "mrkdwn", "text": f"*Time*\n{ts}"},
-                {"type": "mrkdwn", "text": f"*Total Value*\n{total:,} KRW"},
-                {"type": "mrkdwn", "text": f"*Cash*\n{cash:,} KRW"},
-                {"type": "mrkdwn", "text": f"*PnL*\n{pnl:+,} KRW"},
-                {"type": "mrkdwn", "text": f"*Buys*\n{buy_count}"},
-                {"type": "mrkdwn", "text": f"*Sells*\n{sell_count}"},
-                {"type": "mrkdwn", "text": f"*Queued*\n{queued_count}"},
+                {"type": "mrkdwn", "text": f"*시간*\n{ts}"},
+                {"type": "mrkdwn", "text": f"*총 평가금액*\n{total:,}원"},
+                {"type": "mrkdwn", "text": f"*예수금*\n{cash:,}원"},
+                {"type": "mrkdwn", "text": f"*당일 손익*\n{pnl:+,}원"},
+                {"type": "mrkdwn", "text": f"*매수 성공*\n{buy_count}건"},
+                {"type": "mrkdwn", "text": f"*매도 성공*\n{sell_count}건"},
+                {"type": "mrkdwn", "text": f"*승인대기*\n{queued_count}건"},
             ]},
-            {"type": "section", "text": {"type": "mrkdwn", "text": "*Orders*\n" + "\n".join(lines)}},
-            {"type": "context", "elements": [{"type": "mrkdwn", "text": f"Failures: {fail_count}"}]},
+            {"type": "section", "text": {"type": "mrkdwn", "text": "*주문 내역*\n" + "\n".join(lines)}},
+            {"type": "context", "elements": [{"type": "mrkdwn", "text": f"실패 건수: {fail_count}건"}]},
         ],
         color="#36a64f" if pnl >= 0 else "#e74c3c",
     )
 
 
 def build_error_payload(message: str) -> dict[str, Any]:
-    return build_slack_payload(text=f"Seven Split error: {message}", color="#e74c3c")
+    return build_slack_payload(text=f"세븐 스플릿 오류: {message}", color="#e74c3c")

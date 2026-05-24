@@ -3,58 +3,57 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>HanStock AI 자동매매 관제센터</title>
+    <title>한스톡 AI 대시보드</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Noto+Sans+KR:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="/static/css/ai_dashboard.css?v=3">
+    <link rel="stylesheet" href="/static/css/ai_dashboard.css?v=7">
 </head>
 <body>
-    <div class="app-shell">
-        <aside class="side-nav" aria-label="AI 자동매매 대시보드 메뉴">
-            <div class="brand-block">
-                <div class="brand-mark">HA</div>
-                <div>
-                    <strong>HanStock AI</strong>
-                    <span>Autonomous Trading Ops</span>
+    <div class="dashboard-container ai-dashboard-container">
+        <header class="app-header top-header topbar" id="overview">
+            <div>
+                <p class="eyebrow">KIS 국내주식 자동매매</p>
+                <h1>한스톡 <span class="highlight">대시보드</span></h1>
+            </div>
+            <div class="header-actions topbar-actions">
+                <a class="nav-button ghost-link" href="/">메인</a>
+                <a class="nav-button ghost-link" href="/ai-dashboard">AI 대시보드</a>
+                <a class="nav-button ghost-link futures-nav-button futures-signals-link" href="/ai-dashboard/futures-signals" data-icon="chart-candlestick">해외선물</a>
+                <a class="nav-button ghost-link" href="/env-settings">환경설정</a>
+                <button type="button" class="nav-button" id="btn-refresh" aria-label="새로고침" title="새로고침">새로고침</button>
+                <div class="status-indicator">
+                    <span class="dot live"></span> 자동 갱신 중
                 </div>
             </div>
-            <nav>
-                <a class="active" href="#account" data-icon="wallet">계좌정보</a>
-                <a href="#overview" data-icon="layout-dashboard">운영 개요</a>
-                <a href="#decisions" data-icon="brain-circuit">AI 판단</a>
-                <a href="#risk" data-icon="shield-check">리스크</a>
-                <a href="#execution" data-icon="route">주문 라우터</a>
-                <a href="#models" data-icon="blocks">모델 관리</a>
-                <a href="#audit" data-icon="file-search">감사 로그</a>
-            </nav>
-            <div class="mode-panel">
-                <span>운영 모드</span>
-                <strong>Approval Mode</strong>
-                <small>실계좌 주문 전 수동 승인</small>
-            </div>
-        </aside>
+        </header>
 
         <main class="workspace">
-            <header class="topbar" id="account">
-                <div>
-                    <p class="eyebrow">계좌정보</p>
-                    <h1>잔고, 증거금, 포지션 현황</h1>
-                </div>
-            </header>
+            <nav class="dashboard-tabs ai-dashboard-tabs" aria-label="AI 대시보드 기능 메뉴">
+                <a class="dashboard-tab active" href="#account-metrics" data-icon="wallet">계좌정보</a>
+                <a class="dashboard-tab" href="#overview" data-icon="layout-dashboard">운영 개요</a>
+                <a class="dashboard-tab" href="#decisions" data-icon="brain-circuit">AI 판단</a>
+                <a class="dashboard-tab" href="#risk" data-icon="shield-check">리스크</a>
+                <a class="dashboard-tab" href="#execution" data-icon="route">주문 라우터</a>
+                <a class="dashboard-tab" href="#models" data-icon="blocks">모델 관리</a>
+                <a class="dashboard-tab" href="#audit" data-icon="file-search">감사 로그</a>
+            </nav>
 
-            <header class="topbar" id="overview">
-                <div>
+            <section class="panel ai-page-banner">
+                <div class="panel-title">
                     <p class="eyebrow">AI 자동매매 관제센터</p>
-                    <h1>데이터, 모델, 리스크, 주문을 한 화면에서 통제</h1>
+                    <h2>데이터, 모델, 리스크, 주문을 한 화면에서 통제</h2>
+                    <p>메인 한스톡 대시보드의 상단 영역은 유지하고, AI 전용 운영 상태만 아래에서 관리합니다.</p>
                 </div>
-                <div class="topbar-actions">
-                    <a class="ghost-link" href="/">기존 대시보드</a>
-                    <a class="ghost-link futures-signals-link" href="/ai-dashboard/futures-signals" data-icon="chart-candlestick">해외선물 신호검증</a>
-                    <button type="button" class="icon-button" id="btn-refresh" aria-label="새로고침" title="새로고침" data-icon="refresh-cw"></button>
-                    <button type="button" class="danger-button" id="btn-kill-switch" data-icon="octagon-alert">Kill Switch</button>
+                <div class="ai-page-actions">
+                    <div class="mode-panel">
+                        <span>운영 모드</span>
+                        <strong>수동 승인</strong>
+                        <small>실계좌 주문 전 수동 승인</small>
+                    </div>
+                    <button type="button" class="button-danger danger-button" id="btn-kill-switch" data-icon="octagon-alert">비상 중지</button>
                 </div>
-            </header>
+            </section>
 
             <section class="status-strip" aria-label="시스템 상태">
                 <div class="status-item ok"><span>데이터</span><strong>KIS 12초 전</strong><small>정상 수집</small></div>
@@ -70,7 +69,7 @@
                 <article class="metric-tile"><span>포지션 수</span><strong id="position-count">0</strong><small>진행중</small></article>
                 <article class="metric-tile"><span>AI 추천 후보</span><strong id="metric-candidates">-</strong><small id="metric-pending">승인 대기 -</small></article>
                 <article class="metric-tile"><span>위험 한도 사용률</span><strong id="risk-usage">-</strong><small class="warn-text" id="risk-usage-detail">일일 손실 한도 -</small></article>
-                <article class="metric-tile"><span>Paper 성과</span><strong id="paper-return">-</strong><small id="paper-return-detail">최근 거래 기록</small></article>
+                <article class="metric-tile"><span>모의 성과</span><strong id="paper-return">-</strong><small id="paper-return-detail">최근 거래 기록</small></article>
             </section>
 
             <section class="control-grid" id="control">
@@ -80,10 +79,10 @@
                         <p>실거래 전환, 승인 정책, 손실 방어 상태를 즉시 확인합니다.</p>
                     </div>
                     <div class="toggle-matrix">
-                        <div><span>Dry Run</span><button class="toggle on" type="button" id="toggle-dry-run" data-mode-key="DRY_RUN">ON</button></div>
-                        <div><span>Demo Trading</span><button class="toggle on" type="button" id="toggle-demo-trading" disabled>ON</button></div>
-                        <div><span>Live Trading</span><button class="toggle off" type="button" id="toggle-live-trading" disabled>OFF</button></div>
-                        <div><span>Auto Approval</span><button class="toggle off" type="button" id="toggle-auto-approval">OFF</button></div>
+                        <div><span>주문 차단</span><button class="toggle on" type="button" id="toggle-dry-run" data-mode-key="DRY_RUN">켜짐</button></div>
+                        <div><span>모의 거래</span><button class="toggle on" type="button" id="toggle-demo-trading" disabled>켜짐</button></div>
+                        <div><span>실전 거래</span><button class="toggle off" type="button" id="toggle-live-trading" disabled>꺼짐</button></div>
+                        <div><span>자동 승인</span><button class="toggle off" type="button" id="toggle-auto-approval">꺼짐</button></div>
                     </div>
                     <div class="limit-list">
                         <div><span>일일 주문 한도</span><strong>1,000,000원 / 5건</strong></div>
@@ -123,8 +122,8 @@
                         <div class="model-row"><span>RL 정책</span><strong>ppo_policy_v1</strong><em class="watch">참고</em></div>
                     </div>
                     <div class="model-metrics">
-                        <div><span>Walk-forward Sharpe</span><strong>1.21</strong></div>
-                        <div><span>Top-5 20D Hit Rate</span><strong>58.4%</strong></div>
+                        <div><span>전진 검증 샤프</span><strong>1.21</strong></div>
+                        <div><span>상위 5개 20일 적중률</span><strong>58.4%</strong></div>
                         <div><span>최종 학습</span><strong>2026-04-27</strong></div>
                     </div>
                 </article>
@@ -135,7 +134,7 @@
                     <div class="panel-title split">
                         <div>
                             <h2>AI 주문 후보</h2>
-                            <p>Rule, Ranker, Optimizer, Risk Engine이 합의한 후보입니다.</p>
+                            <p>규칙, 랭커, 최적화, 리스크 엔진이 합의한 후보입니다.</p>
                         </div>
                         <button class="secondary-button" type="button" data-icon="filter">필터</button>
                     </div>
@@ -166,7 +165,7 @@
                 <article class="panel chart-panel">
                     <div class="panel-title">
                         <h2>성과와 낙폭</h2>
-                        <p>실거래 전 paper/demo 결과를 기준으로 추적합니다.</p>
+                        <p>실거래 전 모의 결과를 기준으로 추적합니다.</p>
                     </div>
                     <div class="chart-frame"><canvas id="performance-chart"></canvas></div>
                 </article>
@@ -179,11 +178,11 @@
                         <p>분석, 승인, 모의, 실거래 경로를 단일 흐름으로 관리합니다.</p>
                     </div>
                     <div class="route-flow">
-                        <div class="route-step done">Signal</div>
-                        <div class="route-step done">AI Score</div>
-                        <div class="route-step done">Risk</div>
-                        <div class="route-step active">Approval</div>
-                        <div class="route-step muted">Execution</div>
+                        <div class="route-step done">신호</div>
+                        <div class="route-step done">AI 점수</div>
+                        <div class="route-step done">리스크</div>
+                        <div class="route-step active">승인</div>
+                        <div class="route-step muted">실행</div>
                     </div>
                     <div class="approval-list" id="approval-list"></div>
                 </article>
@@ -201,6 +200,7 @@
 
     <script src="https://unpkg.com/lucide@latest"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="/static/js/environment_badge.js?v=1"></script>
     <script src="/static/js/ai_dashboard.js?v=4"></script>
 </body>
 </html>

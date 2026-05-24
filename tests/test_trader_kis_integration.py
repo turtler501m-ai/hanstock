@@ -273,6 +273,7 @@ class TraderKISIntegrationTests(unittest.TestCase):
             patch.object(trader, "KISTOCK_APP_KEY", "app-key-12345678"),
             patch.object(trader, "KISTOCK_APP_SECRET", "secret-value"),
             patch.object(trader, "KISTOCK_ACCOUNT", "1234567801"),
+            patch.object(trader, "_KIS_ORDER_MIN_INTERVAL_SECONDS", 0),
             patch.object(trader.KIStockAPI, "_load_or_fetch_token", return_value="token-abc"),
             patch.object(trader.KIStockAPI, "_hashkey", return_value="hash-value"),
             patch.object(trader.HTTP, "post", return_value=_FakeResponse({"rt_cd": "0", "msg1": "ok"})) as http_post,
@@ -303,6 +304,7 @@ class TraderKISIntegrationTests(unittest.TestCase):
             patch.object(trader, "TRADING_ENV", "demo"),
             patch.object(trader, "BASE_URL", "https://example.test"),
             patch.object(trader, "KISTOCK_ACCOUNT", "1234567801"),
+            patch.object(trader, "_KIS_ORDER_MIN_INTERVAL_SECONDS", 0),
             patch.object(trader.KIStockAPI, "_load_or_fetch_token", return_value="token-abc"),
             patch.object(trader.KIStockAPI, "_headers", return_value=delegated_headers.copy()) as headers,
             patch.object(trader.KIStockAPI, "_hashkey", return_value="hash-value") as hashkey,
@@ -327,6 +329,24 @@ class TraderKISIntegrationTests(unittest.TestCase):
             json=ANY,
             timeout=15,
         )
+
+    def test_trade_history_uses_current_demo_tr_id_and_exchange_param(self):
+        with (
+            patch.object(trader, "TRADING_ENV", "demo"),
+            patch.object(trader, "BASE_URL", "https://example.test"),
+            patch.object(trader, "KISTOCK_ACCOUNT", "1234567801"),
+            patch.object(trader.KIStockAPI, "_load_or_fetch_token", return_value="token-abc"),
+            patch.object(trader.KIStockAPI, "_headers", return_value={"tr_id": "VTTC0081R"}) as headers,
+            patch.object(trader.HTTP, "get", return_value=_FakeResponse({"output1": [{"odno": "D12345"}]})) as http_get,
+        ):
+            api = trader.KIStockAPI(notify_errors=False)
+            rows = api.get_trade_history("20260523", "20260524")
+
+        self.assertEqual(rows, [{"odno": "D12345"}])
+        headers.assert_called_once_with("VTTC0081R")
+        params = http_get.call_args.kwargs["params"]
+        self.assertEqual(params["CCLD_DVSN"], "00")
+        self.assertEqual(params["EXCG_ID_DVSN_CD"], "KRX")
 
     def test_build_runtime_plan_works_with_api_public_methods_only(self):
         api = Mock()

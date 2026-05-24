@@ -60,6 +60,32 @@ class KIStockAPITests(unittest.TestCase):
         finally:
             kis_api._KIS_MIN_INTERVAL = original_interval
 
+    def test_demo_trade_history_uses_current_tr_id_and_order_status_params(self):
+        api = KIStockAPI.__new__(KIStockAPI)
+        api.base_url = "https://example.test"
+        api.access_token = "token"
+
+        response = Mock()
+        response.status_code = 200
+        response.json.return_value = {"rt_cd": "0", "output1": [{"odno": "D12345"}]}
+
+        original_interval = kis_api._KIS_MIN_INTERVAL
+        try:
+            kis_api._KIS_MIN_INTERVAL = 0
+            with patch.object(kis_api.config, "kistock_account", "1234567801"), \
+                    patch.object(kis_api.config, "trading_env", "demo"), \
+                    patch.object(kis_api.HTTP, "get", return_value=response) as get:
+                rows = api.get_trade_history("20260523", "20260524")
+
+            self.assertEqual(rows, [{"odno": "D12345"}])
+            headers = get.call_args.kwargs["headers"]
+            params = get.call_args.kwargs["params"]
+            self.assertEqual(headers["tr_id"], "VTTC0081R")
+            self.assertEqual(params["CCLD_DVSN"], "00")
+            self.assertEqual(params["EXCG_ID_DVSN_CD"], "KRX")
+        finally:
+            kis_api._KIS_MIN_INTERVAL = original_interval
+
 
 if __name__ == "__main__":
     unittest.main()

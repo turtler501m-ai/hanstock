@@ -59,6 +59,15 @@ def submit_order_request(
     queue_order_fn: Callable[[str, str, str, int, int, str, str], int] | None = None,
     allow_approval_bypass: bool = False,
 ) -> ExecutionResult:
+    if not str(symbol or "").strip():
+        return ExecutionResult("reject", False, "symbol is required")
+    if action not in {"buy", "sell"}:
+        return ExecutionResult("reject", False, "action must be buy or sell")
+    if qty <= 0:
+        return ExecutionResult("reject", False, "qty must be greater than 0")
+    if price < 0:
+        return ExecutionResult("reject", False, "price must be greater than or equal to 0")
+
     policy = resolve_execution_decision(context, allow_approval_bypass=allow_approval_bypass)
     if policy.decision == "queue":
         if queue_order_fn is None:

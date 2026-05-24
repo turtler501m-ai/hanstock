@@ -1,9 +1,188 @@
-.futures-shell .brand-mark {
-    background: linear-gradient(135deg, #0891b2, #22c55e);
+.futures-dashboard {
+    max-width: 1400px;
+    margin: 0 auto;
 }
 
 .futures-workspace {
-    gap: 18px;
+    display: grid;
+    gap: 1.5rem;
+}
+
+.dashboard-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    margin-bottom: 2rem;
+}
+
+.dashboard-header h1 {
+    margin-bottom: 0;
+    font-size: 2.05rem;
+    line-height: 1.2;
+}
+
+.highlight {
+    background: linear-gradient(135deg, #93c5fd, #34d399);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+}
+
+.header-actions {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+}
+
+.nav-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    min-height: 38px;
+    border: 1px solid rgba(59, 130, 246, 0.45);
+    border-radius: 8px;
+    background: rgba(59, 130, 246, 0.16);
+    color: var(--text);
+    padding: 8px 12px;
+    text-decoration: none;
+    cursor: pointer;
+    font-weight: 700;
+    font-size: 0.875rem;
+}
+
+.nav-button:hover {
+    border-color: rgba(125, 211, 252, 0.55);
+    background: rgba(37, 99, 235, 0.24);
+}
+
+.nav-button.icon-button {
+    width: 40px;
+    padding: 0;
+}
+
+.status-indicator {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    color: var(--muted);
+    background: rgba(0, 0, 0, 0.2);
+    padding: 0.5rem 1rem;
+    border-radius: 20px;
+    border: 1px solid var(--line);
+    font-size: 0.875rem;
+}
+
+.app-header,
+.app-header.top-header,
+.app-header.dashboard-header {
+    color: #f8fafc;
+    background:
+        linear-gradient(180deg, rgba(15, 23, 42, 0.98), rgba(15, 23, 42, 0.92));
+    border-bottom: 1px solid rgba(148, 163, 184, 0.18);
+    box-shadow: 0 16px 30px rgba(2, 6, 23, 0.18);
+}
+
+.app-header .eyebrow {
+    color: #7dd3fc;
+}
+
+.app-header h1 {
+    color: #f8fafc;
+    font-size: 2.05rem;
+    line-height: 1.2;
+}
+
+.app-header h1 .highlight,
+.app-header .highlight {
+    background: linear-gradient(135deg, #93c5fd, #34d399);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+}
+
+.app-header .nav-button,
+.app-header .ghost-link,
+.app-header button.nav-button,
+.app-header .futures-nav-button {
+    min-height: 38px;
+    border: 1px solid rgba(59, 130, 246, 0.45);
+    background: rgba(59, 130, 246, 0.16);
+    color: #f8fafc;
+    border-radius: 8px;
+    padding: 0.45rem 0.75rem;
+    font-weight: 600;
+}
+
+.app-header .nav-button:hover,
+.app-header .ghost-link:hover,
+.app-header button.nav-button:hover,
+.app-header .futures-nav-button:hover {
+    border-color: rgba(125, 211, 252, 0.55);
+    background: rgba(37, 99, 235, 0.24);
+}
+
+.app-header .status-indicator {
+    color: #a8b3c7;
+    background: rgba(0, 0, 0, 0.2);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.dashboard-tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    padding: 0.35rem;
+    border: 1px solid rgba(148, 163, 184, 0.16);
+    border-radius: 8px;
+    background: rgba(15, 23, 42, 0.58);
+}
+
+.dashboard-tab {
+    min-height: 38px;
+    padding: 0.5rem 0.85rem;
+    border: 1px solid transparent;
+    background: transparent;
+    color: #a8b3c7;
+    font-size: 0.875rem;
+    font-weight: 700;
+    cursor: pointer;
+    border-radius: 8px;
+    transition: all 0.2s;
+}
+
+.dashboard-tab:hover {
+    border-color: rgba(125, 211, 252, 0.55);
+    background: rgba(37, 99, 235, 0.24);
+    color: #f8fafc;
+}
+
+.dashboard-tab.active {
+    border-color: rgba(59, 130, 246, 0.45);
+    background: rgba(59, 130, 246, 0.22);
+    color: #f8fafc;
+}
+
+.dashboard-card {
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--surface);
+    box-shadow: 0 10px 30px -18px rgba(0, 0, 0, 0.65);
+}
+
+.futures-tab-card {
+    padding: 1rem;
+}
+
+.tab-content {
+    display: none;
+    min-height: calc(100vh - 250px);
+    box-sizing: border-box;
+}
+
+.tab-content.active {
+    display: block;
 }
 
 .futures-status,
@@ -245,6 +424,25 @@
 }
 
 @media (max-width: 780px) {
+    .dashboard-header,
+    .header-actions {
+        align-items: flex-start;
+        flex-direction: column;
+    }
+
+    .dashboard-header h1 {
+        font-size: 1.7rem;
+    }
+
+    .dashboard-tabs {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .dashboard-tab {
+        width: 100%;
+    }
+
     .futures-status,
     .futures-metrics,
     .futures-grid,
@@ -614,4 +812,3 @@ input:checked + .slider:before { transform: translateX(24px); }
         grid-template-columns: 1fr;
     }
 }
-

@@ -75,6 +75,39 @@ class TraderCoreTests(unittest.TestCase):
         self.assertEqual(len(plan["positions"]), 1)
         self.assertIn("target_weight", plan["positions"][0])
 
+    def test_ai_weight_plan_fallback_is_deterministic(self):
+        prices = [float(i) for i in range(100, 220)]
+        holdings = [
+            {
+                "symbol": "005930",
+                "name": "Samsung",
+                "qty": 1,
+                "price": 200000,
+                "value": 200000,
+                "prices": prices,
+                "highs": [p + 1 for p in prices],
+                "volumes": [100.0] * len(prices),
+            },
+            {
+                "symbol": "000660",
+                "name": "SK Hynix",
+                "qty": 1,
+                "price": 100000,
+                "value": 100000,
+                "prices": prices,
+                "highs": [p + 1 for p in prices],
+                "volumes": [100.0] * len(prices),
+            },
+        ]
+
+        first = generate_ai_weight_plan(holdings, total_eval=1_000_000)
+        second = generate_ai_weight_plan(holdings, total_eval=1_000_000)
+
+        self.assertEqual(
+            [position["target_weight"] for position in first["positions"]],
+            [position["target_weight"] for position in second["positions"]],
+        )
+
     def test_portfolio_optimizer_plan_returns_method(self):
         prices = [float(i) for i in range(100, 220)]
         plan = generate_portfolio_optimizer_plan(
@@ -92,6 +125,101 @@ class TraderCoreTests(unittest.TestCase):
         )
         self.assertEqual(plan["method"], "score_tilted_inverse_vol")
         self.assertEqual(len(plan["positions"]), 1)
+
+    def test_ai_rebalance_rows_include_only_executable_positions(self):
+        from unittest.mock import patch
+        from src import trader
+
+        class _FakeAPI:
+            def get_daily(self, _symbol, n=120):
+                return [
+                    {"stck_clpr": "100", "stck_hgpr": "101", "acml_vol": "1000"},
+                    {"stck_clpr": "110", "stck_hgpr": "111", "acml_vol": "1100"},
+                ]
+
+        balance = {
+            "output1": [
+                {
+                    "pdno": "005930",
+                    "prdt_name": "Samsung",
+                    "hldg_qty": "10",
+                    "prpr": "70000",
+                    "evlu_amt": "700000",
+                }
+            ]
+        }
+        ai_plan = {
+            "ai_active": False,
+            "positions": [
+                {
+                    "symbol": "005930",
+                    "name": "Samsung",
+                    "price": 70000,
+                    "rebalance_action": "sell",
+                    "rebalance_qty": 2,
+                    "current_weight": 0.7,
+                    "target_weight": 0.5,
+                    "target_value": 500000,
+                    "delta_value": -200000,
+                    "score": 3,
+                    "reasons": ["risk trim"],
+                },
+                {"symbol": "000660", "rebalance_action": "hold", "rebalance_qty": 0},
+            ],
+        }
+
+        with patch.object(trader, "generate_ai_weight_plan", return_value=ai_plan):
+            rows = trader.build_ai_rebalance_rows(_FakeAPI(), balance, 1_000_000)
+
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["category"], "ai_rebalance")
+        self.assertEqual(rows[0]["action"], "sell")
+        self.assertEqual(rows[0]["qty"], 2)
+
+    def test_runtime_plan_can_include_ai_rebalance_rows(self):
+        from unittest.mock import patch
+        from src import trader
+
+        class _FakeAPI:
+            def get_daily(self, _symbol, n=60):
+                return []
+
+            def get_volume_rank(self, top_n=50):
+                return []
+
+            def get_quote(self, _symbol):
+                return {"current": 0, "ask1": 0, "bid1": 0}
+
+        balance = {
+            "output1": [
+                {
+                    "pdno": "005930",
+                    "prdt_name": "Samsung",
+                    "hldg_qty": "10",
+                    "prpr": "70000",
+                    "evlu_amt": "700000",
+                }
+            ],
+            "output2": [{"dnca_tot_amt": "100000", "tot_evlu_amt": "1000000", "evlu_pfls_smtl_amt": "0"}],
+        }
+        api = _FakeAPI()
+        with patch.object(
+            trader,
+            "generate_signal",
+            return_value={"action": "hold", "qty": 0, "price": 0, "reason": "", "indicators": {}},
+        ), patch.object(
+            trader,
+            "find_candidates",
+            return_value={"candidates": [], "scan_summary": [], "scanned": 0, "min_score": 2, "scan_error": None},
+        ), patch.object(
+            trader,
+            "build_ai_rebalance_rows",
+            return_value=[{"symbol": "005930", "action": "sell", "qty": 1, "category": "ai_rebalance"}],
+        ) as ai_rows:
+            plan = trader.build_runtime_plan(api, balance, include_ai_rebalance=True)
+
+        ai_rows.assert_called_once_with(api, balance, 1_000_000)
+        self.assertEqual(plan["ai_rebalance_rows"][0]["category"], "ai_rebalance")
 
     def test_kospi_universe_has_no_duplicates(self):
         self.assertEqual(len(KOSPI_UNIVERSE), len(set(KOSPI_UNIVERSE)))

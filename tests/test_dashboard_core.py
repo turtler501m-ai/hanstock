@@ -1,5 +1,6 @@
 import tempfile
 import unittest
+import sqlite3
 
 import src.dashboard as dashboard
 from src.dashboard import _parse_balance, _portfolio_totals
@@ -156,6 +157,82 @@ class DashboardCoreTests(unittest.TestCase):
     def test_secret_env_values_are_masked_for_response(self):
         self.assertEqual(dashboard._mask_env_value("1234567801"), "12******01")
 
+    def test_config_response_includes_account(self):
+        original_account = dashboard.trader.config.kistock_account
+        try:
+            dashboard.trader.config.kistock_account = "1234567801"
+            config = dashboard.get_config()
+            self.assertEqual(config["kistock_account"], "1234567801")
+            self.assertEqual(config["ai_analysis"]["account"], "1234567801")
+            self.assertEqual(config["ai_analysis"]["account_priority"], "current_kis_account")
+            self.assertEqual(config["ai_analysis"]["provider"], "openai_responses")
+        finally:
+            dashboard.trader.config.kistock_account = original_account
+
+    def test_demo_trading_readiness_requires_demo_submission_without_live_switch(self):
+        original_values = {
+            "trading_env": dashboard.trader.TRADING_ENV,
+            "dry_run": dashboard.trader.DRY_RUN,
+            "enable_live_trading": dashboard.trader.ENABLE_LIVE_TRADING,
+            "order_submission_enabled": dashboard.trader.ORDER_SUBMISSION_ENABLED,
+            "real_orders_enabled": dashboard.trader.REAL_ORDERS_ENABLED,
+            "account": dashboard.trader.config.kistock_account,
+        }
+        original_required_env_missing = dashboard._required_env_missing
+        try:
+            dashboard.trader.TRADING_ENV = "demo"
+            dashboard.trader.DRY_RUN = False
+            dashboard.trader.ENABLE_LIVE_TRADING = False
+            dashboard.trader.ORDER_SUBMISSION_ENABLED = True
+            dashboard.trader.REAL_ORDERS_ENABLED = False
+            dashboard.trader.config.kistock_account = "1234567801"
+            dashboard._required_env_missing = lambda: []
+
+            readiness = dashboard.get_demo_trading_readiness()
+
+            self.assertTrue(readiness["ready"])
+            self.assertTrue(all(check["ok"] for check in readiness["checks"] if check["critical"]))
+            self.assertFalse(readiness["real_orders_enabled"])
+        finally:
+            dashboard.trader.TRADING_ENV = original_values["trading_env"]
+            dashboard.trader.DRY_RUN = original_values["dry_run"]
+            dashboard.trader.ENABLE_LIVE_TRADING = original_values["enable_live_trading"]
+            dashboard.trader.ORDER_SUBMISSION_ENABLED = original_values["order_submission_enabled"]
+            dashboard.trader.REAL_ORDERS_ENABLED = original_values["real_orders_enabled"]
+            dashboard.trader.config.kistock_account = original_values["account"]
+            dashboard._required_env_missing = original_required_env_missing
+
+    def test_env_update_applies_strategy_settings_without_restart(self):
+        original_env_path = dashboard.ENV_PATH
+        original_total_capital = dashboard.trader.TOTAL_CAPITAL
+        original_max_single_weight = dashboard.trader.MAX_SINGLE_WEIGHT
+        original_config_total_capital = dashboard.trader.config.total_capital
+        original_config_max_single_weight = dashboard.trader.config.max_single_weight
+        try:
+            path = MemoryTextPath("TOTAL_CAPITAL=10000000\nMAX_SINGLE_WEIGHT=0.3\n")
+            dashboard.ENV_PATH = path
+
+            result = dashboard.update_env_settings({
+                "values": {
+                    "TOTAL_CAPITAL": "12000000",
+                    "MAX_SINGLE_WEIGHT": "0.25",
+                }
+            })
+
+            self.assertFalse(result["requires_restart"])
+            self.assertEqual(dashboard.trader.TOTAL_CAPITAL, 12000000.0)
+            self.assertEqual(dashboard.trader.config.total_capital, 12000000.0)
+            self.assertEqual(dashboard.trader.MAX_SINGLE_WEIGHT, 0.25)
+            self.assertEqual(dashboard.trader.config.max_single_weight, 0.25)
+            self.assertIn("TOTAL_CAPITAL=12000000", path.content)
+            self.assertIn("MAX_SINGLE_WEIGHT=0.25", path.content)
+        finally:
+            dashboard.ENV_PATH = original_env_path
+            dashboard.trader.TOTAL_CAPITAL = original_total_capital
+            dashboard.trader.MAX_SINGLE_WEIGHT = original_max_single_weight
+            dashboard.trader.config.total_capital = original_config_total_capital
+            dashboard.trader.config.max_single_weight = original_config_max_single_weight
+
     def test_kis_account_validation_accepts_8_or_10_digits(self):
         self.assertEqual(dashboard._validate_env_value("KISTOCK_ACCOUNT", "12345678"), "12345678")
         self.assertEqual(dashboard._validate_env_value("KISTOCK_ACCOUNT", "12345678-01"), "1234567801")
@@ -233,6 +310,175 @@ class DashboardCoreTests(unittest.TestCase):
             dashboard._slack_order = original_slack_order
             dashboard.trader.DRY_RUN = original_dry_run
             dashboard.trader.ORDER_SUBMISSION_ENABLED = original_order_submission
+
+    def test_approval_execution_is_claimed_once_and_records_broker_result(self):
+        original_db_path = dashboard.trader.config.trade_db_path
+        original_get_api = dashboard._get_api
+        original_slack_order = dashboard._slack_order
+        original_auto_approval_state = dashboard.AUTO_APPROVAL_STATE
+        original_dry_run = dashboard.trader.DRY_RUN
+        original_trading_env = dashboard.trader.TRADING_ENV
+        original_order_submission = dashboard.trader.ORDER_SUBMISSION_ENABLED
+
+        class _FakeAPI:
+            def __init__(self):
+                self.calls = 0
+
+            def place_order(self, symbol, order_type, price, qty):
+                self.calls += 1
+                return {"rt_cd": "0", "msg1": "ok", "output": {"ODNO": "D12345"}}
+
+        fake_api = _FakeAPI()
+
+        try:
+            with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+                db_path = f"{tmpdir}/trades.sqlite"
+                dashboard.trader.config.trade_db_path = db_path
+                dashboard.AUTO_APPROVAL_STATE = MemoryCachePath()
+                dashboard._get_api = lambda: fake_api
+                dashboard._slack_order = lambda *args, **kwargs: None
+                dashboard.trader.DRY_RUN = False
+                dashboard.trader.TRADING_ENV = "demo"
+                dashboard.trader.ORDER_SUBMISSION_ENABLED = True
+
+                created = dashboard.create_approval({
+                    "symbol": "005930",
+                    "name": "Samsung",
+                    "action": "buy",
+                    "qty": 1,
+                    "price": 70000,
+                    "reason": "demo order",
+                    "source": "test",
+                })
+
+                result = dashboard.approve_order(created["id"])
+                self.assertEqual(result["status"], "executed")
+                self.assertEqual(fake_api.calls, 1)
+
+                with self.assertRaises(dashboard.HTTPException):
+                    dashboard.approve_order(created["id"])
+                self.assertEqual(fake_api.calls, 1)
+
+                with sqlite3.connect(db_path) as conn:
+                    conn.row_factory = sqlite3.Row
+                    rows = conn.execute("SELECT * FROM trades").fetchall()
+
+                self.assertEqual(len(rows), 1)
+                self.assertEqual(rows[0]["broker_order_id"], "D12345")
+                self.assertEqual(rows[0]["order_status"], "submitted")
+                self.assertIn("KIS demo order submitted", rows[0]["response_msg"])
+        finally:
+            dashboard.trader.config.trade_db_path = original_db_path
+            dashboard._get_api = original_get_api
+            dashboard._slack_order = original_slack_order
+            dashboard.AUTO_APPROVAL_STATE = original_auto_approval_state
+            dashboard.trader.DRY_RUN = original_dry_run
+            dashboard.trader.TRADING_ENV = original_trading_env
+            dashboard.trader.ORDER_SUBMISSION_ENABLED = original_order_submission
+
+    def test_order_status_sync_marks_submitted_demo_order_filled(self):
+        original_db_path = dashboard.trader.config.trade_db_path
+        original_dry_run = dashboard.trader.DRY_RUN
+
+        class _FakeAPI:
+            def get_trade_history(self, start_date, end_date):
+                return [{
+                    "odno": "D12345",
+                    "tot_ccld_qty": "1",
+                    "avg_prvs": "70100",
+                }]
+
+        try:
+            with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+                db_path = f"{tmpdir}/trades.sqlite"
+                dashboard.trader.config.trade_db_path = db_path
+                dashboard.trader.DRY_RUN = False
+                dashboard.trader.save_trade(
+                    "005930",
+                    "Samsung",
+                    "buy",
+                    1,
+                    70000,
+                    "demo order",
+                    True,
+                    True,
+                    broker_order_id="D12345",
+                    order_status="submitted",
+                    filled_qty=0,
+                    filled_price=0,
+                )
+
+                result = dashboard._sync_order_status_from_history(_FakeAPI(), days=1)
+
+                self.assertEqual(result["checked_count"], 1)
+                self.assertEqual(result["updated_count"], 1)
+                with sqlite3.connect(db_path) as conn:
+                    conn.row_factory = sqlite3.Row
+                    row = conn.execute("SELECT * FROM trades").fetchone()
+                self.assertEqual(row["order_status"], "filled")
+                self.assertEqual(row["filled_qty"], 1)
+                self.assertEqual(row["filled_price"], 70100)
+        finally:
+            dashboard.trader.config.trade_db_path = original_db_path
+            dashboard.trader.DRY_RUN = original_dry_run
+
+    def test_order_status_sync_falls_back_to_balance_when_history_fails(self):
+        original_db_path = dashboard.trader.config.trade_db_path
+        original_dry_run = dashboard.trader.DRY_RUN
+        original_get_balance_data = dashboard._get_balance_data
+
+        class _FakeAPI:
+            def get_trade_history(self, start_date, end_date):
+                raise RuntimeError("history 500")
+
+        try:
+            with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+                db_path = f"{tmpdir}/trades.sqlite"
+                dashboard.trader.config.trade_db_path = db_path
+                dashboard.trader.DRY_RUN = False
+                dashboard._get_balance_data = lambda api, allow_cache=False: {
+                    "output1": [
+                        {
+                            "pdno": "005930",
+                            "prdt_name": "Samsung",
+                            "hldg_qty": "6",
+                            "prpr": "70200",
+                            "evlu_amt": "421200",
+                        }
+                    ],
+                    "output2": [{"dnca_tot_amt": "100000", "tot_evlu_amt": "521200"}],
+                }
+                dashboard.trader.save_trade(
+                    "005930",
+                    "Samsung",
+                    "buy",
+                    1,
+                    70000,
+                    "demo order",
+                    True,
+                    True,
+                    broker_order_id="D12345",
+                    order_status="submitted",
+                    filled_qty=0,
+                    filled_price=0,
+                    pre_order_qty=5,
+                )
+
+                result = dashboard._sync_order_status_from_history(_FakeAPI(), days=1)
+
+                self.assertEqual(result["fallback"], "balance")
+                self.assertEqual(result["history_error"], "history 500")
+                self.assertEqual(result["updated_count"], 1)
+                with sqlite3.connect(db_path) as conn:
+                    conn.row_factory = sqlite3.Row
+                    row = conn.execute("SELECT * FROM trades").fetchone()
+                self.assertEqual(row["order_status"], "filled")
+                self.assertEqual(row["filled_qty"], 1)
+                self.assertEqual(row["filled_price"], 70200)
+        finally:
+            dashboard.trader.config.trade_db_path = original_db_path
+            dashboard.trader.DRY_RUN = original_dry_run
+            dashboard._get_balance_data = original_get_balance_data
 
     def test_sell_all_holdings_queues_market_sell_for_each_current_holding(self):
         original_db_path = dashboard.trader.config.trade_db_path

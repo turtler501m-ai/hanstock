@@ -3,27 +3,42 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>FinRL Dashboard</title>
+    <title>한스톡 FinRL Dashboard</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="/static/css/style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+KR:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/css/style.css?v=20">
 </head>
 <body>
     <div class="dashboard-container">
-        <header>
-            <h1>FinRL <span class="highlight">Adapter Dashboard</span></h1>
+        <header class="app-header">
+            <div>
+                <p class="eyebrow">KIS 국내주식 자동매매</p>
+                <h1>한스톡 <span class="highlight">대시보드</span></h1>
+            </div>
             <div class="header-actions">
                 <a class="nav-button" href="/vendors">Vendor Hub</a>
-                <a class="nav-button" href="/">Trading Dashboard</a>
+                <a class="nav-button" href="/">메인</a>
+                <a class="nav-button" href="/ai-dashboard">AI 대시보드</a>
+                <a class="nav-button futures-nav-button" href="/ai-dashboard/futures-signals">해외선물</a>
+                <a class="nav-button" href="/env-settings">환경설정</a>
+                <a class="nav-button" href="javascript:window.location.reload()">새로고침</a>
                 <div class="status-indicator">
-                    <span class="dot live"></span> Vendor Source Loaded
+                    <span class="dot live"></span> 자동 갱신 중
                 </div>
             </div>
         </header>
 
         <main>
             <section class="status-banner ok" id="finrl-status">Loading FinRL source status...</section>
+
+            <section class="card glass page-banner">
+                <div>
+                    <p class="eyebrow">FinRL Adapter</p>
+                    <h2>FinRL 기반 학습 파이프라인 점검</h2>
+                    <p class="section-help">벤더 소스와 현재 한스톡 전략 파이프라인의 연결 상태를 확인합니다.</p>
+                </div>
+            </section>
 
             <section class="summary-grid">
                 <div class="card glass">
@@ -40,7 +55,7 @@
                 </div>
             </section>
 
-            <div class="main-grid">
+            <div class="dashboard-stack">
                 <section class="card glass panel-settings">
                     <h2>FinRL Modules</h2>
                     <div class="settings-grid" id="finrl-modules"></div>
@@ -89,6 +104,7 @@
         </main>
     </div>
 
+    <script src="/static/js/environment_badge.js?v=1"></script>
     <script src="/static/js/finrl.js?v=2"></script>
 </body>
 </html>

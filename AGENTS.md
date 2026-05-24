@@ -30,8 +30,6 @@ Main entry points:
 
 Runtime artifacts belong in `.runtime/`, `logs/`, or `data/`. Do not place generated runtime files under `src/`, `web/`, or `tests/`.
 
-Keep the repository root clean. Only project-level files such as `README.md`, `AGENTS.md`, `requirements.txt`, `.env.example`, `.editorconfig`, `.gitattributes`, and `.gitignore` should live at the root.
-
 Placement rules:
 
 - New application code goes under `src/`.

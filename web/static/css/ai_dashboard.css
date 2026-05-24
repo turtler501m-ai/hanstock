@@ -36,6 +36,135 @@ a {
     font: inherit;
 }
 
+.dashboard-container {
+    max-width: 1400px;
+    margin: 0 auto;
+}
+
+.top-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 2rem;
+    gap: 1rem;
+}
+
+.app-header {
+    position: sticky;
+    top: 0;
+    z-index: 50;
+    min-height: 74px;
+    padding: 0.85rem 0;
+    background:
+        linear-gradient(180deg, rgba(11, 15, 20, 0.96), rgba(11, 15, 20, 0.88));
+    border-bottom: 1px solid rgba(148, 163, 184, 0.18);
+    backdrop-filter: blur(18px);
+}
+
+.header-actions {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+}
+
+.nav-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 38px;
+    color: var(--text);
+    text-decoration: none;
+    border: 1px solid rgba(59, 130, 246, 0.45);
+    background: rgba(59, 130, 246, 0.16);
+    border-radius: 8px;
+    padding: 0.45rem 0.75rem;
+    font-weight: 600;
+    font-size: 0.875rem;
+}
+
+.futures-nav-button {
+    border-color: rgba(34, 211, 238, 0.42);
+    background: rgba(34, 211, 238, 0.16);
+    color: #cffafe;
+}
+
+.status-indicator {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    color: var(--muted);
+    background: rgba(0, 0, 0, 0.2);
+    padding: 0.5rem 1rem;
+    border-radius: 20px;
+    border: 1px solid var(--line);
+    font-size: 0.875rem;
+}
+
+.dot.live {
+    width: 8px;
+    height: 8px;
+    background-color: var(--green);
+    border-radius: 50%;
+    box-shadow: 0 0 10px var(--green);
+    animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+    0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); }
+    70% { transform: scale(1); box-shadow: 0 0 0 6px rgba(16, 185, 129, 0); }
+    100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+}
+
+.highlight {
+    background: linear-gradient(135deg, #93c5fd, #34d399);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+}
+
+.dashboard-tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-bottom: 1.5rem;
+    padding: 0.35rem;
+    border: 1px solid rgba(148, 163, 184, 0.16);
+    border-radius: 8px;
+    background: rgba(15, 23, 42, 0.58);
+}
+
+.dashboard-tab {
+    min-height: 38px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    border: 1px solid transparent;
+    border-radius: 8px;
+    background: transparent;
+    color: var(--muted);
+    padding: 0.5rem 0.85rem;
+    text-decoration: none;
+    font-size: 0.875rem;
+    font-weight: 600;
+}
+
+.dashboard-tab.active,
+.dashboard-tab:hover {
+    border-color: rgba(59, 130, 246, 0.45);
+    background: rgba(59, 130, 246, 0.22);
+    color: var(--text);
+}
+
+.dashboard-tab svg,
+.nav-button svg,
+button svg {
+    width: 17px;
+    height: 17px;
+    flex: 0 0 auto;
+}
+
 .app-shell {
     display: grid;
     grid-template-columns: 280px minmax(0, 1fr);
@@ -684,5 +813,286 @@ button {
     .approval-row,
     .manual-order-form {
         grid-template-columns: 1fr;
+    }
+}
+
+/* Unified dashboard frame: align AI and futures pages with the main dashboard. */
+:root {
+    --bg: #101827;
+    --surface: rgba(24, 34, 52, 0.82);
+    --surface-2: rgba(59, 130, 246, 0.16);
+    --line: rgba(255, 255, 255, 0.12);
+    --text: #f8fafc;
+    --muted: #a8b3c7;
+    --soft: #cbd5e1;
+    --blue: #2563eb;
+    --cyan: #7dd3fc;
+    --green: #10b981;
+    --yellow: #f59e0b;
+    --red: #ef4444;
+}
+
+body {
+    background:
+        radial-gradient(circle at 18% 0%, rgba(37, 99, 235, 0.18), transparent 28rem),
+        linear-gradient(180deg, #0f172a 0%, var(--bg) 42%, #0b1220 100%);
+    padding: 2rem;
+}
+
+.app-shell {
+    display: block;
+    max-width: 1400px;
+    min-height: auto;
+    margin: 0 auto;
+}
+
+.side-nav {
+    position: static;
+    height: auto;
+    margin-bottom: 2rem;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 1rem;
+}
+
+.brand-mark {
+    background: linear-gradient(135deg, #93c5fd, #34d399);
+}
+
+.side-nav nav {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    justify-content: flex-end;
+}
+
+.side-nav a,
+.ghost-link,
+button {
+    border-color: rgba(59, 130, 246, 0.45);
+    background: rgba(59, 130, 246, 0.16);
+    border-radius: 8px;
+}
+
+.side-nav a.active,
+.side-nav a:hover,
+.ghost-link:hover,
+button:hover {
+    border-color: rgba(125, 211, 252, 0.55);
+    background: rgba(37, 99, 235, 0.24);
+}
+
+.mode-panel {
+    margin-top: 0;
+    min-width: 190px;
+    padding: 0.5rem 1rem;
+    border-color: var(--line);
+    background: rgba(0, 0, 0, 0.2);
+}
+
+.workspace {
+    padding: 0;
+    gap: 1.5rem;
+}
+
+.topbar {
+    margin-bottom: 0.25rem;
+}
+
+.eyebrow {
+    color: #7dd3fc;
+}
+
+.status-item,
+.metric-tile,
+.panel {
+    background: var(--surface);
+    border-color: var(--line);
+    box-shadow: 0 10px 30px -18px rgba(0, 0, 0, 0.65);
+}
+
+.status-strip,
+.metric-grid,
+.control-grid,
+.wide-grid,
+.bottom-grid {
+    gap: 1rem;
+}
+
+.manual-order-form input {
+    background: rgba(15, 23, 42, 0.72);
+}
+
+.top-header.topbar {
+    align-items: center;
+    margin-bottom: 2rem;
+}
+
+.top-header h1 {
+    font-size: 2.05rem;
+}
+
+.top-header .topbar-actions {
+    justify-content: flex-end;
+}
+
+.ai-page-banner {
+    display: flex;
+    align-items: stretch;
+    justify-content: space-between;
+    gap: 1rem;
+}
+
+.ai-page-banner .panel-title {
+    margin-bottom: 0;
+}
+
+.ai-page-banner h2 {
+    margin-bottom: 0.35rem;
+}
+
+.ai-page-actions {
+    display: flex;
+    align-items: stretch;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+}
+
+.ai-page-actions .mode-panel {
+    min-width: 210px;
+}
+
+.ai-page-actions .danger-button {
+    align-self: center;
+    min-height: 42px;
+}
+
+.futures-page-banner {
+    margin-bottom: 0;
+}
+
+.app-header,
+.app-header.top-header,
+.app-header.dashboard-header {
+    color: #f8fafc;
+    background:
+        linear-gradient(180deg, rgba(15, 23, 42, 0.98), rgba(15, 23, 42, 0.92));
+    border-bottom: 1px solid rgba(148, 163, 184, 0.18);
+    box-shadow: 0 16px 30px rgba(2, 6, 23, 0.18);
+}
+
+.app-header .eyebrow {
+    color: #7dd3fc;
+}
+
+.app-header h1 {
+    color: #f8fafc;
+    font-size: 2.05rem;
+    line-height: 1.2;
+}
+
+.app-header h1 .highlight,
+.app-header .highlight {
+    background: linear-gradient(135deg, #93c5fd, #34d399);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+}
+
+.app-header .nav-button,
+.app-header .ghost-link,
+.app-header button.nav-button,
+.app-header .futures-nav-button {
+    min-height: 38px;
+    border: 1px solid rgba(59, 130, 246, 0.45);
+    background: rgba(59, 130, 246, 0.16);
+    color: #f8fafc;
+    border-radius: 8px;
+    padding: 0.45rem 0.75rem;
+    font-weight: 600;
+}
+
+.app-header .nav-button:hover,
+.app-header .ghost-link:hover,
+.app-header button.nav-button:hover,
+.app-header .futures-nav-button:hover {
+    border-color: rgba(125, 211, 252, 0.55);
+    background: rgba(37, 99, 235, 0.24);
+}
+
+.app-header .status-indicator {
+    color: #a8b3c7;
+    background: rgba(0, 0, 0, 0.2);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+@media (max-width: 1180px) {
+    .side-nav {
+        grid-template-columns: 1fr;
+        align-items: stretch;
+    }
+
+    .side-nav nav {
+        justify-content: flex-start;
+    }
+
+    .mode-panel {
+        min-width: 0;
+    }
+}
+
+@media (max-width: 780px) {
+    body {
+        padding: 1rem;
+    }
+
+    .side-nav,
+    .workspace {
+        gap: 1rem;
+    }
+
+    .topbar-actions {
+        justify-content: flex-start;
+    }
+
+    .top-header.topbar {
+        align-items: flex-start;
+        flex-direction: column;
+    }
+
+    .app-header {
+        min-height: 0;
+        padding: 0.75rem 0;
+    }
+
+    .header-actions {
+        width: 100%;
+    }
+
+    .nav-button,
+    .status-indicator {
+        width: 100%;
+    }
+
+    .ai-page-banner {
+        flex-direction: column;
+    }
+
+    .ai-page-actions {
+        align-items: flex-start;
+    }
+
+    .dashboard-tabs {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .dashboard-tab {
+        width: 100%;
     }
 }

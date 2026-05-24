@@ -291,7 +291,11 @@ class KIStockAPI:
     def get_trade_history(self, start_date: str, end_date: str) -> list:
         try:
             _kis_throttle()
-            tr_id = "VTTC8001R" if config.trading_env == "demo" else "TTTC8001R"
+            tr_ids = (
+                ["VTTC0081R", "VTTC8001R"]
+                if config.trading_env == "demo"
+                else ["TTTC0081R", "TTTC8001R"]
+            )
             url = f"{self.base_url}/uapi/domestic-stock/v1/trading/inquire-daily-ccld"
             cano = config.kistock_account[:8]
             acnt = config.kistock_account[8:] if len(config.kistock_account) > 8 else "01"
@@ -303,20 +307,29 @@ class KIStockAPI:
                 "SLL_BUY_DVSN_CD": "00",
                 "INQR_DVSN": "00",
                 "PDNO": "",
-                "CCLD_DVSN": "01",
+                "CCLD_DVSN": "00",
                 "ORD_GNO_BRNO": "",
                 "ODNO": "",
                 "INQR_DVSN_3": "00",
                 "INQR_DVSN_1": "",
+                "EXCG_ID_DVSN_CD": "KRX",
                 "CTX_AREA_FK100": "",
                 "CTX_AREA_NK100": ""
             }
-            r = HTTP.get(url, headers=self._headers(tr_id), params=params, timeout=15)
-            data = self._response_json(r, "Trade history")
-            if data.get("rt_cd") != "0":
-                raise self._kis_error(data, "unknown KIS trade history error")
-            self._success()
-            return data.get("output1", [])
+            last_error: Exception | None = None
+            for tr_id in tr_ids:
+                try:
+                    r = HTTP.get(url, headers=self._headers(tr_id), params=params, timeout=15)
+                    data = self._response_json(r, "Trade history")
+                    if data.get("rt_cd") != "0":
+                        raise self._kis_error(data, "unknown KIS trade history error")
+                    self._success()
+                    return data.get("output1", [])
+                except Exception as exc:
+                    last_error = exc
+            if last_error:
+                raise last_error
+            return []
         except Exception:
             self._fail()
             raise

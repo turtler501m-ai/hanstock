@@ -7,27 +7,38 @@
     <title>한스톡 환경설정</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link
-        href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+KR:wght@400;500;600;700&display=swap"
-        rel="stylesheet">
-    <link rel="stylesheet" href="/static/css/style.css?v=16">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+KR:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/css/style.css?v=20">
 </head>
 
 <body>
     <div class="dashboard-container">
-        <header>
+        <header class="app-header">
             <div>
-                <p class="eyebrow">KIS 환경설정</p>
-                <h1>환경설정 <span class="highlight">.env</span></h1>
+                <p class="eyebrow">KIS 국내주식 자동매매</p>
+                <h1>한스톡 <span class="highlight">대시보드</span></h1>
             </div>
             <div class="header-actions">
-                <a class="nav-button" href="/">대시보드</a>
-                <a class="nav-button" href="/ai-dashboard">신규 AI 대시보드</a>
+                <a class="nav-button" href="/">메인</a>
+                <a class="nav-button" href="/ai-dashboard">AI 대시보드</a>
+                <a class="nav-button futures-nav-button" href="/ai-dashboard/futures-signals">해외선물</a>
+                <a class="nav-button" href="javascript:window.location.reload()">새로고침</a>
+                <div class="status-indicator">
+                    <span class="dot live"></span> 자동 갱신 중
+                </div>
             </div>
         </header>
 
         <main>
             <section class="status-banner" id="status-banner" hidden></section>
+
+            <section class="card glass page-banner">
+                <div>
+                    <p class="eyebrow">환경설정</p>
+                    <h2>실행 환경과 자동매매 설정 관리</h2>
+                    <p class="section-help">KIS 계좌, 실행 모드, 전략 파라미터를 저장합니다. 저장 후 서버를 재시작해야 적용됩니다.</p>
+                </div>
+            </section>
 
             <section class="card glass env-page-panel">
                 <div class="panel-header split-header">
@@ -48,6 +59,7 @@
         </main>
     </div>
 
+    <script src="/static/js/environment_badge.js?v=1"></script>
     <script src="/static/js/env_settings.js?v=5"></script>
 </body>
 

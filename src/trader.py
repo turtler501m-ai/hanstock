@@ -3,6 +3,8 @@ Seven Split auto-trading engine (Refactored).
 """
 import json
 import os
+import threading
+import time
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
@@ -10,7 +12,7 @@ from src.config import config
 from src.utils.logger import logger
 from src.api.kis_api import HTTP
 from src.kis_client import KISClient, KISClientConfig
-from src.db.repository import init_db, connect_db, save_trade
+from src.db.repository import init_db, connect_db, save_trade, update_trade_order_status
 from src.notifier.slack import slack_session_start, slack_order, slack_candidates, slack_session_end, slack_error
 from src.strategy.seven_split import (
     WATCHLIST, KOSPI_UNIVERSE, STOCK_NAMES,
@@ -22,6 +24,7 @@ from src.strategy.indicators import calc_bollinger, calc_macd, calc_rsi, calc_sm
 from src.strategy.risk import RiskEngine
 from src.strategy.router import OrderRouter
 from src.execution_plan import (
+    PlanRow,
     signal_to_plan_row,
     candidate_order_to_plan_row,
     build_execution_plan,
@@ -62,6 +65,9 @@ BASE_URL = (
 KISTOCK_APP_KEY = config.kistock_app_key
 KISTOCK_APP_SECRET = config.kistock_app_secret
 KISTOCK_ACCOUNT = config.kistock_account
+_KIS_ORDER_THROTTLE_LOCK = threading.Lock()
+_KIS_ORDER_LAST_CALL = 0.0
+_KIS_ORDER_MIN_INTERVAL_SECONDS = float(os.environ.get("KIS_ORDER_MIN_INTERVAL_SECONDS", "2.0"))
 
 
 def build_kis_client_config() -> KISClientConfig:
@@ -73,6 +79,17 @@ def build_kis_client_config() -> KISClientConfig:
         trading_env=TRADING_ENV,
         token_cache_path=Path("data") / "kis_token.json",
     )
+
+
+def _kis_order_throttle() -> None:
+    global _KIS_ORDER_LAST_CALL
+    if _KIS_ORDER_MIN_INTERVAL_SECONDS <= 0:
+        return
+    with _KIS_ORDER_THROTTLE_LOCK:
+        elapsed = time.monotonic() - _KIS_ORDER_LAST_CALL
+        if elapsed < _KIS_ORDER_MIN_INTERVAL_SECONDS:
+            time.sleep(_KIS_ORDER_MIN_INTERVAL_SECONDS - elapsed)
+        _KIS_ORDER_LAST_CALL = time.monotonic()
 
 
 class KIStockAPI:
@@ -246,14 +263,16 @@ class KIStockAPI:
             "ORD_UNPR": str(price),
         }
         headers = self._headers(tr_id)
+        _kis_order_throttle()
         hashkey = self._hashkey(body)
         if hashkey:
             headers["hashkey"] = hashkey
+        _kis_order_throttle()
         r = HTTP.post(url, headers=headers, json=body, timeout=15)
         return r.json()
 
     def get_trade_history(self, start_date: str, end_date: str) -> list:
-        tr_id = "VTTC8001R" if TRADING_ENV == "demo" else "TTTC8001R"
+        tr_id = "VTTC0081R" if TRADING_ENV == "demo" else "TTTC0081R"
         url = f"{BASE_URL}/uapi/domestic-stock/v1/trading/inquire-daily-ccld"
         cano = KISTOCK_ACCOUNT[:8]
         acnt = KISTOCK_ACCOUNT[8:] if len(KISTOCK_ACCOUNT) > 8 else "01"
@@ -261,8 +280,9 @@ class KIStockAPI:
             "CANO": cano, "ACNT_PRDT_CD": acnt,
             "INQR_STRT_DT": start_date, "INQR_END_DT": end_date,
             "SLL_BUY_DVSN_CD": "00", "INQR_DVSN": "00", "PDNO": "",
-            "CCLD_DVSN": "01", "ORD_GNO_BRNO": "", "ODNO": "",
+            "CCLD_DVSN": "00", "ORD_GNO_BRNO": "", "ODNO": "",
             "INQR_DVSN_3": "00", "INQR_DVSN_1": "",
+            "EXCG_ID_DVSN_CD": "KRX",
             "CTX_AREA_FK100": "", "CTX_AREA_NK100": "",
         }
         r = HTTP.get(url, headers=self._headers(tr_id), params=params, timeout=15)
@@ -346,7 +366,14 @@ def queue_approval(
         return cursor.lastrowid
 
 
+def _is_executable_plan_row(row: dict) -> bool:
+    return row.get("action") in {"buy", "sell"} and int(row.get("qty", 0) or 0) > 0
+
+
 def execute_plan_row(api, context: dict, row: dict) -> dict:
+    if not _is_executable_plan_row(row):
+        return {**row, "decision": "skip", "ok": True}
+
     mode = context.get("mode")
     if mode == "analysis_only":
         approval_id = queue_approval(
@@ -378,10 +405,79 @@ def execute_plan_row(api, context: dict, row: dict) -> dict:
     return {**row, "decision": decision, "ok": ok}
 
 
-def build_runtime_plan(api, balance_data: dict) -> dict:
+def _holding_history_from_balance(api, stocks: list[dict]) -> list[dict]:
+    holdings = []
+    for stock in stocks:
+        qty = int(stock.get("hldg_qty", 0) or 0)
+        price = int(stock.get("prpr", 0) or 0)
+        value = int(stock.get("evlu_amt", 0) or 0)
+        if price <= 0 and qty > 0:
+            price = round(value / qty)
+        symbol = stock.get("pdno", "")
+        daily = api.get_daily(symbol, n=120)
+        prices = [float(row["stck_clpr"]) for row in daily if row.get("stck_clpr")]
+        highs = [float(row["stck_hgpr"]) for row in daily if row.get("stck_hgpr")]
+        volumes = [float(row["acml_vol"]) for row in daily if row.get("acml_vol")]
+        prices.reverse()
+        highs.reverse()
+        volumes.reverse()
+        holdings.append({
+            "symbol": symbol,
+            "name": stock.get("prdt_name", symbol),
+            "qty": qty,
+            "price": price,
+            "value": value if value > 0 else qty * price,
+            "prices": prices,
+            "highs": highs,
+            "volumes": volumes,
+        })
+    return holdings
+
+
+def build_ai_rebalance_rows(api, balance_data: dict, total_eval: int) -> list[dict]:
+    stocks = balance_data.get("output1", [])
+    holdings = _holding_history_from_balance(api, stocks)
+    ai_plan = generate_ai_weight_plan(holdings, total_eval)
+    rows = []
+    for position in ai_plan.get("positions", []):
+        action = position.get("rebalance_action", "hold")
+        qty = int(position.get("rebalance_qty", 0) or 0)
+        if action not in {"buy", "sell"} or qty <= 0:
+            continue
+        target_weight = float(position.get("target_weight", 0) or 0)
+        current_weight = float(position.get("current_weight", 0) or 0)
+        reason = (
+            f"AI rebalance {current_weight * 100:.1f}% -> {target_weight * 100:.1f}%"
+        )
+        if position.get("reasoning_kr"):
+            reason = f"{reason} | {position['reasoning_kr']}"
+        rows.append(PlanRow(
+            symbol=str(position.get("symbol", "")),
+            name=str(position.get("name") or position.get("symbol", "")),
+            action=action,
+            qty=qty,
+            price=int(position.get("price", 0) or 0),
+            reason=reason,
+            source="ai_rebalance",
+            category="ai_rebalance",
+            score=position.get("score"),
+            reasons=list(position.get("reasons") or []),
+            metadata={
+                "target_weight": target_weight,
+                "current_weight": current_weight,
+                "target_value": position.get("target_value", 0),
+                "delta_value": position.get("delta_value", 0),
+                "ai_active": bool(ai_plan.get("ai_active")),
+            },
+        ).to_dict())
+    return rows
+
+
+def build_runtime_plan(api, balance_data: dict, *, include_ai_rebalance: bool = False) -> dict:
     stocks = balance_data.get("output1", [])
     summary = (balance_data.get("output2") or [{}])[0]
     cash = int(summary.get("dnca_tot_amt", 0) or 0)
+    total_eval = int(summary.get("tot_evlu_amt", 0) or 0)
     pnl = int(summary.get("evlu_pfls_smtl_amt", 0) or 0)
 
     position_rows = []
@@ -437,11 +533,16 @@ def build_runtime_plan(api, balance_data: dict) -> dict:
         }
 
     plan = build_execution_plan(position_rows=position_rows, candidate_rows=candidate_rows)
+    ai_rebalance_rows = []
+    if include_ai_rebalance and not halted:
+        ai_rebalance_rows = build_ai_rebalance_rows(api, balance_data, total_eval)
+        plan.extend(ai_rebalance_rows)
 
     return {
         "plan": plan,
         "position_plan_rows": position_rows,
         "candidate_plan_rows": candidate_rows,
+        "ai_rebalance_rows": ai_rebalance_rows,
         "remaining_cash": remaining_cash,
         "daily_loss_halt": halted,
         "candidate_scan": candidate_scan,
@@ -450,7 +551,12 @@ def build_runtime_plan(api, balance_data: dict) -> dict:
     }
 
 
-def run(mode: str | None = None) -> dict:
+def run(
+    mode: str | None = None,
+    *,
+    include_ai_rebalance: bool = False,
+    execution_categories: set[str] | None = None,
+) -> dict:
     check_secrets()
     init_db()
     init_approval_db()
@@ -485,7 +591,10 @@ def run(mode: str | None = None) -> dict:
         slack_session_end(results=[], cash=cash, total=total_eval, pnl=pnl)
         return {"plan": [], "results": []}
 
-    runtime_bundle = build_runtime_plan(api, balance)
+    if include_ai_rebalance:
+        runtime_bundle = build_runtime_plan(api, balance, include_ai_rebalance=True)
+    else:
+        runtime_bundle = build_runtime_plan(api, balance)
 
     candidates = runtime_bundle.get("candidate_scan", {}).get("candidates", [])
     if candidates:
@@ -497,6 +606,9 @@ def run(mode: str | None = None) -> dict:
 
     results = []
     for row in runtime_bundle["plan"]:
+        if execution_categories is not None and row.get("category") not in execution_categories:
+            results.append({**row, "decision": "skip", "ok": True, "skip_reason": "category filtered"})
+            continue
         result_row = execute_plan_row(api, context, row)
         results.append(result_row)
 

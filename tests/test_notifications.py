@@ -59,9 +59,9 @@ class NotificationTests(unittest.TestCase):
             trading_env="demo",
         )
         fields = payload["attachments"][0]["blocks"][1]["fields"]
-        self.assertEqual(payload["text"], "Seven Split started at 2026-04-26 18:30 KST")
-        self.assertEqual(fields[1]["text"], "*Mode*\nDRY_RUN")
-        self.assertEqual(fields[4]["text"], "*Total Value*\n2,000,000 KRW")
+        self.assertEqual(payload["text"], "세븐 스플릿 자동매매 시작 - 2026-04-26 18:30 KST")
+        self.assertEqual(fields[1]["text"], "*실행 모드*\nDRY_RUN")
+        self.assertEqual(fields[4]["text"], "*총 평가금액*\n2,000,000원")
 
     def test_build_order_payload_formats_market_sell_and_failure_color(self):
         payload = build_order_payload(
@@ -76,9 +76,9 @@ class NotificationTests(unittest.TestCase):
         )
         fields = payload["attachments"][0]["blocks"][1]["fields"]
         self.assertEqual(payload["attachments"][0]["color"], "#e74c3c")
-        self.assertEqual(fields[1]["text"], "*Price*\nmarket")
+        self.assertEqual(fields[1]["text"], "*가격*\n시장가")
         self.assertEqual(fields[3]["text"], "*RSI*\n31.2")
-        self.assertEqual(fields[5]["text"], "*Return*\n-15.34%")
+        self.assertEqual(fields[5]["text"], "*수익률*\n-15.34%")
 
     def test_build_candidates_payload_returns_none_for_empty_candidates(self):
         self.assertIsNone(build_candidates_payload([]))
@@ -88,7 +88,7 @@ class NotificationTests(unittest.TestCase):
             {"ticker": "005930", "current_price": 70123, "score": 4, "reasons": ["rsi", "macd"]},
         ])
         text = payload["attachments"][0]["blocks"][1]["text"]["text"]
-        self.assertIn("*005930* 70,123 KRW | score 4 | rsi, macd", text)
+        self.assertIn("*005930* (`005930`) 70,123원 | 점수 4 | rsi, macd", text)
 
     def test_build_session_end_payload_summarizes_results(self):
         payload = build_session_end_payload(
@@ -106,18 +106,18 @@ class NotificationTests(unittest.TestCase):
         fields = attachment["blocks"][1]["fields"]
         orders = attachment["blocks"][2]["text"]["text"]
         self.assertEqual(attachment["color"], "#e74c3c")
-        self.assertEqual(fields[4]["text"], "*Buys*\n1")
-        self.assertEqual(fields[6]["text"], "*Queued*\n1")
-        self.assertIn("QUEUED Naver 3 shares - queue", orders)
+        self.assertEqual(fields[4]["text"], "*매수 성공*\n1건")
+        self.assertEqual(fields[6]["text"], "*승인대기*\n1건")
+        self.assertIn("승인대기 Naver 3주 - queue", orders)
 
     def test_build_session_end_payload_handles_empty_results(self):
         payload = build_session_end_payload(results=[], cash=1, total=2, pnl=3)
         self.assertEqual(payload["attachments"][0]["color"], "#9E9E9E")
-        self.assertIn("no orders", payload["text"])
+        self.assertIn("주문 없음", payload["text"])
 
     def test_build_error_payload_uses_error_color(self):
         payload = build_error_payload("boom")
-        self.assertEqual(payload["text"], "Seven Split error: boom")
+        self.assertEqual(payload["text"], "세븐 스플릿 오류: boom")
         self.assertEqual(payload["attachments"][0]["color"], "#e74c3c")
 
     def test_post_slack_payload_returns_true_on_success(self):

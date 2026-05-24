@@ -56,6 +56,15 @@ class Settings(BaseSettings):
     trade_db_path: str = ".runtime/trades.sqlite"
     log_file: str = "logs/trader.log"
     active_model_version: str = "v1"
+    ai_strategy_enabled: bool = False
+    ai_score_weight: float = 0.40
+    ai_min_model_confidence: float = 0.60
+    ai_require_backtest_pass: bool = True
+    ai_auto_approve: bool = False
+    openai_api_key: str = ""
+    openai_model: str = "gpt-5-mini"
+    openai_timeout_seconds: float = 20.0
+    ai_candidate_limit: int = 5
 
     model_config = SettingsConfigDict(
         env_file=".env",

@@ -1,24 +1,282 @@
 from __future__ import annotations
 
 import argparse
+import json
+import os
+import time
+from datetime import datetime
+from pathlib import Path
 
 from src import trader
+from src.notifier.slack import send_slack
 
 
-def run_scheduled_cycle(mode: str = "execute") -> dict:
-    return trader.run(mode=mode)
+def _env_int(name: str, default: int, *, minimum: int = 1) -> int:
+    try:
+        return max(minimum, int(os.environ.get(name, str(default))))
+    except ValueError:
+        return default
+
+
+def _env_float(name: str, default: float, *, minimum: float = 0.0) -> float:
+    try:
+        return max(minimum, float(os.environ.get(name, str(default))))
+    except ValueError:
+        return default
+
+
+def _error_record(exc: Exception, *, attempt: int | None = None, approval_id: int | None = None) -> dict:
+    record = {
+        "type": exc.__class__.__name__,
+        "message": str(exc),
+    }
+    if attempt is not None:
+        record["attempt"] = attempt
+    if approval_id is not None:
+        record["approval_id"] = approval_id
+    return record
+
+
+def _run_trader_with_retries(*, attempts: int, delay_seconds: float, kwargs: dict) -> dict:
+    errors = []
+    for attempt in range(1, attempts + 1):
+        try:
+            result = trader.run(**kwargs)
+            if errors:
+                result = {**result, "retry_errors": errors, "retry_count": len(errors)}
+            return result
+        except Exception as exc:
+            errors.append(_error_record(exc, attempt=attempt))
+            if attempt >= attempts:
+                return {
+                    "status": "failed",
+                    "ok": False,
+                    "results": [],
+                    "errors": errors,
+                }
+            time.sleep(delay_seconds)
+    return {"status": "failed", "ok": False, "results": [], "errors": errors}
+
+
+def _approve_one_with_retries(approval_id: int, *, attempts: int, delay_seconds: float) -> dict:
+    from src.dashboard import _approve_pending_approval
+
+    errors = []
+    for attempt in range(1, attempts + 1):
+        try:
+            result = _approve_pending_approval(int(approval_id), "scheduled auto approval")
+            if errors:
+                result = {**result, "retry_errors": errors, "retry_count": len(errors)}
+            return {"approved": result, "errors": []}
+        except Exception as exc:
+            errors.append(_error_record(exc, attempt=attempt, approval_id=approval_id))
+            if attempt >= attempts:
+                return {"approved": None, "errors": errors}
+            time.sleep(delay_seconds)
+    return {"approved": None, "errors": errors}
+
+
+def _approve_created_approvals(result: dict, *, allowed_categories: set[str] | None = None) -> dict:
+    approved = []
+    errors = []
+    attempts = _env_int("HANSTOCK_APPROVAL_RETRIES", 2)
+    delay_seconds = _env_float("HANSTOCK_APPROVAL_DELAY_SECONDS", 1.2)
+    for row in result.get("results", []):
+        if allowed_categories is not None and row.get("category") not in allowed_categories:
+            continue
+        approval_id = row.get("approval_id")
+        if not approval_id:
+            continue
+        outcome = _approve_one_with_retries(int(approval_id), attempts=attempts, delay_seconds=delay_seconds)
+        if outcome["approved"] is not None:
+            approved.append(outcome["approved"])
+        errors.extend(outcome["errors"])
+        time.sleep(delay_seconds)
+    return {"approved": approved, "errors": errors}
+
+
+def _order_status_sync_enabled() -> bool:
+    return os.environ.get("HANSTOCK_ORDER_STATUS_SYNC", "true").lower() not in {"0", "false", "no", "off"}
+
+
+def _result_submitted_orders(result: dict) -> bool:
+    if any(row.get("status") == "executed" for row in result.get("auto_approved", []) or []):
+        return True
+    return any(row.get("decision") == "execute" and row.get("ok") for row in result.get("results", []) or [])
+
+
+def _sync_order_status_after_cycle(result: dict) -> dict:
+    if not _order_status_sync_enabled():
+        return result
+    if trader.DRY_RUN or not trader.ORDER_SUBMISSION_ENABLED:
+        return result
+    if not _result_submitted_orders(result):
+        return result
+    try:
+        from src.dashboard import _get_api, _sync_order_status_from_history
+
+        days = _env_int("HANSTOCK_ORDER_STATUS_SYNC_DAYS", 7)
+        sync_result = _sync_order_status_from_history(_get_api(), days=days)
+        return {**result, "order_status_sync": sync_result}
+    except Exception as exc:
+        return {**result, "order_status_sync_error": _error_record(exc)}
+
+
+def _write_cycle_result(result: dict, *, mode: str) -> None:
+    path = Path(os.environ.get("HANSTOCK_SCHEDULER_RESULT_PATH", ".runtime/daily_auto_last_result.json"))
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "mode": mode,
+        "recorded_at": datetime.now(trader.KST).isoformat(),
+        "result": result,
+    }
+    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
+
+
+def _slack_enabled() -> bool:
+    return os.environ.get("HANSTOCK_SCHEDULER_SLACK", "true").lower() not in {"0", "false", "no", "off"}
+
+
+def _slack_cycle_start(*, mode: str) -> None:
+    if mode != "daily_auto" or not _slack_enabled():
+        return
+    now = datetime.now(trader.KST).strftime("%Y-%m-%d %H:%M KST")
+    send_slack(
+        text=f"[한스톡 VM] AI 자동매매 점검 시작 - {now}",
+        color="#2196F3",
+    )
+
+
+def _slack_cycle_result(result: dict, *, mode: str) -> None:
+    if mode != "daily_auto" or not _slack_enabled():
+        return
+
+    results = result.get("results", []) or []
+    approved = result.get("auto_approved", []) or []
+    approval_errors = result.get("auto_approval_errors", []) or []
+    run_errors = result.get("errors", []) or result.get("retry_errors", []) or []
+    failed = result.get("status") == "failed" or result.get("ok") is False or bool(approval_errors)
+    color = "#e74c3c" if failed else "#36a64f"
+    status = "문제 발생" if failed else "정상 완료"
+
+    plan_count = len(result.get("plan", []) or [])
+    queued_count = sum(1 for row in results if row.get("decision") == "queue")
+    approved_count = sum(1 for row in approved if row.get("status") == "executed")
+    failed_approval_count = sum(1 for row in approved if row.get("status") == "failed") + len(approval_errors)
+    retry_count = int(result.get("retry_count", 0) or 0)
+
+    lines = [
+        f"*상태*: {status}",
+        f"*계획/승인대기/승인완료*: {plan_count} / {queued_count} / {approved_count}",
+        f"*승인 실패*: {failed_approval_count}",
+        f"*재시도*: {retry_count}",
+        f"*환경*: {trader.TRADING_ENV}, dry_run={trader.DRY_RUN}, order_submission={trader.ORDER_SUBMISSION_ENABLED}",
+    ]
+
+    if approval_errors:
+        first = approval_errors[0]
+        lines.append(f"*승인 오류*: approval={first.get('approval_id', '-')} {first.get('message', '')}")
+    elif run_errors:
+        first = run_errors[-1]
+        lines.append(f"*실행 오류*: {first.get('type', 'Error')} {first.get('message', '')}")
+
+    send_slack(
+        text=f"[한스톡 VM] AI 자동매매 {status}",
+        blocks=[
+            {"type": "header", "text": {"type": "plain_text", "text": "한스톡 AI 자동매매"}},
+            {"type": "section", "text": {"type": "mrkdwn", "text": "\n".join(lines)}},
+        ],
+        color=color,
+    )
+
+
+def run_scheduled_cycle(
+    mode: str = "execute",
+    *,
+    include_ai_rebalance: bool = False,
+    auto_approve: bool = False,
+) -> dict:
+    if mode == "daily_auto":
+        include_ai_rebalance = True
+        auto_approve = True
+        run_mode = "analysis_only"
+        execution_categories = {"ai_rebalance"}
+        approval_categories = {"ai_rebalance"}
+        run_attempts = _env_int("HANSTOCK_DAILY_AUTO_RETRIES", 3)
+        retry_delay_seconds = _env_float("HANSTOCK_DAILY_AUTO_RETRY_DELAY_SECONDS", 10.0)
+    else:
+        run_mode = mode
+        execution_categories = None
+        approval_categories = None
+        run_attempts = _env_int("HANSTOCK_SCHEDULER_RETRIES", 1)
+        retry_delay_seconds = _env_float("HANSTOCK_SCHEDULER_RETRY_DELAY_SECONDS", 5.0)
+
+    _slack_cycle_start(mode=mode)
+
+    if include_ai_rebalance:
+        result = _run_trader_with_retries(
+            attempts=run_attempts,
+            delay_seconds=retry_delay_seconds,
+            kwargs={
+                "mode": run_mode,
+                "include_ai_rebalance": True,
+                "execution_categories": execution_categories,
+            },
+        )
+    else:
+        result = _run_trader_with_retries(
+            attempts=run_attempts,
+            delay_seconds=retry_delay_seconds,
+            kwargs={"mode": run_mode},
+        )
+
+    approval_result = (
+        _approve_created_approvals(result, allowed_categories=approval_categories)
+        if auto_approve
+        else {"approved": [], "errors": []}
+    )
+    if auto_approve:
+        result = {
+            **result,
+            "auto_approved": approval_result["approved"],
+            "auto_approval_errors": approval_result["errors"],
+        }
+    result = _sync_order_status_after_cycle(result)
+    if mode == "daily_auto":
+        _write_cycle_result(result, mode=mode)
+        _slack_cycle_result(result, mode=mode)
+    return result
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Seven Split scheduled trading runner")
     parser.add_argument(
         "--mode",
-        choices=["execute", "analysis_only"],
+        choices=["execute", "analysis_only", "daily_auto"],
         default="execute",
-        help="execute orders immediately when policy allows, or queue analysis output only",
+        help=(
+            "execute orders immediately when policy allows, queue analysis output only, "
+            "or run daily AI rebalance with automatic approval"
+        ),
+    )
+    parser.add_argument(
+        "--include-ai-rebalance",
+        action="store_true",
+        help="include AI target-weight rebalance rows in the scheduled plan",
+    )
+    parser.add_argument(
+        "--auto-approve",
+        action="store_true",
+        help="approve only approvals created by this scheduler run",
     )
     args = parser.parse_args()
-    run_scheduled_cycle(mode=args.mode)
+    result = run_scheduled_cycle(
+        mode=args.mode,
+        include_ai_rebalance=args.include_ai_rebalance,
+        auto_approve=args.auto_approve,
+    )
+    if result.get("status") == "failed" or result.get("ok") is False:
+        return 1
     return 0
 
 

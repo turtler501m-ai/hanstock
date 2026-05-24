@@ -49,6 +49,20 @@ const toKorStatus = (value) => {
     return STATUS_LABELS[key] || value || '-';
 };
 
+const ORDER_STATUS_LABELS = {
+    submitted: 'Submitted',
+    open: 'Open',
+    partial: 'Partial',
+    filled: 'Filled',
+    simulated: 'Simulated',
+    failed: 'Failed',
+};
+
+const orderStatusLabel = (value) => {
+    const key = String(value || '').toLowerCase();
+    return ORDER_STATUS_LABELS[key] || value || '-';
+};
+
 const translateReason = (value) => {
     const replacements = [
         ['stop loss', '손절 기준 도달'],
@@ -117,6 +131,59 @@ const aiDecisionLabel = (action) => {
     }
     return '비중 유지';
 };
+
+const aiModelStatusLabel = (status) => {
+    const key = String(status || '').toLowerCase();
+    const labels = {
+        ready: '모델 적용',
+        low_confidence: '신뢰도 낮음',
+        fallback: '룰 기반',
+        disabled: 'AI 꺼짐',
+        queued: '룰 우선',
+    };
+    return labels[key] || status || '-';
+};
+
+const aiModelStatusKind = (status) => {
+    const key = String(status || '').toLowerCase();
+    if (key === 'ready') return 'buy';
+    if (key === 'low_confidence' || key === 'fallback') return 'warn';
+    if (key === 'queued') return 'hold';
+    return 'hold';
+};
+
+function buildCandidateStrategyMarkup(row) {
+    const ruleScore = Number(row.rule_score ?? row.score ?? 0);
+    const finalScore = Number(row.final_score ?? row.score ?? ruleScore);
+    const mlScore = row.ml_score == null ? null : Number(row.ml_score);
+    const modelStatus = row.ai_model_status || (row.ai_enabled ? 'fallback' : 'disabled');
+    const modelVersion = row.ai_model_version || '-';
+    const weight = Number(row.ai_score_weight || 0);
+    const topFeatures = (row.top_features || [])
+        .slice(0, 3)
+        .map((item) => `<span>${escapeHtml(item.name)} ${formatNumber(item.value, 3)}</span>`)
+        .join('');
+    const fallback = row.ai_fallback_reason
+        ? `<div class="candidate-ai-note">${escapeHtml(row.ai_fallback_reason)}</div>`
+        : '';
+
+    return `
+        <div class="candidate-ai-cell">
+            <div class="candidate-score-grid">
+                <div><span>룰</span><strong>${formatNumber(ruleScore, 2)}</strong></div>
+                <div><span>AI</span><strong>${mlScore == null ? '-' : formatNumber(mlScore, 2)}</strong></div>
+                <div><span>최종</span><strong>${formatNumber(finalScore, 2)}</strong></div>
+            </div>
+            <div class="candidate-ai-meta">
+                ${pill(aiModelStatusLabel(modelStatus), aiModelStatusKind(modelStatus))}
+                <span>${escapeHtml(modelVersion)}</span>
+                <span>가중 ${formatNumber(weight * 100, 0)}%</span>
+            </div>
+            ${topFeatures ? `<div class="candidate-feature-list">${topFeatures}</div>` : ''}
+            ${fallback}
+        </div>
+    `;
+}
 
 function buildAiModalMarkup(payload) {
     const reasons = Array.isArray(payload.reasons) ? payload.reasons : [];
@@ -358,6 +425,115 @@ function buildNoCandidatesModalMarkup(data) {
 let portfolioChartInstance = null;
 let latestConfig = null;
 
+function strategySettingFields(config) {
+    return [
+        { key: 'SPLIT_N', label: '분할 횟수', value: config.split_n, type: 'int', step: '1', min: '1', suffix: '회' },
+        { key: 'STOP_LOSS_PCT', label: '손절 기준', value: config.stop_loss_pct, type: 'float', step: '0.1', suffix: '%' },
+        { key: 'TAKE_PROFIT', label: '익절 기준', value: config.take_profit, type: 'float', step: '0.1', suffix: '%' },
+        { key: 'RSI_BUY', label: 'RSI 매수선', value: config.rsi_buy, type: 'int', step: '1', min: '0', max: '100' },
+        { key: 'RSI_SELL', label: 'RSI 매도선', value: config.rsi_sell, type: 'int', step: '1', min: '0', max: '100' },
+        { key: 'TOTAL_CAPITAL', label: '기준 자본', value: config.total_capital, type: 'float', step: '100000', min: '0', suffix: '원' },
+        { key: 'MAX_POSITIONS', label: '최대 보유종목', value: config.max_positions, type: 'int', step: '1', min: '1', suffix: '개' },
+        { key: 'MAX_SINGLE_WEIGHT', label: '종목당 최대비중', value: Number(config.max_single_weight || 0) * 100, type: 'float', step: '0.1', min: '0', max: '100', suffix: '%', percent: true },
+        { key: 'CASH_BUFFER', label: '현금 보유비중', value: Number(config.cash_buffer || 0) * 100, type: 'float', step: '0.1', min: '0', max: '100', suffix: '%', percent: true },
+        { key: 'MAX_DAILY_LOSS_PCT', label: '일 손실 제한', value: config.max_daily_loss_pct, type: 'float', step: '0.1', min: '0', suffix: '%' },
+    ];
+}
+
+function renderStrategySettingsForm(config) {
+    const fields = strategySettingFields(config);
+    const fieldMarkup = fields.map((field) => `
+        <label class="strategy-setting-item">
+            <span class="label">${escapeHtml(field.label)}</span>
+            <div class="setting-input-row">
+                <input
+                    type="number"
+                    name="${escapeHtml(field.key)}"
+                    value="${escapeHtml(field.value)}"
+                    step="${escapeHtml(field.step || '1')}"
+                    ${field.min !== undefined ? `min="${escapeHtml(field.min)}"` : ''}
+                    ${field.max !== undefined ? `max="${escapeHtml(field.max)}"` : ''}
+                    data-type="${escapeHtml(field.type)}"
+                    data-percent="${field.percent ? 'true' : 'false'}"
+                >
+                ${field.suffix ? `<span>${escapeHtml(field.suffix)}</span>` : ''}
+            </div>
+        </label>
+    `).join('');
+
+    return `
+        <form id="strategy-settings-form" class="strategy-settings-form">
+            <div class="strategy-settings-grid">${fieldMarkup}</div>
+            <div class="strategy-settings-meta">
+                <span class="time-muted">저장하면 즉시 현재 서버에 반영됩니다.</span>
+                <button type="submit" id="btn-strategy-save">저장</button>
+            </div>
+        </form>
+    `;
+}
+
+function renderAiStrategySummary(config) {
+    const ai = config.ai_analysis || {};
+    const enabled = Boolean(ai.enabled);
+    const available = Boolean(ai.model_available);
+    const modelStatus = enabled
+        ? (available ? '모델 적용 준비' : '룰 기반 대체')
+        : 'AI 꺼짐';
+    const modelDetail = enabled && available
+        ? `${ai.provider_label || 'OpenAI API'} / ${ai.model_type || '텍스트 모델'}`
+        : (enabled ? 'OPENAI_API_KEY 없음: Seven Split 룰 점수로 분석' : 'Seven Split 룰 점수만 사용');
+    const ruleWeight = Number(ai.rule_weight ?? 1) * 100;
+    const scoreWeight = Number(ai.score_weight ?? 0) * 100;
+    const accountText = ai.account || config.kistock_account || '-';
+    const flow = ai.auto_approve ? 'AI 제안 후 자동승인 설정 켜짐' : 'AI 제안 후 승인 대기';
+
+    setElementText('ai-summary-model', `${modelStatus} · ${ai.model_name || '-'}`);
+    setElementText('ai-summary-model-detail', modelDetail);
+    setElementText('ai-summary-account', accountText);
+    setElementText('ai-summary-weight', `룰 ${formatNumber(ruleWeight, 0)}% / AI ${formatNumber(scoreWeight, 0)}%`);
+    setElementText('ai-summary-flow', flow);
+
+    const flowEl = document.getElementById('ai-flow-list');
+    if (flowEl) {
+        const items = (ai.flow || []).map((item) => `<span>${escapeHtml(item)}</span>`).join('');
+        flowEl.innerHTML = items || '<span>현재 KIS 계좌와 Seven Split 전략 기준으로 후보를 분석합니다.</span>';
+    }
+}
+
+async function saveStrategySettings(event) {
+    event.preventDefault();
+    const form = event.currentTarget;
+    setButtonBusy('btn-strategy-save', true);
+    try {
+        const values = {};
+        const inputs = Array.from(form.querySelectorAll('input[name]'));
+        for (const input of inputs) {
+            const raw = String(input.value || '').trim();
+            if (!raw) {
+                throw new Error(`${input.name} 값이 비어 있습니다.`);
+            }
+            let numeric = Number(raw);
+            if (!Number.isFinite(numeric)) {
+                throw new Error(`${input.name} 값이 숫자가 아닙니다.`);
+            }
+            if (input.dataset.type === 'int') {
+                numeric = Math.trunc(numeric);
+            }
+            if (input.dataset.percent === 'true') {
+                numeric = numeric / 100;
+            }
+            values[input.name] = String(numeric);
+        }
+        const result = await postJson('/api/env', { values });
+        setStatus(`전략 설정을 저장했습니다. 반영 항목: ${result.updated.join(', ')}`, true);
+        await Promise.all([renderConfig(), renderBalance()]);
+    } catch (err) {
+        setStatus(`전략 설정 저장 실패: ${err.message}`);
+    } finally {
+        setButtonBusy('btn-strategy-save', false);
+    }
+}
+
 function renderPortfolioChart(labels, data, colors) {
     if (typeof Chart === 'undefined') {
         return;
@@ -471,26 +647,14 @@ async function toggleAutoApproval() {
 async function renderConfig() {
     const config = await fetchJson('/api/config');
     latestConfig = config;
-    const items = [
-        ['분할 횟수', `${config.split_n}회`],
-        ['손절 기준', `${config.stop_loss_pct}%`],
-        ['익절 기준', `${config.take_profit}%`],
-        ['RSI 매수선', config.rsi_buy],
-        ['RSI 매도선', config.rsi_sell],
-        ['기준 자본', formatCurrency(config.total_capital)],
-        ['최대 보유종목', `${config.max_positions}개`],
-        ['종목당 최대비중', `${formatNumber(config.max_single_weight * 100, 1)}%`],
-        ['현금 보유비중', `${formatNumber(config.cash_buffer * 100, 1)}%`],
-        ['일 손실 제한', `${config.max_daily_loss_pct}%`],
-        ['관심종목', `${config.watchlist.length}개`],
-        ['전략 묶음', `${(config.strategy_sources || []).length}개`],
-    ];
-    document.getElementById('settings-grid').innerHTML = items.map(([label, value]) => `
-        <div class="setting-item">
-            <span class="label">${escapeHtml(label)}</span>
-            <strong>${escapeHtml(value)}</strong>
-        </div>
-    `).join('');
+    setElementText('val-account', config.kistock_account || '-');
+    renderAiStrategySummary(config);
+    const settingsEl = document.getElementById('settings-grid');
+    settingsEl.innerHTML = renderStrategySettingsForm(config);
+    const form = document.getElementById('strategy-settings-form');
+    if (form) {
+        form.addEventListener('submit', saveStrategySettings);
+    }
 }
 
 function renderRisk(balance) {
@@ -531,7 +695,9 @@ async function renderBalance() {
             : Number(balance.total_eval || 0);
 
         const principal = Number(latestConfig?.total_capital || 0);
-        const returnRate = principal > 0 ? ((displayTotal - principal) / principal) * 100 : 0;
+        const evalPnl = Number(balance.pnl || 0);
+        const evalCost = Math.max(0, Number(balance.stock_eval || holdingValue || 0) - evalPnl);
+        const returnRate = evalCost > 0 ? (evalPnl / evalCost) * 100 : 0;
 
         setElementText('val-total', formatCurrency(displayTotal));
         setElementText('val-principal', formatCurrency(principal));
@@ -542,8 +708,8 @@ async function renderBalance() {
         }
 
         const pnlEl = document.getElementById('val-pnl');
-        pnlEl.textContent = formatCurrency(balance.pnl);
-        pnlEl.className = `value ${balance.pnl >= 0 ? 'text-success' : 'text-danger'}`;
+        pnlEl.textContent = formatCurrency(evalPnl);
+        pnlEl.className = `value ${evalPnl >= 0 ? 'text-success' : 'text-danger'}`;
 
         const tbodyHoldings = document.querySelector('#table-holdings tbody');
         tbodyHoldings.innerHTML = '';
@@ -722,7 +888,7 @@ async function renderSignals() {
 
 async function renderCandidates() {
     setButtonBusy('btn-candidates', true);
-    setTableMessage('#table-candidates tbody', 8, '관심종목에서 매수 후보를 찾고 있습니다...');
+    setTableMessage('#table-candidates tbody', 9, '관심종목에서 매수 후보를 찾고 있습니다...');
     try {
         const data = await fetchJson('/api/candidates?min_score=2', 45000);
         const tbody = document.querySelector('#table-candidates tbody');
@@ -733,7 +899,7 @@ async function renderCandidates() {
             const tableMsg = scanned === 0
                 ? (scanError ? `데이터 수신 실패 — 잠시 후 다시 시도해 주세요` : '분석 대상 종목이 없습니다')
                 : `조건을 만족한 후보가 없습니다 — ${scanned}종목 분석 완료`;
-            setTableMessage('#table-candidates tbody', 8, tableMsg);
+            setTableMessage('#table-candidates tbody', 9, tableMsg);
             // 분석 근거 팝업
             const titleEl = document.getElementById('noCandidatesTitle');
             const subtitleEl = document.getElementById('noCandidatesSubtitle');
@@ -794,7 +960,8 @@ async function renderCandidates() {
                     <span class="symbol-name">${escapeHtml(stockName || row.ticker)}</span>
                     <span class="symbol-code">${stockName ? row.ticker : ''}</span>
                 </td>
-                <td>${pill(row.score, row.score >= 3 ? 'buy' : 'warn')}</td>
+                <td>${pill(formatNumber(row.score, 2), row.score >= 3 ? 'buy' : 'warn')}</td>
+                <td>${buildCandidateStrategyMarkup(row)}</td>
                 <td>${formatNumber(row.rsi, 1)} / ${formatNumber(row.rsi2, 1)}</td>
                 <td>${formatNumber(row.macd_hist, 2)}</td>
                 <td>${formatCurrency(row.current_price)}</td>
@@ -814,7 +981,7 @@ async function renderCandidates() {
             setStatus('매수 후보 검색을 완료했습니다.', true);
         }
     } catch (err) {
-        setTableMessage('#table-candidates tbody', 8, err.message);
+        setTableMessage('#table-candidates tbody', 9, err.message);
     } finally {
         setButtonBusy('btn-candidates', false);
     }
@@ -1101,7 +1268,7 @@ async function renderTrades() {
         tbodyTrades.innerHTML = '';
 
         if (!trades.trades.length) {
-            setTableMessage('#table-trades tbody', 6, '주문 기록이 없습니다');
+            setTableMessage('#table-trades tbody', 8, '주문 기록이 없습니다');
         }
 
         trades.trades.forEach((trade) => {
@@ -1111,6 +1278,12 @@ async function renderTrades() {
                 : '<span class="badge badge-sell">매도</span>';
             const [datePart = '-', timePart = '-'] = String(trade.ts || '').split(' ');
             const reason = escapeHtml(translateReason(trade.reason || '-'));
+            const orderStatus = orderStatusLabel(trade.order_status);
+            const filledQty = Number(trade.filled_qty || 0);
+            const filledPrice = Number(trade.filled_price || 0);
+            const filledText = filledQty > 0
+                ? `${filledQty.toLocaleString()} @ ${formatCurrency(filledPrice)}`
+                : '-';
 
             const tr = document.createElement('tr');
             tr.innerHTML = `
@@ -1123,12 +1296,17 @@ async function renderTrades() {
                 <td>${formatCurrency(trade.price)}</td>
                 <td>${Number(trade.qty || 0).toLocaleString()}</td>
                 <td><div class="reason-cell" title="${reason}">${reason}</div></td>
+                <td>
+                    <span class="badge">${escapeHtml(orderStatus)}</span>
+                    ${trade.broker_order_id ? `<div class="time-muted">#${escapeHtml(trade.broker_order_id)}</div>` : ''}
+                </td>
+                <td>${escapeHtml(filledText)}</td>
             `;
             tbodyTrades.appendChild(tr);
         });
     } catch (err) {
         console.error('Failed to fetch trade history', err);
-        setTableMessage('#table-trades tbody', 6, err.message);
+        setTableMessage('#table-trades tbody', 8, err.message);
     }
 }
 
@@ -1332,7 +1510,7 @@ document.getElementById('btn-auto-approval').addEventListener('click', toggleAut
 document.getElementById('btn-sell-all-holdings').addEventListener('click', sellAllHoldings);
 document.getElementById('btn-dry-run').addEventListener('click', () => toggleRuntimeOrderMode('btn-dry-run', 'DRY_RUN', '주문차단'));
 setTableMessage('#table-signals tbody', 7, '진단하기를 누르면 보유 종목 신호를 확인합니다');
-setTableMessage('#table-candidates tbody', 8, '찾기를 누르면 관심종목에서 매수 후보를 검색합니다');
+setTableMessage('#table-candidates tbody', 9, '찾기를 누르면 관심종목에서 매수 후보를 검색합니다');
 setTableMessage('#table-execution-plan tbody', 8, '불러오기를 누르면 다음 사이클 실행 계획을 표시합니다');
 setTableMessage('#table-approvals tbody', 8, '승인 대기 주문이 없습니다');
 setTableMessage('#table-ai-allocation tbody', 8, '계산을 누르면 AI 목표 비중을 확인합니다');

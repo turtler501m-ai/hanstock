@@ -83,6 +83,36 @@ class ExecutionPolicyTests(unittest.TestCase):
         self.assertEqual(len(queued), 1)
         self.assertEqual(saved, [])
 
+    def test_submit_order_request_rejects_invalid_order_before_queue_or_execute(self):
+        queued = []
+        saved = []
+        executed = []
+
+        result = submit_order_request(
+            context=ExecutionContext(
+                dry_run=False,
+                trading_env="demo",
+                enable_live_trading=False,
+                require_approval=True,
+            ),
+            symbol="005930",
+            name="Samsung",
+            action="buy",
+            qty=0,
+            price=70000,
+            reason="test",
+            source="scheduler",
+            execute_order_fn=lambda *args: executed.append(args) or {"rt_cd": "0", "msg1": "ok"},
+            save_trade_fn=lambda *args: saved.append(args),
+            queue_order_fn=lambda *args: queued.append(args) or 123,
+        )
+
+        self.assertEqual(result.decision, "reject")
+        self.assertIn("qty", result.response_msg)
+        self.assertEqual(executed, [])
+        self.assertEqual(queued, [])
+        self.assertEqual(saved, [])
+
     def test_normalize_run_mode_validates_input(self):
         self.assertEqual(normalize_run_mode("analysis_only"), "analysis_only")
         with self.assertRaises(ValueError):

@@ -3,6 +3,7 @@ import hashlib
 import concurrent.futures
 import os
 import re
+import socket
 import sqlite3
 import subprocess
 import threading
@@ -73,6 +74,15 @@ ENV_FIELDS = [
     {"key": "KIS_CIRCUIT_COOLDOWN_SECONDS", "label": "KIS API 李⑤떒 ?湲곗큹", "type": "int", "hint": "KIS API ?ㅻ쪟 ???ъ떆?꾧퉴吏 湲곕떎由??쒓컙(珥??낅땲?? ??????쒕쾭 ?ъ떆?????곸슜?⑸땲??"},
     {"key": "TRADE_DB_PATH", "label": "Trade DB Path", "type": "text"},
     {"key": "ACTIVE_MODEL_VERSION", "label": "Active Model Version", "type": "text"},
+    {"key": "AI_STRATEGY_ENABLED", "label": "AI Strategy Enabled", "type": "bool"},
+    {"key": "AI_SCORE_WEIGHT", "label": "AI Score Weight", "type": "float"},
+    {"key": "AI_MIN_MODEL_CONFIDENCE", "label": "AI Min Confidence", "type": "float"},
+    {"key": "AI_REQUIRE_BACKTEST_PASS", "label": "AI Require Backtest Pass", "type": "bool"},
+    {"key": "AI_AUTO_APPROVE", "label": "AI Auto Approve", "type": "bool"},
+    {"key": "OPENAI_API_KEY", "label": "OpenAI API Key", "type": "secret"},
+    {"key": "OPENAI_MODEL", "label": "OpenAI Model", "type": "text"},
+    {"key": "OPENAI_TIMEOUT_SECONDS", "label": "OpenAI Timeout Seconds", "type": "float"},
+    {"key": "AI_CANDIDATE_LIMIT", "label": "AI Candidate Limit", "type": "int"},
     {"key": "SLACK_WEBHOOK_URL", "label": "Slack Webhook URL", "type": "secret"},
     {"key": "TELEGRAM_API_ID", "label": "Telegram API ID", "type": "secret"},
     {"key": "TELEGRAM_API_HASH", "label": "Telegram API Hash", "type": "secret"},
@@ -377,7 +387,17 @@ def _load_candidate_cache(min_score: int) -> dict | None:
         cached = json.loads(CANDIDATE_CACHE.read_text(encoding="utf-8"))
     except Exception:
         return None
-    if cached.get("trading_env") != trader.TRADING_ENV or cached.get("min_score") != min_score:
+    expected_ai_signature = {
+        "enabled": bool(getattr(trader.config, "ai_strategy_enabled", False)),
+        "model": getattr(trader.config, "openai_model", "gpt-5-mini"),
+        "candidate_limit": int(getattr(trader.config, "ai_candidate_limit", 5) or 5),
+        "api_configured": bool(str(getattr(trader.config, "openai_api_key", "") or "").strip()),
+    }
+    if (
+        cached.get("trading_env") != trader.TRADING_ENV
+        or cached.get("min_score") != min_score
+        or cached.get("ai_signature") != expected_ai_signature
+    ):
         return None
     cached_at = cached.get("cached_at")
     if not cached_at:
@@ -409,6 +429,12 @@ def _save_candidate_cache(
             "cached_at": trader.datetime.now(trader.KST).isoformat(),
             "trading_env": trader.TRADING_ENV,
             "min_score": min_score,
+            "ai_signature": {
+                "enabled": bool(getattr(trader.config, "ai_strategy_enabled", False)),
+                "model": getattr(trader.config, "openai_model", "gpt-5-mini"),
+                "candidate_limit": int(getattr(trader.config, "ai_candidate_limit", 5) or 5),
+                "api_configured": bool(str(getattr(trader.config, "openai_api_key", "") or "").strip()),
+            },
             "rows": rows,
             "scan_summary": scan_summary,
             "scanned": scanned,
@@ -456,7 +482,7 @@ def build_dashboard_candidates(api, parsed: dict, min_score: int = 2) -> dict:
     rows = []
     for candidate in candidates:
         order = order_by_ticker.get(candidate["ticker"], {})
-        rows.append({
+        row = {
             "ticker": candidate["ticker"],
             "name": candidate.get("name", candidate["ticker"]),
             "current_price": candidate["current_price"],
@@ -473,7 +499,22 @@ def build_dashboard_candidates(api, parsed: dict, min_score: int = 2) -> dict:
             "limit_price": order.get("limit_price", 0),
             "estimated_cost": order.get("estimated_cost", 0),
             "universe_size": len(universe),
-        })
+        }
+        for key in (
+            "rule_score",
+            "ml_score",
+            "final_score",
+            "ai_enabled",
+            "ai_model_status",
+            "ai_model_version",
+            "feature_version",
+            "ai_score_weight",
+            "ai_fallback_reason",
+            "top_features",
+        ):
+            if key in candidate:
+                row[key] = candidate[key]
+        rows.append(row)
 
     return {
         "candidates": rows,
@@ -554,6 +595,14 @@ def _init_approval_db() -> None:
 
 def _approval_row(row) -> dict:
     return dict(row)
+
+
+def _approval_by_id(approval_id: int) -> dict | None:
+    _init_approval_db()
+    with trader.connect_db() as conn:
+        conn.row_factory = sqlite3.Row
+        row = conn.execute("SELECT * FROM approvals WHERE id = ?", (approval_id,)).fetchone()
+    return _approval_row(row) if row else None
 
 
 def _auto_approval_enabled() -> bool:
@@ -694,6 +743,85 @@ def _apply_runtime_env_updates(updates: dict[str, str]) -> None:
         (not trader.DRY_RUN)
         and (trader.TRADING_ENV == "demo" or trader.REAL_ORDERS_ENABLED)
     )
+
+
+STRATEGY_ENV_BINDINGS = {
+    "SPLIT_N": ("split_n", "SPLIT_N", int),
+    "STOP_LOSS_PCT": ("stop_loss_pct", "STOP_LOSS_PCT", float),
+    "TAKE_PROFIT": ("take_profit", "TAKE_PROFIT", float),
+    "RSI_BUY": ("rsi_buy", "RSI_BUY", int),
+    "RSI_SELL": ("rsi_sell", "RSI_SELL", int),
+    "TOTAL_CAPITAL": ("total_capital", "TOTAL_CAPITAL", float),
+    "MAX_POSITIONS": ("max_positions", "MAX_POSITIONS", int),
+    "MAX_SINGLE_WEIGHT": ("max_single_weight", "MAX_SINGLE_WEIGHT", float),
+    "CASH_BUFFER": ("cash_buffer", "CASH_BUFFER", float),
+    "MAX_DAILY_LOSS_PCT": ("max_daily_loss_pct", "MAX_DAILY_LOSS_PCT", float),
+    "SCAN_UNIVERSE_SIZE": ("scan_universe_size", "SCAN_UNIVERSE_SIZE", int),
+}
+
+
+AI_ENV_BINDINGS = {
+    "AI_STRATEGY_ENABLED": ("ai_strategy_enabled", lambda value: str(value).lower() in ("1", "true", "yes", "on")),
+    "AI_SCORE_WEIGHT": ("ai_score_weight", float),
+    "AI_MIN_MODEL_CONFIDENCE": ("ai_min_model_confidence", float),
+    "AI_REQUIRE_BACKTEST_PASS": ("ai_require_backtest_pass", lambda value: str(value).lower() in ("1", "true", "yes", "on")),
+    "AI_AUTO_APPROVE": ("ai_auto_approve", lambda value: str(value).lower() in ("1", "true", "yes", "on")),
+    "OPENAI_API_KEY": ("openai_api_key", str),
+    "OPENAI_MODEL": ("openai_model", str),
+    "OPENAI_TIMEOUT_SECONDS": ("openai_timeout_seconds", float),
+    "AI_CANDIDATE_LIMIT": ("ai_candidate_limit", int),
+}
+
+
+def _apply_strategy_env_updates(updates: dict[str, str]) -> None:
+    for key, value in updates.items():
+        binding = STRATEGY_ENV_BINDINGS.get(key)
+        if binding:
+            config_attr, trader_attr, caster = binding
+            parsed = caster(value)
+            setattr(trader.config, config_attr, parsed)
+            setattr(trader, trader_attr, parsed)
+            continue
+        ai_binding = AI_ENV_BINDINGS.get(key)
+        if ai_binding:
+            config_attr, caster = ai_binding
+            setattr(trader.config, config_attr, caster(value))
+
+
+def _ai_analysis_config() -> dict:
+    model_name = getattr(trader.config, "openai_model", "gpt-5-mini")
+    api_key = str(getattr(trader.config, "openai_api_key", "") or "").strip()
+    ai_enabled = bool(getattr(trader.config, "ai_strategy_enabled", False))
+    score_weight = max(0.0, min(1.0, float(getattr(trader.config, "ai_score_weight", 0.0) or 0.0)))
+    candidate_limit = int(getattr(trader.config, "ai_candidate_limit", 5) or 5)
+    return {
+        "enabled": ai_enabled,
+        "provider": "openai_responses",
+        "provider_label": "OpenAI Responses API",
+        "model_name": model_name,
+        "model_type": "OpenAI text model",
+        "model_available": bool(api_key),
+        "account_priority": "current_kis_account",
+        "account": trader.config.kistock_account,
+        "account_label": "현재 KIS 계좌 1순위",
+        "openai_account_priority": "openai_api_first",
+        "openai_api_configured": bool(api_key),
+        "score_weight": score_weight if ai_enabled else 0.0,
+        "rule_weight": 1.0 - score_weight if ai_enabled else 1.0,
+        "min_confidence": float(getattr(trader.config, "ai_min_model_confidence", 0.6) or 0.6),
+        "candidate_limit": candidate_limit,
+        "auto_approve": bool(getattr(trader.config, "ai_auto_approve", False)),
+        "require_backtest_pass": bool(getattr(trader.config, "ai_require_backtest_pass", True)),
+        "fallback_mode": "rule_based" if (not ai_enabled or not api_key) else "",
+        "flow": [
+            "현재 KIS 계좌의 보유/현금/리스크 상태를 1순위 기준으로 읽습니다.",
+            "관심종목과 거래량 상위 종목의 RSI, MACD, Bollinger, 추세, 거래량 피처를 계산합니다.",
+            f"AI가 켜져 있고 OPENAI_API_KEY가 있으면 OpenAI Responses API로 상위 {candidate_limit}개 후보만 우선 평가합니다.",
+            "최종 점수는 룰 점수와 AI 점수를 AI_SCORE_WEIGHT 비율로 결합합니다.",
+            "주문은 승인 대기열과 DRY_RUN/실거래 보호 설정을 통과해야만 처리됩니다.",
+        ],
+    }
+
 
 
 def _runtime_order_mode_updates(key: str, enabled: bool) -> dict[str, str]:
@@ -1543,10 +1671,91 @@ def _vendor_status(slug: str, meta: dict) -> dict:
     }
 
 
+def _demo_trading_readiness() -> dict:
+    missing = _required_env_missing()
+    account_warning = _account_format_warning(trader.config.kistock_account)
+    checks = [
+        {
+            "key": "required_env",
+            "ok": not missing,
+            "message": "Required KIS environment values are configured" if not missing else f"Missing: {', '.join(missing)}",
+            "critical": True,
+        },
+        {
+            "key": "account_format",
+            "ok": not account_warning,
+            "message": "KIS account format is valid" if not account_warning else account_warning,
+            "critical": True,
+        },
+        {
+            "key": "demo_environment",
+            "ok": trader.TRADING_ENV == "demo",
+            "message": f"TRADING_ENV={trader.TRADING_ENV}",
+            "critical": True,
+        },
+        {
+            "key": "dry_run_disabled",
+            "ok": trader.DRY_RUN is False,
+            "message": f"DRY_RUN={str(trader.DRY_RUN).lower()}",
+            "critical": True,
+        },
+        {
+            "key": "live_trading_disabled",
+            "ok": trader.ENABLE_LIVE_TRADING is False and trader.REAL_ORDERS_ENABLED is False,
+            "message": f"ENABLE_LIVE_TRADING={str(trader.ENABLE_LIVE_TRADING).lower()}, real_orders={str(trader.REAL_ORDERS_ENABLED).lower()}",
+            "critical": True,
+        },
+        {
+            "key": "demo_order_submission",
+            "ok": trader.ORDER_SUBMISSION_ENABLED is True,
+            "message": f"ORDER_SUBMISSION_ENABLED={str(trader.ORDER_SUBMISSION_ENABLED).lower()}",
+            "critical": True,
+        },
+        {
+            "key": "kill_switch",
+            "ok": not Path(".runtime/kill_switch.json").exists(),
+            "message": "Kill switch is inactive" if not Path(".runtime/kill_switch.json").exists() else "Kill switch is active",
+            "critical": False,
+        },
+        {
+            "key": "approval_policy",
+            "ok": trader.REQUIRE_APPROVAL or _auto_approval_enabled(),
+            "message": f"REQUIRE_APPROVAL={str(trader.REQUIRE_APPROVAL).lower()}, auto_approval={str(_auto_approval_enabled()).lower()}",
+            "critical": False,
+        },
+    ]
+    critical_ready = all(item["ok"] for item in checks if item["critical"])
+    return {
+        "ready": critical_ready,
+        "mode": "kis_demo_auto",
+        "trading_env": trader.TRADING_ENV,
+        "dry_run": trader.DRY_RUN,
+        "enable_live_trading": trader.ENABLE_LIVE_TRADING,
+        "order_submission_enabled": trader.ORDER_SUBMISSION_ENABLED,
+        "real_orders_enabled": trader.REAL_ORDERS_ENABLED,
+        "checks": checks,
+    }
+
+
+def _runtime_dashboard_info() -> dict:
+    hostname = socket.gethostname()
+    explicit_label = os.environ.get("HANSTOCK_DASHBOARD_LABEL", "").strip()
+    explicit_origin = os.environ.get("HANSTOCK_DASHBOARD_ORIGIN", "").strip().lower()
+    is_vm = explicit_origin == "vm" or hostname.startswith("hanstock-server")
+    label = explicit_label or ("VM DASHBOARD" if is_vm else "LOCAL DASHBOARD")
+    return {
+        "label": label,
+        "origin": "vm" if is_vm else "local",
+        "is_vm": is_vm,
+        "hostname": hostname,
+    }
+
+
 @app.get("/api/health")
 def health():
     missing = _required_env_missing()
     account_warning = _account_format_warning(trader.config.kistock_account)
+    demo_readiness = _demo_trading_readiness()
     return {
         "ok": not missing and not account_warning,
         "missing": missing,
@@ -1559,9 +1768,18 @@ def health():
         "real_orders_enabled": trader.REAL_ORDERS_ENABLED,
         "circuit_breaker": KIStockAPI.circuit_status(),
         "active_model_version": getattr(trader.config, "active_model_version", "v1"),
+        "ai_analysis": _ai_analysis_config(),
         "auto_approval_enabled": _auto_approval_enabled(),
-        "kill_switch_active": Path(".runtime/kill_switch.json").exists()
+        "demo_trading_ready": demo_readiness["ready"],
+        "demo_trading_readiness": demo_readiness,
+        "kill_switch_active": Path(".runtime/kill_switch.json").exists(),
+        "dashboard_runtime": _runtime_dashboard_info(),
     }
+
+
+@app.get("/api/demo-trading/readiness")
+def get_demo_trading_readiness():
+    return _demo_trading_readiness()
 
 
 @app.get("/api/futures-signals/summary")
@@ -1991,6 +2209,7 @@ def get_config():
         "require_approval": trader.REQUIRE_APPROVAL,
         "order_submission_enabled": trader.ORDER_SUBMISSION_ENABLED,
         "real_orders_enabled": trader.REAL_ORDERS_ENABLED,
+        "kistock_account": trader.config.kistock_account,
         "split_n": trader.SPLIT_N,
         "stop_loss_pct": trader.STOP_LOSS_PCT,
         "take_profit": trader.TAKE_PROFIT,
@@ -2011,6 +2230,7 @@ def get_config():
             "20-day breakout with volume",
             "FinRL-X inspired weight-centric allocation",
         ],
+        "ai_analysis": _ai_analysis_config(),
     }
 
 
@@ -2059,11 +2279,13 @@ def update_env_settings(payload: dict = Body(...)):
 
     if updates:
         updates = _expand_virtual_env_updates(updates)
-        _write_env_values(updates)
+        _write_env_values(updates, ENV_PATH)
+        _apply_runtime_env_updates(updates)
+        _apply_strategy_env_updates(updates)
     return {
         "ok": True,
         "updated": sorted(updates.keys()),
-        "requires_restart": True,
+        "requires_restart": False,
     }
 
 
@@ -2360,7 +2582,7 @@ def create_approval(payload: dict = Body(...)):
         )
         approval_id = cursor.lastrowid
     if _auto_approval_enabled():
-        result = _approve_pending_approval(approval_id, "?먮룞?뱀씤")
+        result = _approve_pending_approval(approval_id, "자동승인")
         result["auto_approved"] = True
         return result
     return {"id": approval_id, "status": "pending"}
@@ -2412,16 +2634,50 @@ def sell_all_holdings(payload: dict | None = Body(default=None)):
 
 
 def _load_pending_approval(approval_id: int) -> dict:
-    _init_approval_db()
-    with trader.connect_db() as conn:
-        conn.row_factory = sqlite3.Row
-        row = conn.execute("SELECT * FROM approvals WHERE id = ?", (approval_id,)).fetchone()
-    if not row:
+    item = _approval_by_id(approval_id)
+    if not item:
         raise HTTPException(status_code=404, detail="approval not found")
-    item = _approval_row(row)
     if item["status"] != "pending":
         raise HTTPException(status_code=409, detail=f"approval is already {item['status']}")
     return item
+
+
+def _claim_pending_approval(approval_id: int) -> dict:
+    item = _load_pending_approval(approval_id)
+    now = trader.datetime.now(trader.KST).strftime("%Y-%m-%d %H:%M:%S")
+    with trader.connect_db() as conn:
+        cursor = conn.execute(
+            """
+            UPDATE approvals
+            SET status = 'executing', response_msg = 'Submitting order to broker', updated_at = ?
+            WHERE id = ? AND status = 'pending'
+            """,
+            (now, approval_id),
+        )
+    if cursor.rowcount != 1:
+        current = _approval_by_id(approval_id)
+        if current is None:
+            raise HTTPException(status_code=404, detail="approval not found")
+        raise HTTPException(status_code=409, detail=f"approval is already {current['status']}")
+    return item
+
+
+def _approval_response_msg(result: dict, *, ok: bool) -> str:
+    response_msg = str(result.get("msg1", ""))
+    if ok and not trader.DRY_RUN and trader.TRADING_ENV == "demo":
+        response_msg = f"{response_msg} (KIS demo order submitted; confirm fill status in broker order history)"
+    return response_msg
+
+
+def _current_holding_qty_from_balance(api, symbol: str) -> int:
+    try:
+        parsed = _parse_balance(_get_balance_data(api, allow_cache=False))
+    except Exception:
+        return 0
+    for holding in parsed.get("holdings", []):
+        if str(holding.get("symbol") or "") == str(symbol):
+            return _to_int(holding.get("qty"))
+    return 0
 
 
 def _pending_approval_ids(limit: int = 200) -> list[int]:
@@ -2439,21 +2695,23 @@ def _auto_approve_pending_approvals(limit: int = 200) -> list[dict]:
     results = []
     for approval_id in _pending_approval_ids(limit):
         try:
-            results.append(_approve_pending_approval(approval_id, "?먮룞?뱀씤"))
+            results.append(_approve_pending_approval(approval_id, "자동승인"))
         except HTTPException:
             continue
     return results
 
 
-def _approve_pending_approval(approval_id: int, approval_label: str = "?섎룞?뱀씤") -> dict:
-    item = _load_pending_approval(approval_id)
+def _approve_pending_approval(approval_id: int, approval_label: str = "수동승인") -> dict:
+    item = _claim_pending_approval(approval_id)
+    result: dict = {}
     try:
         api = _get_api()
+        pre_order_qty = _current_holding_qty_from_balance(api, item["symbol"])
         result = api.place_order(item["symbol"], item["action"], item["price"], item["qty"])
         ok = result.get("rt_cd") == "0"
         status = "executed" if ok else "failed"
-        response_msg = result.get("msg1", "")
-        if ok and not trader.DRY_RUN:
+        response_msg = _approval_response_msg(result, ok=ok)
+        if False:  # legacy non-English broker note disabled
             response_msg = f"{response_msg} (二쇰Ц?묒닔 ?꾨즺 - ?ㅼ젣 泥닿껐 ?щ???HTS/MTS?먯꽌 ?뺤씤 ?붾쭩)"
         trader.save_trade(
             item["symbol"],
@@ -2464,6 +2722,12 @@ def _approve_pending_approval(approval_id: int, approval_label: str = "?섎룞?�
             item["reason"],
             ok,
             trader.ORDER_SUBMISSION_ENABLED,
+            broker_result=result,
+            order_status="submitted" if ok and trader.ORDER_SUBMISSION_ENABLED else "simulated" if ok else "failed",
+            response_msg=response_msg,
+            filled_qty=0 if ok and trader.ORDER_SUBMISSION_ENABLED else item["qty"] if ok else 0,
+            filled_price=0 if ok and trader.ORDER_SUBMISSION_ENABLED else item["price"] if ok else 0,
+            pre_order_qty=pre_order_qty,
         )
     except Exception as e:
         status = "failed"
@@ -2476,13 +2740,13 @@ def _approve_pending_approval(approval_id: int, approval_label: str = "?섎룞?�
             (status, response_msg, now, approval_id),
         )
 
-    # Slack ?뚮┝
+    # Slack 알림
     try:
         indicators = {"rsi": "-", "sma20": 0, "sma60": 0, "rt": 0}
         _slack_order(
             item["name"], item["symbol"], item["action"],
             item["qty"], item["price"],
-            f"[??쒕낫??{approval_label}] {item.get('reason', '')}",
+            f"[대시보드 {approval_label}] {item.get('reason', '')}",
             status == "executed",
             indicators,
         )
@@ -2494,7 +2758,7 @@ def _approve_pending_approval(approval_id: int, approval_label: str = "?섎룞?�
 
 @app.post("/api/approvals/{approval_id}/approve")
 def approve_order(approval_id: int):
-    return _approve_pending_approval(approval_id, "?섎룞?뱀씤")
+    return _approve_pending_approval(approval_id, "수동승인")
 
 
 @app.post("/api/approvals/{approval_id}/reject")
@@ -2567,6 +2831,11 @@ def _load_merged_trades() -> list[dict]:
             "ok": t.get("ok", 1),
             "env": t.get("env", "demo"),
             "dry_run": t.get("dry_run", 0),
+            "broker_order_id": t.get("broker_order_id", ""),
+            "order_status": t.get("order_status", ""),
+            "filled_qty": _to_int(t.get("filled_qty")),
+            "filled_price": _to_int(t.get("filled_price")),
+            "response_msg": t.get("response_msg", ""),
         }
     return sorted(merged_trades.values(), key=lambda x: x["ts"])
 
@@ -2585,13 +2854,23 @@ def _trade_is_sync_adjustment(trade: dict) -> bool:
 
 
 def _account_trades(trades: list[dict]) -> list[dict]:
-    return [
-        trade
-        for trade in trades
-        if _trade_is_ok(trade)
-        and not _trade_is_dry_run(trade)
-        and not _trade_is_sync_adjustment(trade)
-    ]
+    account_rows = []
+    for trade in trades:
+        if not (
+            _trade_is_ok(trade)
+            and not _trade_is_dry_run(trade)
+            and not _trade_is_sync_adjustment(trade)
+        ):
+            continue
+        order_status = str(trade.get("order_status") or "")
+        filled_qty = _to_int(trade.get("filled_qty"))
+        filled_price = _to_int(trade.get("filled_price"))
+        if order_status in {"submitted", "partial", "open"} and filled_qty <= 0:
+            continue
+        if filled_qty > 0:
+            trade = {**trade, "qty": filled_qty, "price": filled_price or _to_int(trade.get("price"))}
+        account_rows.append(trade)
+    return account_rows
 
 
 def _period_bucket() -> dict:
@@ -2664,6 +2943,207 @@ def _build_periodic_performance(trades: list[dict]) -> dict:
         "daily": [{"period": key, **value} for key, value in sorted(daily.items())],
         "monthly": [{"period": key, **value} for key, value in sorted(monthly.items())],
     }
+
+
+def _broker_order_id_from_history(row: dict) -> str:
+    for key in ("ODNO", "odno", "ord_no", "order_no"):
+        value = row.get(key)
+        if value:
+            return str(value).strip()
+    return ""
+
+
+def _history_int(row: dict, *keys: str) -> int:
+    for key in keys:
+        value = row.get(key)
+        parsed = _to_int(value)
+        if parsed:
+            return parsed
+    return 0
+
+
+def _history_fill_price(row: dict) -> int:
+    return _history_int(
+        row,
+        "avg_prvs",
+        "avg_pric",
+        "avg_ccld_pric",
+        "ccld_unpr",
+        "ord_unpr",
+    )
+
+
+def _history_fill_qty(row: dict) -> int:
+    return _history_int(row, "tot_ccld_qty", "ccld_qty", "cnqn", "ord_qty")
+
+
+def _order_history_window(days: int = 7) -> tuple[str, str]:
+    end = trader.datetime.now(trader.KST)
+    start = end - trader.timedelta(days=max(1, days))
+    return start.strftime("%Y%m%d"), end.strftime("%Y%m%d")
+
+
+def _load_trackable_order_trades() -> list[dict]:
+    trader.init_db()
+    with trader.connect_db() as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            """
+            SELECT *
+            FROM trades
+            WHERE broker_order_id IS NOT NULL
+              AND broker_order_id != ''
+              AND COALESCE(order_status, '') IN ('submitted', 'partial', 'open')
+            ORDER BY ts ASC
+            """
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def _sync_order_status_from_history(api, *, days: int = 7) -> dict:
+    tracked = _load_trackable_order_trades()
+    if not tracked:
+        return {"ok": True, "checked_count": 0, "updated_count": 0, "orders": []}
+
+    start_date, end_date = _order_history_window(days)
+    try:
+        history = api.get_trade_history(start_date, end_date)
+    except Exception as exc:
+        fallback = _sync_order_status_from_balance(api, tracked, reason=str(exc))
+        return {
+            **fallback,
+            "ok": fallback.get("updated_count", 0) > 0,
+            "history_error": str(exc),
+            "history_count": 0,
+            "fallback": "balance",
+        }
+    history_by_order_id = {
+        order_id: row
+        for row in history
+        if (order_id := _broker_order_id_from_history(row))
+    }
+
+    orders = []
+    updated_count = 0
+    for trade in tracked:
+        order_id = str(trade.get("broker_order_id") or "")
+        row = history_by_order_id.get(order_id)
+        if row is None:
+            orders.append({"broker_order_id": order_id, "order_status": trade.get("order_status") or "submitted"})
+            continue
+
+        requested_qty = _to_int(trade.get("qty"))
+        filled_qty = _history_fill_qty(row)
+        filled_price = _history_fill_price(row)
+        if filled_qty <= 0:
+            order_status = "open"
+        elif requested_qty > 0 and filled_qty < requested_qty:
+            order_status = "partial"
+        else:
+            order_status = "filled"
+        response_msg = f"KIS order history sync: {order_status}"
+        updated_count += trader.update_trade_order_status(
+            order_id,
+            order_status=order_status,
+            filled_qty=filled_qty,
+            filled_price=filled_price,
+            response_msg=response_msg,
+            broker_result=row,
+        )
+        orders.append({
+            "broker_order_id": order_id,
+            "order_status": order_status,
+            "filled_qty": filled_qty,
+            "filled_price": filled_price,
+        })
+
+    return {
+        "ok": True,
+        "checked_count": len(tracked),
+        "updated_count": updated_count,
+        "history_count": len(history),
+        "orders": orders,
+    }
+
+
+def _sync_order_status_from_balance(api, tracked: list[dict], *, reason: str = "") -> dict:
+    try:
+        parsed = _parse_balance(_get_balance_data(api, allow_cache=False))
+    except Exception as exc:
+        return {
+            "ok": False,
+            "checked_count": len(tracked),
+            "updated_count": 0,
+            "orders": [],
+            "balance_error": str(exc),
+            "history_error": reason,
+        }
+
+    holdings = {str(item.get("symbol") or ""): item for item in parsed.get("holdings", [])}
+    orders = []
+    updated_count = 0
+    for trade in tracked:
+        order_id = str(trade.get("broker_order_id") or "")
+        symbol = str(trade.get("symbol") or "")
+        action = str(trade.get("action") or "").lower()
+        requested_qty = _to_int(trade.get("qty"))
+        pre_order_qty = _to_int(trade.get("pre_order_qty"))
+        current = holdings.get(symbol, {})
+        current_qty = _to_int(current.get("qty"))
+        current_price = _to_int(current.get("price")) or _to_int(trade.get("price"))
+
+        filled = False
+        if action == "buy" and requested_qty > 0:
+            filled = current_qty >= pre_order_qty + requested_qty
+        elif action == "sell" and requested_qty > 0:
+            filled = current_qty <= max(0, pre_order_qty - requested_qty)
+
+        if not filled:
+            orders.append({
+                "broker_order_id": order_id,
+                "order_status": trade.get("order_status") or "submitted",
+                "balance_confirmed": False,
+            })
+            continue
+
+        response_msg = "Balance fallback sync: filled"
+        updated_count += trader.update_trade_order_status(
+            order_id,
+            order_status="filled",
+            filled_qty=requested_qty,
+            filled_price=current_price,
+            response_msg=response_msg,
+            broker_result={
+                "fallback": "balance",
+                "history_error": reason,
+                "pre_order_qty": pre_order_qty,
+                "current_qty": current_qty,
+            },
+        )
+        orders.append({
+            "broker_order_id": order_id,
+            "order_status": "filled",
+            "filled_qty": requested_qty,
+            "filled_price": current_price,
+            "balance_confirmed": True,
+        })
+
+    return {
+        "ok": True,
+        "checked_count": len(tracked),
+        "updated_count": updated_count,
+        "orders": orders,
+    }
+
+
+@app.post("/api/trades/order-status/sync")
+def sync_trade_order_status(days: int = 7):
+    if trader.DRY_RUN:
+        raise HTTPException(status_code=400, detail="Order status sync requires DRY_RUN=false")
+    try:
+        return _sync_order_status_from_history(_get_api(), days=days)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @app.post("/api/trades/sync")
@@ -2795,7 +3275,12 @@ def get_trades(limit: int = 50):
                 "reason": t.get("reason", ""),
                 "ok": t.get("ok", 1),
                 "env": t.get("env", "demo"),
-                "dry_run": t.get("dry_run", 0)
+                "dry_run": t.get("dry_run", 0),
+                "broker_order_id": t.get("broker_order_id", ""),
+                "order_status": t.get("order_status", ""),
+                "filled_qty": _to_int(t.get("filled_qty")),
+                "filled_price": _to_int(t.get("filled_price")),
+                "response_msg": t.get("response_msg", ""),
             }
             
         trades = sorted(_account_trades(list(merged_trades.values())), key=lambda x: x["ts"], reverse=True)

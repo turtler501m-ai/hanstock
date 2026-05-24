@@ -87,6 +87,13 @@ def init_db() -> None:
             )
             """
         )
+        _ensure_column(conn, "trades", "broker_order_id", "TEXT")
+        _ensure_column(conn, "trades", "order_status", "TEXT")
+        _ensure_column(conn, "trades", "filled_qty", "INTEGER DEFAULT 0")
+        _ensure_column(conn, "trades", "filled_price", "INTEGER DEFAULT 0")
+        _ensure_column(conn, "trades", "pre_order_qty", "INTEGER DEFAULT 0")
+        _ensure_column(conn, "trades", "response_msg", "TEXT")
+        _ensure_column(conn, "trades", "broker_result", "TEXT")
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS decision_logs (
@@ -104,21 +111,102 @@ def init_db() -> None:
             """
         )
 
-def save_trade(symbol: str, name: str, action: str, qty: int, price: int, reason: str, ok: bool, order_submission_enabled: bool) -> None:
+
+def _ensure_column(conn: DBWrapper, table: str, column: str, column_type: str) -> None:
+    if conn.is_pg:
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {column} {column_type}")
+        return
+    rows = conn.execute(f"PRAGMA table_info({table})").fetchall()
+    existing = {row[1] for row in rows}
+    if column not in existing:
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {column_type}")
+
+
+def _extract_broker_order_id(broker_result: dict | None) -> str:
+    if not isinstance(broker_result, dict):
+        return ""
+    output = broker_result.get("output")
+    if isinstance(output, dict):
+        for key in ("ODNO", "odno", "order_no", "ord_no"):
+            value = output.get(key)
+            if value:
+                return str(value)
+    for key in ("ODNO", "odno", "order_no", "ord_no"):
+        value = broker_result.get(key)
+        if value:
+            return str(value)
+    return ""
+
+
+def save_trade(
+    symbol: str,
+    name: str,
+    action: str,
+    qty: int,
+    price: int,
+    reason: str,
+    ok: bool,
+    order_submission_enabled: bool,
+    *,
+    broker_result: dict | None = None,
+    order_status: str | None = None,
+    response_msg: str | None = None,
+    broker_order_id: str | None = None,
+    filled_qty: int | None = None,
+    filled_price: int | None = None,
+    pre_order_qty: int | None = None,
+) -> None:
     ts = datetime.now(KST).strftime("%Y-%m-%d %H:%M:%S")
+    broker_order_id = broker_order_id if broker_order_id is not None else _extract_broker_order_id(broker_result)
+    order_status = order_status or ("submitted" if ok and order_submission_enabled else "simulated" if ok else "failed")
+    filled_qty = qty if filled_qty is None and order_status in {"filled", "simulated"} else int(filled_qty or 0)
+    filled_price = price if filled_price is None and filled_qty > 0 else int(filled_price or 0)
+    if response_msg is None and isinstance(broker_result, dict):
+        response_msg = str(broker_result.get("msg1", ""))
+    response_msg = response_msg or ""
+    pre_order_qty = int(pre_order_qty or 0)
+    broker_result_json = json.dumps(broker_result or {}, ensure_ascii=False)
     try:
+        init_db()
         with connect_db() as conn:
             conn.execute(
                 """
-                INSERT INTO trades (ts, symbol, name, action, qty, price, reason, ok, env, dry_run)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO trades (
+                    ts, symbol, name, action, qty, price, reason, ok, env, dry_run,
+                    broker_order_id, order_status, filled_qty, filled_price, pre_order_qty, response_msg, broker_result
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                (ts, symbol, name, action, qty, price, reason, int(ok), config.trading_env, int(not order_submission_enabled)),
+                (
+                    ts,
+                    symbol,
+                    name,
+                    action,
+                    qty,
+                    price,
+                    reason,
+                    int(ok),
+                    config.trading_env,
+                    int(not order_submission_enabled),
+                    broker_order_id,
+                    order_status,
+                    filled_qty,
+                    filled_price,
+                    pre_order_qty,
+                    response_msg,
+                    broker_result_json,
+                ),
             )
             
             # Export to JSON for cloud sync
             conn.row_factory = sqlite3.Row
-            rows = conn.execute("SELECT ts, symbol, name, action, qty, price, reason, ok, env, dry_run FROM trades ORDER BY ts ASC").fetchall()
+            rows = conn.execute(
+                """
+                SELECT ts, symbol, name, action, qty, price, reason, ok, env, dry_run,
+                       broker_order_id, order_status, filled_qty, filled_price, pre_order_qty, response_msg, broker_result
+                FROM trades ORDER BY ts ASC
+                """
+            ).fetchall()
             trades = [dict(row) for row in rows]
             
         # Use data/trades.json for GitHub Actions
@@ -129,6 +217,42 @@ def save_trade(symbol: str, name: str, action: str, qty: int, price: int, reason
             
     except Exception as e:
         logger.warning(f"Failed to save trade history: {e}")
+
+
+def update_trade_order_status(
+    broker_order_id: str,
+    *,
+    order_status: str,
+    filled_qty: int = 0,
+    filled_price: int = 0,
+    response_msg: str = "",
+    broker_result: dict | None = None,
+) -> int:
+    if not broker_order_id:
+        return 0
+    init_db()
+    broker_result_json = json.dumps(broker_result or {}, ensure_ascii=False)
+    with connect_db() as conn:
+        cursor = conn.execute(
+            """
+            UPDATE trades
+            SET order_status = ?,
+                filled_qty = ?,
+                filled_price = ?,
+                response_msg = ?,
+                broker_result = ?
+            WHERE broker_order_id = ?
+            """,
+            (
+                order_status,
+                int(filled_qty or 0),
+                int(filled_price or 0),
+                response_msg,
+                broker_result_json,
+                broker_order_id,
+            ),
+        )
+        return int(cursor.rowcount)
 
 def save_decision_log(symbol: str, name: str, action: str, qty: int, price: int, reason: str, indicators: dict, approved: bool) -> None:
     ts = datetime.now(KST).strftime("%Y-%m-%d %H:%M:%S")
