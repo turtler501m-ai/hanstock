@@ -26,7 +26,7 @@ VM 자동 배포와 접속:
 .\deploy-vm.ps1
 .\connect-vm.ps1
 .\check-vm.ps1
-.\vm-dashboard.ps1
+.\vm-dashboard.cmd
 ```
 
 내부 구조:
@@ -37,7 +37,7 @@ verify.cmd     -> tools/verify-local.ps1
 deploy-vm.ps1  -> scripts/local/deploy-vm.ps1
 connect-vm.ps1 -> scripts/local/connect-vm.ps1
 check-vm.ps1   -> scripts/local/check-vm.ps1
-vm-dashboard.ps1 -> scripts/local/vm-dashboard.ps1
+vm-dashboard.cmd -> scripts/local/vm-dashboard.ps1
 ```
 
 ## VM/Linux

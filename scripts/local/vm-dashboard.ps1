@@ -148,7 +148,7 @@ if ($process -and (Test-LocalDashboard -Port $LocalPort)) {
 }
 
 if (-not (Test-PortAvailable -Port $LocalPort)) {
-    throw "Local port $LocalPort is already in use. Try -LocalPort 18001 or run .\vm-dashboard.ps1 -Stop."
+    throw "Local port $LocalPort is already in use. Try -LocalPort 18001 or run .\vm-dashboard.cmd -Stop."
 }
 
 if (-not $HostName) {
