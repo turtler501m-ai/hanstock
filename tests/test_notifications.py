@@ -90,6 +90,25 @@ class NotificationTests(unittest.TestCase):
         text = payload["attachments"][0]["blocks"][1]["text"]["text"]
         self.assertIn("*005930* (`005930`) 70,123원 | 점수 4 | rsi, macd", text)
 
+    def test_build_candidates_payload_chunks_long_lists(self):
+        # Create enough candidates to exceed the 2800 character chunk limit
+        candidates = []
+        for i in range(40):
+            candidates.append({
+                "ticker": f"{i:06d}",
+                "name": f"Stock{i}",
+                "current_price": 10000,
+                "score": 3,
+                "reasons": ["rsi pullback " * 10]  # Very long reasons to exceed limit
+            })
+        payload = build_candidates_payload(candidates)
+        blocks = payload["attachments"][0]["blocks"]
+        # It should have a header block and at least two section blocks due to chunking
+        self.assertGreaterEqual(len(blocks), 3)
+        self.assertEqual(blocks[0]["type"], "header")
+        self.assertEqual(blocks[1]["type"], "section")
+        self.assertEqual(blocks[2]["type"], "section")
+
     def test_build_session_end_payload_summarizes_results(self):
         payload = build_session_end_payload(
             results=[
@@ -110,9 +129,32 @@ class NotificationTests(unittest.TestCase):
         self.assertEqual(fields[6]["text"], "*승인대기*\n1건")
         self.assertIn("승인대기 Naver 3주 - queue", orders)
 
+    def test_build_session_end_payload_chunks_long_lists(self):
+        # Create enough results to exceed the 2800 character chunk limit
+        results = []
+        for i in range(40):
+            results.append({
+                "name": f"StockName{i} " * 5,  # Very long name
+                "action": "buy",
+                "qty": 10,
+                "reason": "extremely long strategy reason description " * 5,
+                "ok": True,
+                "decision": "execute"
+            })
+        payload = build_session_end_payload(results, cash=1000, total=2000, pnl=100)
+        blocks = payload["attachments"][0]["blocks"]
+        # Header, Info Fields, and at least two section blocks for chunked order history + 1 context
+        self.assertGreaterEqual(len(blocks), 5)
+        self.assertEqual(blocks[0]["type"], "header")
+        self.assertEqual(blocks[1]["type"], "section")
+        self.assertEqual(blocks[2]["type"], "section")
+        self.assertEqual(blocks[3]["type"], "section")
+        self.assertEqual(blocks[-1]["type"], "context")
+
     def test_build_session_end_payload_handles_empty_results(self):
         payload = build_session_end_payload(results=[], cash=1, total=2, pnl=3)
         self.assertEqual(payload["attachments"][0]["color"], "#9E9E9E")
+
         self.assertIn("주문 없음", payload["text"])
 
     def test_build_error_payload_uses_error_color(self):

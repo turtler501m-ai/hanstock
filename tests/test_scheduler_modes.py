@@ -124,7 +124,7 @@ class SchedulerModeTests(unittest.TestCase):
             return_value={"id": 123, "status": "executed"},
         ), patch.object(scheduler.trader, "DRY_RUN", False), patch.object(
             scheduler.trader, "ORDER_SUBMISSION_ENABLED", True
-        ), patch(
+        ), patch("src.dashboard._get_api", return_value=object()), patch(
             "src.dashboard._sync_order_status_from_history",
             side_effect=RuntimeError("history unavailable"),
         ), patch.object(scheduler.time, "sleep"), patch.object(

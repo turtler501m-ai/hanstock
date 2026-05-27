@@ -143,19 +143,31 @@ def build_order_payload(
 def build_candidates_payload(candidates: list[dict[str, Any]]) -> dict[str, Any] | None:
     if not candidates:
         return None
-    lines = []
+    
+    blocks = [{"type": "header", "text": {"type": "plain_text", "text": "매수 후보 종목"}}]
+    current_chunk = []
+    current_length = 0
+    
     for item in candidates:
         ticker = item["ticker"]
         label = item.get("name") or ticker
-        lines.append(
-            f"*{label}* (`{ticker}`) {item['current_price']:,.0f}원 | 점수 {item['score']} | {', '.join(item['reasons'])}"
-        )
+        line = f"*{label}* (`{ticker}`) {item['current_price']:,.0f}원 | 점수 {item['score']} | {', '.join(item['reasons'])}"
+        line_len = len(line) + 1
+        
+        if current_length + line_len > 2800:
+            blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": "\n".join(current_chunk)}})
+            current_chunk = [line]
+            current_length = line_len
+        else:
+            current_chunk.append(line)
+            current_length += line_len
+            
+    if current_chunk:
+        blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": "\n".join(current_chunk)}})
+        
     return build_slack_payload(
         text=f"신규 매수 후보 {len(candidates)}종목",
-        blocks=[
-            {"type": "header", "text": {"type": "plain_text", "text": "매수 후보 종목"}},
-            {"type": "section", "text": {"type": "mrkdwn", "text": "\n".join(lines)}},
-        ],
+        blocks=blocks,
         color="#9C27B0",
     )
 
@@ -180,33 +192,51 @@ def build_session_end_payload(
     buy_count = sum(1 for item in executed if item["action"] == "buy" and item["ok"])
     sell_count = sum(1 for item in executed if item["action"] == "sell" and item["ok"])
     fail_count = sum(1 for item in executed if not item["ok"])
-    lines = []
+    
+    blocks = [
+        {"type": "header", "text": {"type": "plain_text", "text": "세븐 스플릿 자동매매 종료"}},
+        {"type": "section", "fields": [
+            {"type": "mrkdwn", "text": f"*시간*\n{ts}"},
+            {"type": "mrkdwn", "text": f"*총 평가금액*\n{total:,}원"},
+            {"type": "mrkdwn", "text": f"*예수금*\n{cash:,}원"},
+            {"type": "mrkdwn", "text": f"*당일 손익*\n{pnl:+,}원"},
+            {"type": "mrkdwn", "text": f"*매수 성공*\n{buy_count}건"},
+            {"type": "mrkdwn", "text": f"*매도 성공*\n{sell_count}건"},
+            {"type": "mrkdwn", "text": f"*승인대기*\n{queued_count}건"},
+        ]}
+    ]
+
+    current_chunk = ["*주문 내역*"]
+    current_length = len(current_chunk[0])
+    
     for item in results:
         if item.get("decision") == "queue":
             prefix = "승인대기"
         else:
             prefix = "매수" if item["action"] == "buy" else "매도"
-        lines.append(f"{prefix} {item['name']} {item['qty']}주 - {item['reason']}")
+        line = f"{prefix} {item['name']} {item['qty']}주 - {item['reason']}"
+        line_len = len(line) + 1
+        
+        if current_length + line_len > 2800:
+            blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": "\n".join(current_chunk)}})
+            current_chunk = [line]
+            current_length = line_len
+        else:
+            current_chunk.append(line)
+            current_length += line_len
+            
+    if current_chunk:
+        blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": "\n".join(current_chunk)}})
+
+    blocks.append({"type": "context", "elements": [{"type": "mrkdwn", "text": f"실패 건수: {fail_count}건"}]})
 
     return build_slack_payload(
         text=f"세븐 스플릿 자동매매 종료 - {ts}",
-        blocks=[
-            {"type": "header", "text": {"type": "plain_text", "text": "세븐 스플릿 자동매매 종료"}},
-            {"type": "section", "fields": [
-                {"type": "mrkdwn", "text": f"*시간*\n{ts}"},
-                {"type": "mrkdwn", "text": f"*총 평가금액*\n{total:,}원"},
-                {"type": "mrkdwn", "text": f"*예수금*\n{cash:,}원"},
-                {"type": "mrkdwn", "text": f"*당일 손익*\n{pnl:+,}원"},
-                {"type": "mrkdwn", "text": f"*매수 성공*\n{buy_count}건"},
-                {"type": "mrkdwn", "text": f"*매도 성공*\n{sell_count}건"},
-                {"type": "mrkdwn", "text": f"*승인대기*\n{queued_count}건"},
-            ]},
-            {"type": "section", "text": {"type": "mrkdwn", "text": "*주문 내역*\n" + "\n".join(lines)}},
-            {"type": "context", "elements": [{"type": "mrkdwn", "text": f"실패 건수: {fail_count}건"}]},
-        ],
+        blocks=blocks,
         color="#36a64f" if pnl >= 0 else "#e74c3c",
     )
 
 
 def build_error_payload(message: str) -> dict[str, Any]:
     return build_slack_payload(text=f"세븐 스플릿 오류: {message}", color="#e74c3c")
+

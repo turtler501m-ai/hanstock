@@ -43,25 +43,29 @@ class ApprovalRepository:
         self._connect_fn = connect_fn
 
     def init_db(self) -> None:
-        with self._connect_fn() as conn:
-            conn.execute(
-                """
-                CREATE TABLE IF NOT EXISTS approvals (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    created_at TEXT NOT NULL,
-                    updated_at TEXT NOT NULL,
-                    symbol TEXT NOT NULL,
-                    name TEXT NOT NULL,
-                    action TEXT NOT NULL,
-                    qty INTEGER NOT NULL,
-                    price INTEGER NOT NULL,
-                    reason TEXT,
-                    source TEXT,
-                    status TEXT NOT NULL,
-                    response_msg TEXT
+        conn = self._connect_fn()
+        try:
+            with conn:
+                conn.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS approvals (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        created_at TEXT NOT NULL,
+                        updated_at TEXT NOT NULL,
+                        symbol TEXT NOT NULL,
+                        name TEXT NOT NULL,
+                        action TEXT NOT NULL,
+                        qty INTEGER NOT NULL,
+                        price INTEGER NOT NULL,
+                        reason TEXT,
+                        source TEXT,
+                        status TEXT NOT NULL,
+                        response_msg TEXT
+                    )
+                    """
                 )
-                """
-            )
+        finally:
+            conn.close()
 
     def create_approval(
         self,
@@ -78,47 +82,57 @@ class ApprovalRepository:
         status: str = "pending",
         response_msg: str = "",
     ) -> int:
-        with self._connect_fn() as conn:
-            cursor = conn.execute(
-                """
-                INSERT INTO approvals
-                (created_at, updated_at, symbol, name, action, qty, price, reason, source, status, response_msg)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    created_at,
-                    updated_at,
-                    symbol,
-                    name,
-                    action,
-                    qty,
-                    price,
-                    reason,
-                    source,
-                    status,
-                    response_msg,
-                ),
-            )
-            return int(cursor.lastrowid)
+        conn = self._connect_fn()
+        try:
+            with conn:
+                cursor = conn.execute(
+                    """
+                    INSERT INTO approvals
+                    (created_at, updated_at, symbol, name, action, qty, price, reason, source, status, response_msg)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        created_at,
+                        updated_at,
+                        symbol,
+                        name,
+                        action,
+                        qty,
+                        price,
+                        reason,
+                        source,
+                        status,
+                        response_msg,
+                    ),
+                )
+                return int(cursor.lastrowid)
+        finally:
+            conn.close()
 
     def get_approval(self, approval_id: int) -> ApprovalRecord | None:
-        with self._connect_fn() as conn:
+        conn = self._connect_fn()
+        try:
             conn.row_factory = sqlite3.Row
             row = conn.execute(
                 "SELECT * FROM approvals WHERE id = ?",
                 (approval_id,),
             ).fetchone()
+        finally:
+            conn.close()
         if row is None:
             return None
         return _approval_record_from_row(row)
 
     def list_approvals(self, *, limit: int) -> list[ApprovalRecord]:
-        with self._connect_fn() as conn:
+        conn = self._connect_fn()
+        try:
             conn.row_factory = sqlite3.Row
             rows = conn.execute(
                 "SELECT * FROM approvals ORDER BY id DESC LIMIT ?",
                 (limit,),
             ).fetchall()
+        finally:
+            conn.close()
         return [_approval_record_from_row(row) for row in rows]
 
     def update_approval_status(
@@ -129,13 +143,18 @@ class ApprovalRepository:
         response_msg: str,
         updated_at: str,
     ) -> bool:
-        with self._connect_fn() as conn:
-            cursor = conn.execute(
-                """
-                UPDATE approvals
-                SET status = ?, response_msg = ?, updated_at = ?
-                WHERE id = ?
-                """,
-                (status, response_msg, updated_at, approval_id),
-            )
-            return cursor.rowcount > 0
+        conn = self._connect_fn()
+        try:
+            with conn:
+                cursor = conn.execute(
+                    """
+                    UPDATE approvals
+                    SET status = ?, response_msg = ?, updated_at = ?
+                    WHERE id = ?
+                    """,
+                    (status, response_msg, updated_at, approval_id),
+                )
+                return cursor.rowcount > 0
+        finally:
+            conn.close()
+
