@@ -423,6 +423,9 @@ function buildNoCandidatesModalMarkup(data) {
 }
 
 let portfolioChartInstance = null;
+let periodicChartInstance = null;
+let periodicActiveTab = 'daily';
+let periodicDataCache = null;
 let latestConfig = null;
 
 function strategySettingFields(config) {
@@ -1304,10 +1307,193 @@ async function renderTrades() {
             `;
             tbodyTrades.appendChild(tr);
         });
+        
+        await renderPeriodicPerformance();
     } catch (err) {
         console.error('Failed to fetch trade history', err);
         setTableMessage('#table-trades tbody', 8, err.message);
     }
+}
+
+async function renderPeriodicPerformance() {
+    try {
+        const periodicData = await fetchJson('/api/performance/periodic', 30000);
+        periodicDataCache = periodicData;
+        
+        // Attach sub-tab event listeners once
+        const dailyBtn = document.getElementById('btn-perf-daily');
+        const monthlyBtn = document.getElementById('btn-perf-monthly');
+        
+        if (dailyBtn && !dailyBtn.dataset.listenerAttached) {
+            dailyBtn.dataset.listenerAttached = 'true';
+            dailyBtn.addEventListener('click', () => {
+                periodicActiveTab = 'daily';
+                dailyBtn.classList.add('active');
+                if (monthlyBtn) monthlyBtn.classList.remove('active');
+                updatePeriodicPerformanceUI();
+            });
+        }
+        if (monthlyBtn && !monthlyBtn.dataset.listenerAttached) {
+            monthlyBtn.dataset.listenerAttached = 'true';
+            monthlyBtn.addEventListener('click', () => {
+                periodicActiveTab = 'monthly';
+                monthlyBtn.classList.add('active');
+                if (dailyBtn) dailyBtn.classList.remove('active');
+                updatePeriodicPerformanceUI();
+            });
+        }
+        
+        updatePeriodicPerformanceUI();
+    } catch (err) {
+        console.error('Periodic performance render failed:', err);
+    }
+}
+
+function updatePeriodicPerformanceUI() {
+    if (!periodicDataCache) return;
+    
+    const dataList = periodicActiveTab === 'daily' ? (periodicDataCache.daily || []) : (periodicDataCache.monthly || []);
+    
+    // 1. Populate the table
+    const tbody = document.querySelector('#table-periodic-performance tbody');
+    if (tbody) {
+        tbody.innerHTML = '';
+        if (!dataList.length) {
+            tbody.innerHTML = `<tr><td colspan="7" style="text-align: center; padding: 2rem; color: #94a3b8;">성과 분석 데이터가 없습니다.</td></tr>`;
+        } else {
+            // Sort to display latest data first in the table
+            const tableDataList = [...dataList].reverse();
+            tableDataList.forEach(item => {
+                const tr = document.createElement('tr');
+                const pnl = item.realized_pnl || 0;
+                const pnlRate = item.realized_pnl_rate || 0;
+                const pnlClass = pnl > 0 ? 'text-success' : (pnl < 0 ? 'text-danger' : '');
+                
+                tr.innerHTML = `
+                    <td><strong>${escapeHtml(item.period)}</strong></td>
+                    <td>${Number(item.order_count || 0).toLocaleString()}회</td>
+                    <td>${formatCurrency(item.buy_amount)}</td>
+                    <td>${formatCurrency(item.sell_amount)}</td>
+                    <td class="${pnlClass}">${pnl > 0 ? '+' : ''}${formatCurrency(pnl)}</td>
+                    <td class="${pnlClass}">${pnlRate > 0 ? '+' : ''}${pnlRate.toFixed(2)}%</td>
+                    <td class="${pnl > 0 ? 'text-success' : (pnl < 0 ? 'text-danger' : '')}">${formatCurrency(item.net_cashflow)}</td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+    }
+    
+    // 2. Render Chart.js
+    const canvas = document.getElementById('periodicPerformanceChart');
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    
+    if (periodicChartInstance) {
+        periodicChartInstance.destroy();
+    }
+    
+    const labels = dataList.map(item => item.period);
+    const pnlData = dataList.map(item => item.realized_pnl || 0);
+    const pnlRateData = dataList.map(item => item.realized_pnl_rate || 0);
+    
+    Chart.defaults.color = '#94a3b8';
+    Chart.defaults.font.family = "'Noto Sans KR', 'Inter', sans-serif";
+    
+    // Dynamic bar colors based on profit/loss
+    const barColors = pnlData.map(val => val >= 0 ? 'rgba(34, 197, 94, 0.2)' : 'rgba(239, 68, 68, 0.2)');
+    const borderColors = pnlData.map(val => val >= 0 ? 'rgba(34, 197, 94, 0.8)' : 'rgba(239, 68, 68, 0.8)');
+    
+    periodicChartInstance = new Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels,
+            datasets: [
+                {
+                    label: '실현손익 (원)',
+                    data: pnlData,
+                    backgroundColor: barColors,
+                    borderColor: borderColors,
+                    borderWidth: 1,
+                    yAxisID: 'y1',
+                    borderRadius: 4
+                },
+                {
+                    label: '실현수익률 (%)',
+                    data: pnlRateData,
+                    type: 'line',
+                    borderColor: '#3b82f6',
+                    backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                    borderWidth: 2,
+                    pointBackgroundColor: '#3b82f6',
+                    pointBorderColor: '#ffffff',
+                    pointRadius: 4,
+                    pointHoverRadius: 6,
+                    tension: 0.3,
+                    yAxisID: 'y2'
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: {
+                    position: 'top',
+                    labels: { boxWidth: 12, color: '#f8fafc' }
+                },
+                tooltip: {
+                    padding: 12,
+                    callbacks: {
+                        label: function(context) {
+                            let label = context.dataset.label || '';
+                            if (label) {
+                                label += ': ';
+                            }
+                            if (context.datasetIndex === 0) {
+                                label += formatCurrency(context.parsed.y);
+                            } else {
+                                label += (context.parsed.y > 0 ? '+' : '') + context.parsed.y.toFixed(2) + '%';
+                            }
+                            return label;
+                        }
+                    }
+                }
+            },
+            scales: {
+                x: {
+                    grid: { color: 'rgba(255, 255, 255, 0.05)' },
+                    ticks: { color: '#94a3b8' }
+                },
+                y1: {
+                    type: 'linear',
+                    position: 'left',
+                    grid: { color: 'rgba(255, 255, 255, 0.05)' },
+                    ticks: {
+                        color: '#94a3b8',
+                        callback: function(value) {
+                            if (value >= 10000 || value <= -10000) {
+                                return (value / 10000).toFixed(0) + '만';
+                            }
+                            return value;
+                        }
+                    },
+                    title: { display: true, text: '실현손익 (원)', color: '#22c55e' }
+                },
+                y2: {
+                    type: 'linear',
+                    position: 'right',
+                    grid: { drawOnChartArea: false },
+                    ticks: {
+                        color: '#94a3b8',
+                        callback: function(value) {
+                            return value.toFixed(1) + '%';
+                        }
+                    },
+                    title: { display: true, text: '실현수익률 (%)', color: '#3b82f6' }
+                }
+            }
+        }
+    });
 }
 
 async function renderExecutionPlan() {

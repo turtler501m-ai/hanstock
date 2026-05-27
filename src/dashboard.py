@@ -2855,13 +2855,17 @@ def _trade_is_sync_adjustment(trade: dict) -> bool:
 
 def _account_trades(trades: list[dict]) -> list[dict]:
     account_rows = []
+    # If the trader is running in dry-run/demo mode, or if there are no live trades, show dry-run trades
+    show_dry_run = trader.DRY_RUN or (trader.TRADING_ENV == "demo")
+    
     for trade in trades:
-        if not (
-            _trade_is_ok(trade)
-            and not _trade_is_dry_run(trade)
-            and not _trade_is_sync_adjustment(trade)
-        ):
+        if not _trade_is_ok(trade):
             continue
+        if _trade_is_sync_adjustment(trade):
+            continue
+        if not show_dry_run and _trade_is_dry_run(trade):
+            continue
+            
         order_status = str(trade.get("order_status") or "")
         filled_qty = _to_int(trade.get("filled_qty"))
         filled_price = _to_int(trade.get("filled_price"))
@@ -2881,6 +2885,8 @@ def _period_bucket() -> dict:
         "buy_amount": 0,
         "sell_amount": 0,
         "realized_pnl": 0,
+        "cost_of_sold": 0,
+        "realized_pnl_rate": 0.0,
         "net_cashflow": 0,
     }
 
@@ -2928,9 +2934,14 @@ def _build_periodic_performance(trades: list[dict]) -> dict:
             holding["avg_cost"] = total_cost / total_qty if total_qty > 0 else 0.0
         else:
             sell_qty = min(qty, holding["qty"])
+            cost_of_shares_sold = int(holding["avg_cost"] * sell_qty)
             realized = int((price - holding["avg_cost"]) * sell_qty)
+            
             day["realized_pnl"] += realized
             month["realized_pnl"] += realized
+            day["cost_of_sold"] += cost_of_shares_sold
+            month["cost_of_sold"] += cost_of_shares_sold
+            
             holding["qty"] = max(0, holding["qty"] - sell_qty)
             if holding["qty"] <= 0:
                 holding["avg_cost"] = 0.0
@@ -2938,6 +2949,7 @@ def _build_periodic_performance(trades: list[dict]) -> dict:
     for rows in (daily, monthly):
         for bucket in rows.values():
             bucket["net_cashflow"] = bucket["sell_amount"] - bucket["buy_amount"]
+            bucket["realized_pnl_rate"] = round((bucket["realized_pnl"] / bucket["cost_of_sold"] * 100), 2) if bucket["cost_of_sold"] > 0 else 0.0
 
     return {
         "daily": [{"period": key, **value} for key, value in sorted(daily.items())],
@@ -3420,10 +3432,11 @@ def get_performance():
                 recorded_qty = holdings.get(sym, {}).get("qty", 0)
                 diff_reason = ""
                 if recorded_qty == 0:
-                    diff_reason = "?섎룞留ㅼ닔/湲곕줉?꾨씫 蹂댁젙 ?꾨즺"
+                    diff_reason = "수동매수/기록누락 보정 완료"
                 elif recorded_qty != ch["qty"]:
-                    diff_reason = f"?섎웾 遺덉씪移?{recorded_qty}二?>{ch['qty']}二? 蹂댁젙 ?꾨즺"
+                    diff_reason = f"수량 불일치 {recorded_qty}주->{ch['qty']}주 보정 완료"
                     
+                return_rate = ((ch["price"] / avg_cost) - 1) * 100 if avg_cost > 0 else 0.0
                 eval_details.append({
                     "symbol": sym,
                     "name": ch["name"],
@@ -3431,7 +3444,7 @@ def get_performance():
                     "avg_cost": avg_cost,
                     "current_price": ch["price"],
                     "eval_pnl": int(ch["pnl"]),
-                    "return_rate": round(ch["rt"], 2),
+                    "return_rate": round(return_rate, 2),
                     "broker_qty": ch["qty"],
                     "broker_pnl": int(ch["pnl"]),
                     "diff_reason": diff_reason
