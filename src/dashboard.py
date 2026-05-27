@@ -1756,6 +1756,7 @@ def health():
     missing = _required_env_missing()
     account_warning = _account_format_warning(trader.config.kistock_account)
     demo_readiness = _demo_trading_readiness()
+    from src.db.repository import _load_token_usage
     return {
         "ok": not missing and not account_warning,
         "missing": missing,
@@ -1774,6 +1775,7 @@ def health():
         "demo_trading_readiness": demo_readiness,
         "kill_switch_active": Path(".runtime/kill_switch.json").exists(),
         "dashboard_runtime": _runtime_dashboard_info(),
+        "token_usage": _load_token_usage(),
     }
 
 

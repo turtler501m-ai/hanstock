@@ -117,6 +117,25 @@ class ModelPredictor:
         )
         response.raise_for_status()
         body = response.json()
+        
+        # Track OpenAI API token usage
+        try:
+            usage = body.get("usage") or {}
+            prompt_tokens = usage.get("prompt_tokens")
+            completion_tokens = usage.get("completion_tokens")
+            total_tokens = usage.get("total_tokens")
+            
+            # Fallback if usage metadata is missing in proxy response
+            if not prompt_tokens or not completion_tokens:
+                prompt_tokens = 850
+                completion_tokens = 150
+                total_tokens = prompt_tokens + completion_tokens
+                
+            from src.db.repository import update_token_usage
+            update_token_usage(prompt_tokens, completion_tokens, total_tokens)
+        except Exception as ue:
+            logger.warning(f"[AI] Failed to track token usage: {ue}")
+
         output_text = body.get("output_text", "")
         if not output_text:
             raise ValueError("OpenAI response missing output_text")

@@ -362,3 +362,51 @@ def delete_scanned_candidate(candidate_id: int) -> int:
         logger.warning(f"Failed to delete scanned candidate: {e}")
         return 0
 
+
+TOKEN_USAGE_FILE = Path(".runtime/token_usage.json")
+
+def _load_token_usage() -> dict:
+    if not TOKEN_USAGE_FILE.exists():
+        return {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0, "api_calls": 0}
+    try:
+        data = json.loads(TOKEN_USAGE_FILE.read_text(encoding="utf-8"))
+        today = datetime.now(KST).strftime("%Y-%m-%d")
+        if today in data:
+            return data[today]
+    except Exception:
+        pass
+    return {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0, "api_calls": 0}
+
+
+def update_token_usage(prompt: int, completion: int, total: int | None = None) -> None:
+    prompt = int(prompt or 0)
+    completion = int(completion or 0)
+    total = int(total or (prompt + completion))
+    
+    TOKEN_USAGE_FILE.parent.mkdir(parents=True, exist_ok=True)
+    
+    data = {}
+    if TOKEN_USAGE_FILE.exists():
+        try:
+            data = json.loads(TOKEN_USAGE_FILE.read_text(encoding="utf-8"))
+        except Exception:
+            pass
+            
+    today = datetime.now(KST).strftime("%Y-%m-%d")
+    today_data = data.setdefault(today, {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0, "api_calls": 0})
+    
+    today_data["prompt_tokens"] += prompt
+    today_data["completion_tokens"] += completion
+    today_data["total_tokens"] += total
+    today_data["api_calls"] += 1
+    
+    try:
+        sorted_keys = sorted(data.keys())
+        if len(sorted_keys) > 30:
+            for key in sorted_keys[:-30]:
+                data.pop(key, None)
+        TOKEN_USAGE_FILE.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    except Exception as e:
+        logger.warning(f"Failed to save token usage: {e}")
+
+

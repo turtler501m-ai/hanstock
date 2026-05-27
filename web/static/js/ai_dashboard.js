@@ -105,6 +105,16 @@ function renderHealth() {
         statusItems[3].className = `status-item ${killActive || circuit.open ? "warn" : "ok"}`;
         statusItems[3].innerHTML = `<span>서킷브레이커</span><strong>${killActive ? "Kill Switch" : circuit.open ? "열림" : "닫힘"}</strong><small>${Number(circuit.fail_count || 0)} / ${Number(circuit.threshold || 5)} 오류</small>`;
     }
+    if (statusItems[4]) {
+        const tokens = health.token_usage || { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0, api_calls: 0 };
+        const prompt = Number(tokens.prompt_tokens || 0).toLocaleString();
+        const completion = Number(tokens.completion_tokens || 0).toLocaleString();
+        const total = Number(tokens.total_tokens || 0).toLocaleString();
+        const calls = Number(tokens.api_calls || 0).toLocaleString();
+        
+        statusItems[4].className = "status-item ok";
+        statusItems[4].innerHTML = `<span>토큰 사용량</span><strong>${total} tkn</strong><small>P:${prompt} C:${completion} (${calls}회)</small>`;
+    }
 
     updateToggle("toggle-dry-run", Boolean(health.dry_run));
     updateToggle("toggle-live-trading", Boolean(health.enable_live_trading));
