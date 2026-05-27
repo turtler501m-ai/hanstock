@@ -544,6 +544,18 @@ def build_runtime_plan(api, balance_data: dict, *, include_ai_rebalance: bool = 
             }
             row = {**row, "indicators": indicators}
             candidate_rows.append(row)
+            
+            # Automatically save scan results to DB for history tracking in automated cycles
+            from src.db.repository import save_scanned_candidate
+            save_scanned_candidate(
+                symbol=candidate.get("ticker", candidate.get("symbol", "")),
+                name=candidate.get("name", candidate.get("ticker", "")),
+                score=candidate.get("score", 0),
+                reasons=candidate.get("reasons", []),
+                price=candidate.get("current_price", candidate.get("price", 0)),
+                env=TRADING_ENV,
+                indicators=indicators
+            )
             if order:
                 remaining_cash -= int(order.get("estimated_cost", 0) or 0)
 

@@ -110,6 +110,26 @@ def init_db() -> None:
             )
             """
         )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS scanned_candidates (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                scanned_at TEXT NOT NULL,
+                symbol TEXT NOT NULL,
+                name TEXT NOT NULL,
+                score INTEGER NOT NULL,
+                reasons TEXT,
+                price INTEGER,
+                env TEXT NOT NULL,
+                rsi REAL,
+                rsi2 REAL,
+                macd_hist REAL,
+                sma20 REAL,
+                sma60 REAL
+            )
+            """
+        )
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_scanned_candidates_scanned_at ON scanned_candidates(scanned_at)")
 
 
 def _ensure_column(conn: DBWrapper, table: str, column: str, column_type: str) -> None:
@@ -267,3 +287,78 @@ def save_decision_log(symbol: str, name: str, action: str, qty: int, price: int,
             )
     except Exception as e:
         logger.warning(f"Failed to save decision log: {e}")
+
+
+def save_scanned_candidate(
+    symbol: str,
+    name: str,
+    score: int,
+    reasons: list | str,
+    price: int,
+    env: str,
+    indicators: dict | None = None
+) -> None:
+    ts = datetime.now(KST).strftime("%Y-%m-%d %H:%M:%S")
+    reasons_str = ",".join(reasons) if isinstance(reasons, list) else str(reasons)
+    indicators = indicators or {}
+    
+    rsi = indicators.get("rsi")
+    rsi2 = indicators.get("rsi2")
+    macd_hist = indicators.get("macd_hist")
+    sma20 = indicators.get("sma20")
+    sma60 = indicators.get("sma60")
+    
+    try:
+        init_db()
+        with connect_db() as conn:
+            conn.execute(
+                """
+                INSERT INTO scanned_candidates (
+                    scanned_at, symbol, name, score, reasons, price, env,
+                    rsi, rsi2, macd_hist, sma20, sma60
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    ts, symbol, name, score, reasons_str, price, env,
+                    rsi, rsi2, macd_hist, sma20, sma60
+                )
+            )
+    except Exception as e:
+        logger.warning(f"Failed to save scanned candidate: {e}")
+
+
+def get_scanned_candidates_history(limit: int = 100, days: int = 30) -> list[dict]:
+    init_db()
+    since_date = (datetime.now(KST) - timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S")
+    try:
+        with connect_db() as conn:
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute(
+                """
+                SELECT * FROM scanned_candidates
+                WHERE scanned_at >= ?
+                ORDER BY scanned_at DESC
+                LIMIT ?
+                """,
+                (since_date, limit)
+            ).fetchall()
+            return [dict(row) for row in rows]
+    except Exception as e:
+        logger.warning(f"Failed to fetch scanned candidates history: {e}")
+        return []
+
+
+def delete_scanned_candidate(candidate_id: int) -> int:
+    init_db()
+    try:
+        with connect_db() as conn:
+            cursor = conn.execute(
+                "DELETE FROM scanned_candidates WHERE id = ?",
+                (candidate_id,)
+            )
+            return int(cursor.rowcount)
+    except Exception as e:
+        logger.warning(f"Failed to delete scanned candidate: {e}")
+        return 0
+

@@ -2384,14 +2384,56 @@ async def get_candidates(min_score: int = 2):
         api = _get_api()
         parsed = _parse_balance(_get_balance_data(api))
         payload = build_dashboard_candidates(api, parsed, min_score=min_score)
-        # scanned=0 ? yfinance ?ㅽ뙣 ???곗씠???섏떊 ?ㅻ쪟 ??罹먯떆?섏? ?딆쓬
+        
         if payload["scanned"] > 0:
             _save_candidate_cache(
                 min_score, payload["candidates"], payload["scan_summary"], payload["scanned"]
             )
+            # Automatically save scan results to DB for history tracking
+            from src.db.repository import save_scanned_candidate
+            for cand in payload["candidates"]:
+                save_scanned_candidate(
+                    symbol=cand["ticker"],
+                    name=cand["name"],
+                    score=cand["score"],
+                    reasons=cand["reasons"],
+                    price=cand["current_price"],
+                    env=trader.TRADING_ENV,
+                    indicators={
+                        "rsi": cand.get("rsi"),
+                        "rsi2": cand.get("rsi2"),
+                        "macd_hist": cand.get("macd_hist"),
+                        "sma20": cand.get("sma20"),
+                        "sma60": cand.get("sma60"),
+                    }
+                )
         return payload
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"Candidate scan failed: {e}") from e
+
+
+@app.get("/api/candidates/history")
+async def get_candidates_history(limit: int = 100, days: int = 30):
+    try:
+        from src.db.repository import get_scanned_candidates_history
+        history = get_scanned_candidates_history(limit=limit, days=days)
+        return {"history": history}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/api/candidates/history/{candidate_id}")
+async def delete_candidate_history(candidate_id: int):
+    try:
+        from src.db.repository import delete_scanned_candidate
+        deleted_count = delete_scanned_candidate(candidate_id)
+        if deleted_count <= 0:
+            raise HTTPException(status_code=404, detail="Candidate not found")
+        return {"ok": True, "deleted_count": deleted_count}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get("/api/execution-plan")
