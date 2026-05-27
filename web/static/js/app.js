@@ -1221,7 +1221,7 @@ async function renderTrades() {
                             <td>${formatCurrency(item.avg_cost)}</td>
                             <td>${formatCurrency(item.current_price)}</td>
                             <td>${formatCurrency(Number(item.current_price || 0) * Number(item.qty || 0))}</td>
-                            <td class="${pnlClass}">${item.return_rate > 0 ? '+' : ''}${item.return_rate.toFixed(2)}%</td>
+                            <td class="${pnlClass}">${formatPercent(item.return_rate)}</td>
                             <td class="${pnlClass}">${item.eval_pnl > 0 ? '+' : ''}${formatCurrency(item.eval_pnl)}</td>
                         `;
                         tbodyEval.appendChild(tr);
