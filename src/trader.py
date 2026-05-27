@@ -213,23 +213,40 @@ class KIStockAPI:
             "FNCG_AMT_AUTO_RDPT_YN": "N", "PRCS_DVSN": "01",
             "CTX_AREA_FK100": "", "CTX_AREA_NK100": "",
         }
-        r = HTTP.get(url, headers=self._headers(tr_id), params=params, timeout=15)
-        r.raise_for_status()
-        return r.json()
+        _kis_order_throttle()
+        try:
+            r = HTTP.get(url, headers=self._headers(tr_id), params=params, timeout=15)
+            r.raise_for_status()
+            self._success()
+            return r.json()
+        except Exception as e:
+            logger.error(f"Failed to get KIS balance: {e}")
+            self._fail()
+            raise
 
     def get_quote(self, symbol: str) -> dict:
-        r = HTTP.get(
-            f"{BASE_URL}/uapi/domestic-stock/v1/quotations/inquire-price",
-            headers=self._headers("FHKST01010100"),
-            params={"FID_COND_MRKT_DIV_CODE": "J", "FID_INPUT_ISCD": symbol},
-            timeout=10,
-        )
-        output = r.json().get("output", {})
-        return {
-            "current": float(output.get("stck_prpr", 0)),
-            "ask1": float(output.get("askp1", 0)),
-            "bid1": float(output.get("bidp1", 0)),
-        }
+        self._sync_circuit_to_client()
+        _kis_order_throttle()
+        try:
+            r = HTTP.get(
+                f"{BASE_URL}/uapi/domestic-stock/v1/quotations/inquire-price",
+                headers=self._headers("FHKST01010100"),
+                params={"FID_COND_MRKT_DIV_CODE": "J", "FID_INPUT_ISCD": symbol},
+                timeout=10,
+            )
+            output = r.json().get("output", {})
+            self._success()
+            self._sync_circuit_from_client()
+            return {
+                "current": float(output.get("stck_prpr", 0)),
+                "ask1": float(output.get("askp1", 0)),
+                "bid1": float(output.get("bidp1", 0)),
+            }
+        except Exception as e:
+            logger.warning(f"get_quote failed for {symbol}: {e}")
+            self._fail()
+            self._sync_circuit_from_client()
+            return {"current": 0.0, "ask1": 0.0, "bid1": 0.0}
 
     def get_volume_rank(self, top_n: int = 50) -> list:
         self._sync_circuit_to_client()
@@ -268,8 +285,14 @@ class KIStockAPI:
         if hashkey:
             headers["hashkey"] = hashkey
         _kis_order_throttle()
-        r = HTTP.post(url, headers=headers, json=body, timeout=15)
-        return r.json()
+        try:
+            r = HTTP.post(url, headers=headers, json=body, timeout=15)
+            self._success()
+            return r.json()
+        except Exception as e:
+            logger.error(f"place_order failed for {symbol}: {e}")
+            self._fail()
+            return {"rt_cd": "1", "msg1": str(e)}
 
     def get_trade_history(self, start_date: str, end_date: str) -> list:
         tr_id = "VTTC0081R" if TRADING_ENV == "demo" else "TTTC0081R"
