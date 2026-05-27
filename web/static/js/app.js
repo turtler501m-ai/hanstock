@@ -1383,13 +1383,27 @@ function updatePeriodicPerformanceUI() {
         }
     }
     
-    // 2. Render Chart.js
+    // 2. Render Chart.js with defense
+    if (typeof Chart === 'undefined') {
+        console.warn('Chart.js is not loaded yet.');
+        return;
+    }
+    
     const canvas = document.getElementById('periodicPerformanceChart');
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
     
     if (periodicChartInstance) {
-        periodicChartInstance.destroy();
+        try {
+            periodicChartInstance.destroy();
+        } catch (e) {
+            console.error('Failed to destroy previous chart instance', e);
+        }
+        periodicChartInstance = null;
+    }
+    
+    if (!dataList || dataList.length === 0) {
+        return;
     }
     
     const labels = dataList.map(item => item.period);
@@ -1403,97 +1417,104 @@ function updatePeriodicPerformanceUI() {
     const barColors = pnlData.map(val => val >= 0 ? 'rgba(34, 197, 94, 0.2)' : 'rgba(239, 68, 68, 0.2)');
     const borderColors = pnlData.map(val => val >= 0 ? 'rgba(34, 197, 94, 0.8)' : 'rgba(239, 68, 68, 0.8)');
     
-    periodicChartInstance = new Chart(ctx, {
-        type: 'bar',
-        data: {
-            labels,
-            datasets: [
-                {
-                    label: '실현손익 (원)',
-                    data: pnlData,
-                    backgroundColor: barColors,
-                    borderColor: borderColors,
-                    borderWidth: 1,
-                    yAxisID: 'y1',
-                    borderRadius: 4
-                },
-                {
-                    label: '실현수익률 (%)',
-                    data: pnlRateData,
-                    type: 'line',
-                    borderColor: '#3b82f6',
-                    backgroundColor: 'rgba(59, 130, 246, 0.1)',
-                    borderWidth: 2,
-                    pointBackgroundColor: '#3b82f6',
-                    pointBorderColor: '#ffffff',
-                    pointRadius: 4,
-                    pointHoverRadius: 6,
-                    tension: 0.3,
-                    yAxisID: 'y2'
-                }
-            ]
-        },
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            plugins: {
-                legend: {
-                    position: 'top',
-                    labels: { boxWidth: 12, color: '#f8fafc' }
-                },
-                tooltip: {
-                    padding: 12,
-                    callbacks: {
-                        label: function(context) {
-                            let label = context.dataset.label || '';
-                            if (label) {
-                                label += ': ';
+    try {
+        periodicChartInstance = new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels,
+                datasets: [
+                    {
+                        label: '실현손익 (원)',
+                        data: pnlData,
+                        backgroundColor: barColors,
+                        borderColor: borderColors,
+                        borderWidth: 1,
+                        yAxisID: 'y1',
+                        borderRadius: 4
+                    },
+                    {
+                        label: '실현수익률 (%)',
+                        data: pnlRateData,
+                        type: 'line',
+                        borderColor: '#3b82f6',
+                        backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                        borderWidth: 2,
+                        pointBackgroundColor: '#3b82f6',
+                        pointBorderColor: '#ffffff',
+                        pointRadius: 4,
+                        pointHoverRadius: 6,
+                        tension: 0.3,
+                        yAxisID: 'y2'
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        position: 'top',
+                        labels: { boxWidth: 12, color: '#f8fafc' }
+                    },
+                    tooltip: {
+                        padding: 12,
+                        callbacks: {
+                            label: function(context) {
+                                let label = context.dataset.label || '';
+                                if (label) {
+                                    label += ': ';
+                                }
+                                if (context.datasetIndex === 0) {
+                                    label += formatCurrency(context.parsed.y);
+                                } else {
+                                    label += (context.parsed.y > 0 ? '+' : '') + Number(context.parsed.y || 0).toFixed(2) + '%';
+                                }
+                                return label;
                             }
-                            if (context.datasetIndex === 0) {
-                                label += formatCurrency(context.parsed.y);
-                            } else {
-                                label += (context.parsed.y > 0 ? '+' : '') + context.parsed.y.toFixed(2) + '%';
-                            }
-                            return label;
                         }
                     }
-                }
-            },
-            scales: {
-                x: {
-                    grid: { color: 'rgba(255, 255, 255, 0.05)' },
-                    ticks: { color: '#94a3b8' }
                 },
-                y1: {
-                    type: 'linear',
-                    position: 'left',
-                    grid: { color: 'rgba(255, 255, 255, 0.05)' },
-                    ticks: {
-                        color: '#94a3b8',
-                        callback: function(value) {
-                            if (value >= 10000 || value <= -10000) {
-                                return (value / 10000).toFixed(0) + '만';
+                scales: {
+                    x: {
+                        grid: { color: 'rgba(255, 255, 255, 0.05)' },
+                        ticks: { color: '#94a3b8' }
+                    },
+                    y1: {
+                        type: 'linear',
+                        position: 'left',
+                        grid: { color: 'rgba(255, 255, 255, 0.05)' },
+                        ticks: {
+                            color: '#94a3b8',
+                            callback: function(value) {
+                                const val = Number(value);
+                                if (isNaN(val)) return '0';
+                                if (val >= 10000 || val <= -10000) {
+                                    return (val / 10000).toFixed(0) + '만';
+                                }
+                                return val.toLocaleString();
                             }
-                            return value;
-                        }
+                        },
+                        title: { display: true, text: '실현손익 (원)', color: '#22c55e' }
                     },
-                    title: { display: true, text: '실현손익 (원)', color: '#22c55e' }
-                },
-                y2: {
-                    type: 'linear',
-                    position: 'right',
-                    grid: { drawOnChartArea: false },
-                    ticks: {
-                        color: '#94a3b8',
-                        callback: function(value) {
-                            return value.toFixed(1) + '%';
-                        }
-                    },
-                    title: { display: true, text: '실현수익률 (%)', color: '#3b82f6' }
+                    y2: {
+                        type: 'linear',
+                        position: 'right',
+                        grid: { drawOnChartArea: false },
+                        ticks: {
+                            color: '#94a3b8',
+                            callback: function(value) {
+                                const val = Number(value);
+                                return (isNaN(val) ? 0 : val).toFixed(1) + '%';
+                            }
+                        },
+                        title: { display: true, text: '실현수익률 (%)', color: '#3b82f6' }
+                    }
                 }
             }
-        }
-    });
+        });
+    } catch (chartErr) {
+        console.error('Chart initialization failed:', chartErr);
+    }
 }
 
 async function renderExecutionPlan() {
