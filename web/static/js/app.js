@@ -229,14 +229,18 @@ function buildAiModalMarkup(payload) {
 
 const setTableMessage = (selector, colspan, message) => {
     const tbody = document.querySelector(selector);
-    tbody.innerHTML = `<tr><td colspan="${colspan}" class="empty-state">${escapeHtml(message)}</td></tr>`;
+    if (tbody) {
+        tbody.innerHTML = `<tr><td colspan="${colspan}" class="empty-state">${escapeHtml(message)}</td></tr>`;
+    }
 };
 
 const setStatus = (message, ok = false) => {
     const banner = document.getElementById('status-banner');
-    banner.hidden = false;
-    banner.className = `status-banner ${ok ? 'ok' : ''}`;
-    banner.textContent = message;
+    if (banner) {
+        banner.hidden = false;
+        banner.className = `status-banner ${ok ? 'ok' : ''}`;
+        banner.textContent = message;
+    }
 };
 
 const setButtonBusy = (id, busy) => {
@@ -804,6 +808,7 @@ async function renderOptimizer() {
     try {
         const data = await fetchJson('/api/portfolio-optimizer');
         const tbody = document.querySelector('#table-optimizer tbody');
+        if (!tbody) return;
         tbody.innerHTML = '';
         if (!data.positions.length) {
             setTableMessage('#table-optimizer tbody', 7, '계산할 보유 종목이 없습니다');
@@ -1082,6 +1087,7 @@ async function renderCandidates() {
         const optimizer = document.getElementById('select-portfolio-optimizer')?.value || 'score_tilted_inverse_vol';
         const data = await fetchJson(`/api/candidates?min_score=2&ranker=${ranker}&optimizer=${optimizer}`, 45000);
         const tbody = document.querySelector('#table-candidates tbody');
+        if (!tbody) return;
         tbody.innerHTML = '';
         if (!data.candidates.length) {
             const scanned = data.scanned || 0;
@@ -1256,6 +1262,7 @@ async function renderAiAllocation() {
     try {
         const data = await fetchJson('/api/ai-allocation', 45000);
         const tbody = document.querySelector('#table-ai-allocation tbody');
+        if (!tbody) return;
         tbody.innerHTML = '';
         if (!data.positions.length) {
             setTableMessage('#table-ai-allocation tbody', 8, '계산할 보유 종목이 없습니다');
@@ -1383,6 +1390,7 @@ async function renderApprovals() {
     try {
         const data = await fetchJson('/api/approvals?limit=50');
         const tbody = document.querySelector('#table-approvals tbody');
+        if (!tbody) return;
         tbody.innerHTML = '';
         if (!data.approvals.length) {
             setTableMessage('#table-approvals tbody', 8, '승인 대기 주문이 없습니다');
@@ -1528,6 +1536,7 @@ async function renderTrades() {
 
         const trades = await fetchJson('/api/trades?limit=20');
         const tbodyTrades = document.querySelector('#table-trades tbody');
+        if (!tbodyTrades) return;
         tbodyTrades.innerHTML = '';
 
         if (!trades.trades.length) {
@@ -1799,6 +1808,7 @@ async function renderExecutionPlan() {
         }
 
         const tbody = document.querySelector('#table-execution-plan tbody');
+        if (!tbody) return;
         tbody.innerHTML = '';
 
         if (!plan.length) {
@@ -2026,48 +2036,103 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         });
     }
+    const btnSignals = document.getElementById('btn-signals');
+    if (btnSignals) {
+        btnSignals.addEventListener('click', renderSignals);
+    }
+
+    const btnSyncTrades = document.getElementById('btn-sync-trades');
+    if (btnSyncTrades) {
+        btnSyncTrades.addEventListener('click', async () => {
+            btnSyncTrades.disabled = true;
+            btnSyncTrades.textContent = '동기화 중...';
+            btnSyncTrades.style.backgroundColor = '#f59e0b'; // warning yellow
+            btnSyncTrades.style.color = 'white';
+            try {
+                const result = await postJson('/api/trades/sync', {});
+                setStatus(`증권사 기록 동기화 완료 (누락된 ${result.synced_count}건 추가됨)`, true);
+                await renderTrades();
+                
+                btnSyncTrades.textContent = result.synced_count > 0 ? `동기화 완료 (${result.synced_count}건)` : '동기화 완료 ✔️';
+                btnSyncTrades.style.backgroundColor = '#10b981'; // success green
+                btnSyncTrades.style.color = 'white';
+                
+                setTimeout(() => {
+                    btnSyncTrades.disabled = false;
+                    btnSyncTrades.textContent = '증권사 기록 동기화';
+                    btnSyncTrades.style.backgroundColor = '';
+                    btnSyncTrades.style.color = '';
+                }, 3000);
+                
+            } catch (err) {
+                setStatus(`동기화 실패: ${err.message}`);
+                btnSyncTrades.textContent = '동기화 실패';
+                btnSyncTrades.style.backgroundColor = '#ef4444'; // error red
+                btnSyncTrades.style.color = 'white';
+                
+                setTimeout(() => {
+                    btnSyncTrades.disabled = false;
+                    btnSyncTrades.textContent = '증권사 기록 동기화';
+                    btnSyncTrades.style.backgroundColor = '';
+                    btnSyncTrades.style.color = '';
+                }, 3000);
+            }
+        });
+    }
+
+    const btnCandidates = document.getElementById('btn-candidates');
+    if (btnCandidates) {
+        btnCandidates.addEventListener('click', renderCandidates);
+    }
+    const btnExecutionPlan = document.getElementById('btn-execution-plan');
+    if (btnExecutionPlan) {
+        btnExecutionPlan.addEventListener('click', renderExecutionPlan);
+    }
+    const btnApprovals = document.getElementById('btn-approvals');
+    if (btnApprovals) {
+        btnApprovals.addEventListener('click', renderApprovals);
+    }
+    const btnAiAllocation = document.getElementById('btn-ai-allocation');
+    if (btnAiAllocation) {
+        btnAiAllocation.addEventListener('click', renderAiAllocation);
+    }
+    const btnOptimizer = document.getElementById('btn-optimizer');
+    if (btnOptimizer) {
+        btnOptimizer.addEventListener('click', renderOptimizer);
+    }
+    const btnAutoApproval = document.getElementById('btn-auto-approval');
+    if (btnAutoApproval) {
+        btnAutoApproval.addEventListener('click', toggleAutoApproval);
+    }
+    const btnSellAllHoldings = document.getElementById('btn-sell-all-holdings');
+    if (btnSellAllHoldings) {
+        btnSellAllHoldings.addEventListener('click', sellAllHoldings);
+    }
+    const btnDryRun = document.getElementById('btn-dry-run');
+    if (btnDryRun) {
+        btnDryRun.addEventListener('click', () => toggleRuntimeOrderMode('btn-dry-run', 'DRY_RUN', '주문차단'));
+    }
+
+    setTableMessage('#table-signals tbody', 7, '진단하기를 누르면 보유 종목 신호를 확인합니다');
+    setTableMessage('#table-candidates tbody', 9, '찾기를 누르면 관심종목에서 매수 후보를 검색합니다');
+    setTableMessage('#table-execution-plan tbody', 8, '불러오기를 누르면 다음 사이클 실행 계획을 표시합니다');
+    setTableMessage('#table-approvals tbody', 8, '승인 대기 주문이 없습니다');
+    setTableMessage('#table-ai-allocation tbody', 8, '계산을 누르면 AI 목표 비중을 확인합니다');
+    setTableMessage('#table-optimizer tbody', 7, '최적화를 누르면 리스크 기반 목표 비중을 확인합니다');
+    
+    fetchDashboardData();
+    
+    setInterval(() => Promise.all([
+        renderRuntime(),
+        renderBalance(),
+        renderTrades(),
+        renderApprovals(),
+        renderCandidateHistory(),
+        syncStrategiesToDropdown(),
+        renderAiStrategies(),
+        renderWatchlist()
+    ]).catch(err => console.error("Polling error:", err)), 30000);
 });
-
-document.getElementById('btn-signals').addEventListener('click', renderSignals);
-
-const btnSyncTrades = document.getElementById('btn-sync-trades');
-if (btnSyncTrades) {
-    btnSyncTrades.addEventListener('click', async () => {
-        btnSyncTrades.disabled = true;
-        btnSyncTrades.textContent = '동기화 중...';
-        btnSyncTrades.style.backgroundColor = '#f59e0b'; // warning yellow
-        btnSyncTrades.style.color = 'white';
-        try {
-            const result = await postJson('/api/trades/sync', {});
-            setStatus(`증권사 기록 동기화 완료 (누락된 ${result.synced_count}건 추가됨)`, true);
-            await renderTrades();
-            
-            btnSyncTrades.textContent = result.synced_count > 0 ? `동기화 완료 (${result.synced_count}건)` : '동기화 완료 ✔️';
-            btnSyncTrades.style.backgroundColor = '#10b981'; // success green
-            btnSyncTrades.style.color = 'white';
-            
-            setTimeout(() => {
-                btnSyncTrades.disabled = false;
-                btnSyncTrades.textContent = '증권사 기록 동기화';
-                btnSyncTrades.style.backgroundColor = '';
-                btnSyncTrades.style.color = '';
-            }, 3000);
-            
-        } catch (err) {
-            setStatus(`동기화 실패: ${err.message}`);
-            btnSyncTrades.textContent = '동기화 실패';
-            btnSyncTrades.style.backgroundColor = '#ef4444'; // error red
-            btnSyncTrades.style.color = 'white';
-            
-            setTimeout(() => {
-                btnSyncTrades.disabled = false;
-                btnSyncTrades.textContent = '증권사 기록 동기화';
-                btnSyncTrades.style.backgroundColor = '';
-                btnSyncTrades.style.color = '';
-            }, 3000);
-        }
-    });
-}
 
 window.showAiModal = function(element) {
     const payloadText = element.getAttribute('data-ai-payload');
@@ -2155,28 +2220,3 @@ window.addEventListener('load', () => {
         applyBtn.addEventListener('click', renderCandidates);
     }
 });
-document.getElementById('btn-candidates').addEventListener('click', renderCandidates);
-document.getElementById('btn-execution-plan').addEventListener('click', renderExecutionPlan);
-document.getElementById('btn-approvals').addEventListener('click', renderApprovals);
-document.getElementById('btn-ai-allocation').addEventListener('click', renderAiAllocation);
-document.getElementById('btn-optimizer').addEventListener('click', renderOptimizer);
-document.getElementById('btn-auto-approval').addEventListener('click', toggleAutoApproval);
-document.getElementById('btn-sell-all-holdings').addEventListener('click', sellAllHoldings);
-document.getElementById('btn-dry-run').addEventListener('click', () => toggleRuntimeOrderMode('btn-dry-run', 'DRY_RUN', '주문차단'));
-setTableMessage('#table-signals tbody', 7, '진단하기를 누르면 보유 종목 신호를 확인합니다');
-setTableMessage('#table-candidates tbody', 9, '찾기를 누르면 관심종목에서 매수 후보를 검색합니다');
-setTableMessage('#table-execution-plan tbody', 8, '불러오기를 누르면 다음 사이클 실행 계획을 표시합니다');
-setTableMessage('#table-approvals tbody', 8, '승인 대기 주문이 없습니다');
-setTableMessage('#table-ai-allocation tbody', 8, '계산을 누르면 AI 목표 비중을 확인합니다');
-setTableMessage('#table-optimizer tbody', 7, '최적화를 누르면 리스크 기반 목표 비중을 확인합니다');
-fetchDashboardData();
-setInterval(() => Promise.all([
-    renderRuntime(),
-    renderBalance(),
-    renderTrades(),
-    renderApprovals(),
-    renderCandidateHistory(),
-    syncStrategiesToDropdown(),
-    renderAiStrategies(),
-    renderWatchlist()
-]), 30000);
