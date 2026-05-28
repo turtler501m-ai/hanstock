@@ -972,6 +972,56 @@ async function renderAiStrategies() {
     }
 }
 
+async function renderWatchlist() {
+    const tbody = document.querySelector('#table-watchlist tbody');
+    const autoChk = document.getElementById('chk-watchlist-ai-auto');
+    if (!tbody) return;
+    
+    try {
+        const data = await fetchJson('/api/watchlist');
+        tbody.innerHTML = '';
+        
+        if (autoChk) {
+            autoChk.checked = data.ai_auto_add;
+        }
+        
+        if (!data.symbols.length) {
+            setTableMessage('#table-watchlist tbody', 4, '등록된 관심 종목이 없습니다.');
+            return;
+        }
+        
+        data.symbols.forEach((s, idx) => {
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td style="text-align: center; color: rgba(255,255,255,0.4);">${idx + 1}</td>
+                <td style="font-weight: 600; color: #fff;">${escapeHtml(s.symbol)}</td>
+                <td style="color: rgba(255,255,255,0.8);">${escapeHtml(s.name)}</td>
+                <td style="text-align: center;">
+                    <button type="button" class="button-ghost btn-delete-watchlist compact-button" data-symbol="${escapeHtml(s.symbol)}" style="background: rgba(239, 68, 68, 0.15); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.25); padding: 2px 8px; border-radius: 4px; font-size: 0.78rem; cursor: pointer;">삭제</button>
+                </td>
+            `;
+            tbody.appendChild(tr);
+        });
+        
+        tbody.querySelectorAll('.btn-delete-watchlist').forEach(btn => {
+            btn.addEventListener('click', async () => {
+                const symbol = btn.getAttribute('data-symbol');
+                setButtonBusy(btn, true);
+                try {
+                    await deleteJson(`/api/watchlist/${symbol}`);
+                    setStatus(`관심 종목(${symbol})이 삭제되었습니다.`, true);
+                    await renderWatchlist();
+                } catch (err) {
+                    setStatus(`관심 종목 삭제 실패: ${err.message}`);
+                    setButtonBusy(btn, false);
+                }
+            });
+        });
+    } catch (err) {
+        setTableMessage('#table-watchlist tbody', 4, err.message);
+    }
+}
+
 async function renderSignals() {
     setButtonBusy('btn-signals', true);
     setTableMessage('#table-signals tbody', 7, '보유 종목을 진단하고 있습니다...');
@@ -1822,7 +1872,8 @@ async function fetchDashboardData() {
         renderApprovals(),
         renderCandidateHistory(),
         syncStrategiesToDropdown(),
-        renderAiStrategies()
+        renderAiStrategies(),
+        renderWatchlist()
     ]);
 }
 
@@ -1908,6 +1959,46 @@ document.addEventListener('DOMContentLoaded', () => {
                 setStatus(`전략 자동 적용 실패: ${err.message}`);
             } finally {
                 setButtonBusy(applySelectedBtn, false);
+            }
+        });
+    }
+
+    // 관심 종목 수동 추가 폼 바인딩
+    const addWatchlistForm = document.getElementById('form-watchlist-add');
+    if (addWatchlistForm) {
+        addWatchlistForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const submitBtn = addWatchlistForm.querySelector('button[type="submit"]');
+            setButtonBusy(submitBtn, true);
+            
+            const formData = new FormData(addWatchlistForm);
+            const rawVal = formData.get('watchlist_code');
+            const symbol = rawVal.trim ? rawVal.trim() : rawVal;
+            
+            try {
+                const res = await postJson('/api/watchlist', { symbol: symbol });
+                setStatus(`관심 종목에 성공적으로 추가되었습니다: ${res.name} (${res.symbol})`, true);
+                addWatchlistForm.reset();
+                await renderWatchlist();
+            } catch (err) {
+                setStatus(`관심 종목 추가 실패: ${err.message}`);
+            } finally {
+                setButtonBusy(submitBtn, false);
+            }
+        });
+    }
+
+    // AI 자동 추가 적용 토글 제어 바인딩
+    const chkWatchlistAiAuto = document.getElementById('chk-watchlist-ai-auto');
+    if (chkWatchlistAiAuto) {
+        chkWatchlistAiAuto.addEventListener('change', async () => {
+            const checked = chkWatchlistAiAuto.checked;
+            try {
+                await postJson('/api/watchlist/toggle-auto', { enabled: checked });
+                setStatus(`AI 자동 관심 종목 추가적용이 ${checked ? '활성화' : '비활성화'}되었습니다.`, true);
+            } catch (err) {
+                chkWatchlistAiAuto.checked = !checked;
+                setStatus(`AI 자동 추가적용 상태 싱크 실패: ${err.message}`);
             }
         });
     }
@@ -2062,5 +2153,6 @@ setInterval(() => Promise.all([
     renderApprovals(),
     renderCandidateHistory(),
     syncStrategiesToDropdown(),
-    renderAiStrategies()
+    renderAiStrategies(),
+    renderWatchlist()
 ]), 30000);

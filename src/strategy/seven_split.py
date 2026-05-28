@@ -11,16 +11,19 @@ from src.strategy.features import build_strategy_features
 from src.strategy.predict import ModelPredictor
 from src.strategy.allocator import PortfolioAllocator
 
-WATCHLIST = [
-    "005930",  # Samsung Electronics
-    "000660",  # SK Hynix
-    "035420",  # NAVER
-    "035720",  # Kakao
-    "005380",  # Hyundai Motor
-    "207940",  # Samsung Biologics
-    "068270",  # Celltrion
-    "051910",  # LG Chem
-]
+WATCHLIST = []
+
+def sync_watchlist_runtime() -> None:
+    from src.db.repository import load_watchlist_data
+    try:
+        data = load_watchlist_data()
+        WATCHLIST.clear()
+        WATCHLIST.extend(data.get("symbols", []))
+    except Exception as e:
+        logger.warning(f"Failed to sync watchlist runtime: {e}")
+
+# 최초 기동 동기화
+sync_watchlist_runtime()
 
 KOSPI_UNIVERSE = [
     # 시가총액 상위 (IT/반도체)

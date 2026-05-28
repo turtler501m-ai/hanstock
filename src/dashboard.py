@@ -2524,6 +2524,78 @@ def verify_ai_strategy(id: str):
         }
 
 
+class WatchlistAddPayload(BaseModel):
+    symbol: str = Field(..., min_length=6, max_length=6)
+
+class WatchlistTogglePayload(BaseModel):
+    enabled: bool
+
+@app.get("/api/watchlist")
+def get_watchlist():
+    from src.db.repository import load_watchlist_data
+    from src.strategy.seven_split import STOCK_NAMES
+    data = load_watchlist_data()
+    symbols_detail = []
+    for code in data.get("symbols", []):
+        symbols_detail.append({
+            "symbol": code,
+            "name": STOCK_NAMES.get(code, "알 수 없는 종목")
+        })
+    return {
+        "symbols": symbols_detail,
+        "ai_auto_add": data.get("ai_auto_add", False)
+    }
+
+@app.post("/api/watchlist")
+def add_to_watchlist(payload: WatchlistAddPayload):
+    from src.db.repository import load_watchlist_data, save_watchlist_data
+    from src.strategy.seven_split import sync_watchlist_runtime, STOCK_NAMES
+    
+    code = payload.symbol.strip()
+    if not code.isdigit() or len(code) != 6:
+        raise HTTPException(status_code=400, detail="유효하지 않은 종목코드 형식입니다. (6자리 숫자)")
+        
+    data = load_watchlist_data()
+    if code in data["symbols"]:
+        raise HTTPException(status_code=400, detail="이미 관심목록에 등록되어 있는 종목입니다.")
+        
+    data["symbols"].append(code)
+    save_watchlist_data(data)
+    sync_watchlist_runtime()
+    
+    return {
+        "ok": True,
+        "symbol": code,
+        "name": STOCK_NAMES.get(code, "알 수 없는 종목")
+    }
+
+@app.delete("/api/watchlist/{symbol}")
+def delete_from_watchlist(symbol: str):
+    from src.db.repository import load_watchlist_data, save_watchlist_data
+    from src.strategy.seven_split import sync_watchlist_runtime
+    
+    code = symbol.strip()
+    data = load_watchlist_data()
+    if code not in data["symbols"]:
+        raise HTTPException(status_code=404, detail="관심목록에 없는 종목입니다.")
+        
+    data["symbols"].remove(code)
+    save_watchlist_data(data)
+    sync_watchlist_runtime()
+    
+    return {"ok": True}
+
+@app.post("/api/watchlist/toggle-auto")
+def toggle_watchlist_auto_add(payload: WatchlistTogglePayload):
+    from src.db.repository import load_watchlist_data, save_watchlist_data
+    
+    data = load_watchlist_data()
+    data["ai_auto_add"] = payload.enabled
+    save_watchlist_data(data)
+    
+    return {"ok": True, "ai_auto_add": data["ai_auto_add"]}
+
+
 @app.get("/api/signals")
 async def get_signals():
     missing = _required_env_missing()
@@ -2607,6 +2679,26 @@ async def get_candidates(
                         "sma60": cand.get("sma60"),
                     }
                 )
+            
+            # AI 자동 추가적용 로직
+            from src.db.repository import load_watchlist_data, save_watchlist_data
+            from src.strategy.seven_split import sync_watchlist_runtime
+            try:
+                watchlist_data = load_watchlist_data()
+                if watchlist_data.get("ai_auto_add", False):
+                    needs_save = False
+                    for cand in payload["candidates"]:
+                        if cand.get("score", 0.0) >= 4.0:
+                            symbol = cand["ticker"]
+                            if symbol not in watchlist_data["symbols"]:
+                                watchlist_data["symbols"].append(symbol)
+                                needs_save = True
+                    if needs_save:
+                        save_watchlist_data(watchlist_data)
+                        sync_watchlist_runtime()
+            except Exception as w_err:
+                logger.warning(f"Failed to auto-add high score candidate to watchlist: {w_err}")
+                
         return payload
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"Candidate scan failed: {e}") from e

@@ -496,3 +496,31 @@ def save_ai_strategies(strategies: list[dict]) -> None:
         logger.warning(f"Failed to save AI strategies: {e}")
 
 
+WATCHLIST_FILE = Path(".runtime/watchlist.json")
+
+def load_watchlist_data() -> dict:
+    default_data = {
+        "symbols": ["005930", "000660", "035420", "035720", "005380", "207940", "068270", "051910"],
+        "ai_auto_add": False
+    }
+    if not WATCHLIST_FILE.exists():
+        save_watchlist_data(default_data)
+        return default_data
+    try:
+        data = json.loads(WATCHLIST_FILE.read_text(encoding="utf-8"))
+        if isinstance(data, dict) and "symbols" in data:
+            if "ai_auto_add" not in data:
+                data["ai_auto_add"] = False
+            return data
+    except Exception as e:
+        logger.warning(f"Failed to load watchlist: {e}")
+    return default_data
+
+def save_watchlist_data(data: dict) -> None:
+    try:
+        WATCHLIST_FILE.parent.mkdir(parents=True, exist_ok=True)
+        WATCHLIST_FILE.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    except Exception as e:
+        logger.warning(f"Failed to save watchlist: {e}")
+
+

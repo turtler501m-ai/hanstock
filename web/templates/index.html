@@ -605,6 +605,68 @@
                         </div>
                     </form>
                 </section>
+
+                <style>
+                .switch-toggle { position: relative; display: inline-block; width: 46px; height: 24px; }
+                .switch-toggle input { opacity: 0; width: 0; height: 0; }
+                .slider-toggle { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: rgba(255,255,255,0.15); transition: .3s; border-radius: 24px; border: 1px solid rgba(255,255,255,0.1); }
+                .slider-toggle:before { position: absolute; content: ""; height: 16px; width: 16px; left: 3px; bottom: 3px; background-color: white; transition: .3s; border-radius: 50%; }
+                input:checked + .slider-toggle { background-color: #10b981; }
+                input:checked + .slider-toggle:before { transform: translateX(22px); }
+                </style>
+
+                <section class="card glass panel-watchlist-control" style="margin-top: 2rem; display: grid; grid-template-columns: 2fr 1fr; gap: 1.5rem;">
+                    <!-- 현재 관심 종목 목록 -->
+                    <div style="display: flex; flex-direction: column; gap: 1rem;">
+                        <div class="panel-header split-header">
+                            <div>
+                                <h2>현재 포트폴리오 관심 종목 (Watchlist)</h2>
+                                <p class="section-help">지정된 종목들은 AI 매수후보 스캔 시 항시 스캔 모수에 병합되어 우선 연산됩니다.</p>
+                            </div>
+                        </div>
+                        <div class="table-responsive" style="max-height: 250px; overflow-y: auto;">
+                            <table id="table-watchlist" style="width: 100%; border-collapse: collapse;">
+                                <thead>
+                                    <tr>
+                                        <th style="width: 80px; text-align: center;">순번</th>
+                                        <th>종목코드</th>
+                                        <th>종목명</th>
+                                        <th style="width: 100px; text-align: center;">작업</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <!-- JS 동적 렌더링 -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- 수동 추가 및 AI 자동 추가적용 설정 -->
+                    <div style="display: flex; flex-direction: column; gap: 1.5rem; border-left: 1px solid rgba(255,255,255,0.08); padding-left: 1.5rem;">
+                        <!-- AI 자동 추가 적용 제어 토글 -->
+                        <div class="card" style="background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.06); padding: 16px; border-radius: 8px;">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                                <h3 style="font-size: 0.95rem; font-weight: 600; color: #fff; margin: 0;">AI 자동 추가 적용</h3>
+                                <label class="switch-toggle">
+                                    <input type="checkbox" id="chk-watchlist-ai-auto">
+                                    <span class="slider-toggle"></span>
+                                </label>
+                            </div>
+                            <p style="font-size: 0.78rem; color: rgba(255,255,255,0.45); margin: 0; line-height: 1.4;">
+                                AI 후보 스캔 구동 시 AI 종합 점수가 4.0점 이상인 우수 종목을 포착하면 관심목록(Watchlist)에 자동으로 신설 추가하여 타겟팅합니다.
+                            </p>
+                        </div>
+
+                        <!-- 수동 추가 폼 -->
+                        <div>
+                            <h3 style="font-size: 0.95rem; font-weight: 600; color: #fff; margin-top: 0; margin-bottom: 10px;">수동 종목 코드 추가</h3>
+                            <form id="form-watchlist-add" style="display: flex; gap: 8px;">
+                                <input type="text" name="watchlist_code" placeholder="예: 005930" required maxlength="6" style="flex: 1; background: rgba(30, 41, 59, 0.85); color: #fff; border: 1px solid rgba(255,255,255,0.1); padding: 8px 12px; border-radius: 6px; font-size: 0.85rem;">
+                                <button type="submit" style="background: #3b82f6; color: white; border: none; padding: 8px 16px; border-radius: 6px; font-size: 0.85rem; font-weight: 500; cursor: pointer; transition: background 0.2s;" onmouseover="this.style.background='#2563eb'" onmouseout="this.style.background='#3b82f6'">추가</button>
+                            </form>
+                        </div>
+                    </div>
+                </section>
             </section>
         </main>
     </div>
