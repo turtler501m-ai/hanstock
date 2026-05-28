@@ -258,7 +258,7 @@ const setElementText = (id, value) => {
     return element;
 };
 
-async function fetchJson(url, timeoutMs = 6000) {
+async function fetchJson(url, timeoutMs = 60000) {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
     try {
@@ -283,6 +283,17 @@ async function postJson(url, payload = {}) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
+    });
+    const data = await response.json();
+    if (!response.ok) {
+        throw new Error(data.detail || `요청 실패: ${response.status}`);
+    }
+    return data;
+}
+
+async function deleteJson(url) {
+    const response = await fetch(url, {
+        method: 'DELETE'
     });
     const data = await response.json();
     if (!response.ok) {
@@ -1023,7 +1034,8 @@ async function renderWatchlist() {
             });
         });
     } catch (err) {
-        setTableMessage('#table-watchlist tbody', 4, err.message);
+        console.error("Failed to render watchlist:", err);
+        setStatus(`관심종목 갱신 일시 실패 (기존 데이터 보존됨): ${err.message}`);
     }
 }
 
