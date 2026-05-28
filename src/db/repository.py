@@ -530,33 +530,70 @@ KOSPI_UNIVERSE = list(dict.fromkeys(KOSPI_UNIVERSE))
 
 
 def load_watchlist_data() -> dict:
-    default_data = {
-        "symbols": KOSPI_UNIVERSE,
-        "ai_auto_add": False
-    }
-    if not WATCHLIST_FILE.exists():
-        save_watchlist_data(default_data)
-        return default_data
     try:
-        data = json.loads(WATCHLIST_FILE.read_text(encoding="utf-8"))
-        if isinstance(data, dict) and "symbols" in data:
-            if "ai_auto_add" not in data:
-                data["ai_auto_add"] = False
-            # 기존 8개 기본값 수준처럼 종목이 현저히 적으면 KOSPI_UNIVERSE 60여 개 전수 자동 마이그레이션
-            if len(data["symbols"]) < 20:
-                merged = list(dict.fromkeys(data["symbols"] + KOSPI_UNIVERSE))
-                data["symbols"] = merged
-                save_watchlist_data(data)
-            return data
+        init_db()
+        with connect_db() as conn:
+            c = conn.execute("SELECT symbol FROM watchlist ORDER BY symbol ASC")
+            symbols = [row[0] for row in c.fetchall()]
+            
+            # 종목 개수가 현저히 적으면 KOSPI_UNIVERSE 자동 마이그레이션 및 DB 저장
+            if len(symbols) < 20:
+                merged = list(dict.fromkeys(symbols + KOSPI_UNIVERSE))
+                from src.strategy.seven_split import STOCK_NAMES
+                ts = datetime.now(KST).strftime("%Y-%m-%d %H:%M:%S")
+                for s in merged:
+                    if s not in symbols:
+                        name = STOCK_NAMES.get(s, "우량 종목")
+                        conn.execute(
+                            "INSERT OR IGNORE INTO watchlist (symbol, name, created_at) VALUES (?, ?, ?)",
+                            (s, name, ts)
+                        )
+                conn.commit()
+                symbols = merged
+            
+            c_set = conn.execute("SELECT value FROM watchlist_settings WHERE key = 'ai_auto_add'")
+            row_set = c_set.fetchone()
+            if row_set is None:
+                conn.execute("INSERT OR IGNORE INTO watchlist_settings (key, value) VALUES ('ai_auto_add', '0')")
+                conn.commit()
+                ai_auto_add = False
+            else:
+                ai_auto_add = (row_set[0] == '1')
+                
+            return {
+                "symbols": symbols,
+                "ai_auto_add": ai_auto_add
+            }
     except Exception as e:
-        logger.warning(f"Failed to load watchlist: {e}")
-    return default_data
+        logger.warning(f"Failed to load watchlist from DB: {e}")
+        return {
+            "symbols": KOSPI_UNIVERSE,
+            "ai_auto_add": False
+        }
+
 
 def save_watchlist_data(data: dict) -> None:
     try:
-        WATCHLIST_FILE.parent.mkdir(parents=True, exist_ok=True)
-        WATCHLIST_FILE.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+        init_db()
+        with connect_db() as conn:
+            ai_auto_add_val = "1" if data.get("ai_auto_add", False) else "0"
+            conn.execute(
+                "INSERT OR REPLACE INTO watchlist_settings (key, value) VALUES ('ai_auto_add', ?)",
+                (ai_auto_add_val,)
+            )
+            
+            if "symbols" in data:
+                from src.strategy.seven_split import STOCK_NAMES
+                conn.execute("DELETE FROM watchlist")
+                ts = datetime.now(KST).strftime("%Y-%m-%d %H:%M:%S")
+                for s in data["symbols"]:
+                    name = STOCK_NAMES.get(s, "우량 종목")
+                    conn.execute(
+                        "INSERT OR IGNORE INTO watchlist (symbol, name, created_at) VALUES (?, ?, ?)",
+                        (s, name, ts)
+                    )
+            conn.commit()
     except Exception as e:
-        logger.warning(f"Failed to save watchlist: {e}")
+        logger.warning(f"Failed to save watchlist to DB: {e}")
 
 
