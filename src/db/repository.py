@@ -130,6 +130,23 @@ def init_db() -> None:
             """
         )
         conn.execute("CREATE INDEX IF NOT EXISTS idx_scanned_candidates_scanned_at ON scanned_candidates(scanned_at)")
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS watchlist (
+                symbol TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS watchlist_settings (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            )
+            """
+        )
 
 
 def _ensure_column(conn: DBWrapper, table: str, column: str, column_type: str) -> None:
