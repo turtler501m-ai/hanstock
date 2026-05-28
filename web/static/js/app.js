@@ -599,6 +599,16 @@ async function renderRuntime() {
         autoApprovalButton.textContent = autoApprovalEnabled ? '끄기' : '켜기';
     }
         
+    const tokensEl = document.getElementById('runtime-tokens');
+    if (tokensEl) {
+        const tokens = health.token_usage || { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0, api_calls: 0 };
+        const prompt = Number(tokens.prompt_tokens || 0).toLocaleString();
+        const completion = Number(tokens.completion_tokens || 0).toLocaleString();
+        const total = Number(tokens.total_tokens || 0).toLocaleString();
+        const calls = Number(tokens.api_calls || 0).toLocaleString();
+        tokensEl.innerHTML = `${total} tkn <span style="font-size: 0.72rem; font-weight: normal; color: rgba(255,255,255,0.45); margin-left: 4px;">(P:${prompt} C:${completion}, ${calls}회)</span>`;
+    }
+        
     const btnSyncTrades = document.getElementById('btn-sync-trades');
     if (btnSyncTrades) {
         if (health.dry_run) {
