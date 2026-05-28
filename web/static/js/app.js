@@ -1878,6 +1878,39 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         });
     }
+
+    const applySelectedBtn = document.getElementById('btn-apply-selected-strategies');
+    if (applySelectedBtn) {
+        applySelectedBtn.addEventListener('click', async () => {
+            setButtonBusy(applySelectedBtn, true);
+            try {
+                await renderAiStrategies();
+                await syncStrategiesToDropdown();
+                
+                const select = document.getElementById('select-ai-ranker');
+                if (select && select.options.length > 0) {
+                    const data = await fetchJson('/api/ai-strategies');
+                    const activeStrats = data.strategies.filter(s => s.selected);
+                    if (activeStrats.length > 0) {
+                        select.value = activeStrats[0].id;
+                        localStorage.setItem('hanstock_ai_ranker', select.value);
+                    }
+                }
+                
+                const strategyTabBtn = document.querySelector('.dashboard-tab[data-dashboard-tab="strategy"]');
+                if (strategyTabBtn) {
+                    strategyTabBtn.click();
+                }
+                
+                await renderCandidates();
+                setStatus('선택한 AI 전략이 대시보드에 실시간 바인딩되어 신규매수후보 찾기가 완료되었습니다.', true);
+            } catch (err) {
+                setStatus(`전략 자동 적용 실패: ${err.message}`);
+            } finally {
+                setButtonBusy(applySelectedBtn, false);
+            }
+        });
+    }
 });
 
 document.getElementById('btn-signals').addEventListener('click', renderSignals);

@@ -550,7 +550,10 @@
                             <h2>현재 가용 및 추가된 AI 전략</h2>
                             <p class="section-help">체크된 전략들은 신호/계획 탭의 후보 스캔에 동적으로 노출되어 적용됩니다.</p>
                         </div>
-                        <button type="button" id="btn-refresh-ai-strategies">목록 새로고침</button>
+                        <div style="display: flex; gap: 8px;">
+                            <button type="button" id="btn-refresh-ai-strategies" style="background: rgba(255,255,255,0.05); color: rgba(255,255,255,0.8); border: 1px solid rgba(255,255,255,0.1); padding: 8px 16px; border-radius: 6px; font-size: 0.85rem; cursor: pointer;">목록 새로고침</button>
+                            <button type="button" id="btn-apply-selected-strategies" style="background: #10b981; color: white; border: none; padding: 8px 20px; border-radius: 6px; font-size: 0.85rem; font-weight: 500; cursor: pointer; transition: background 0.2s;" onmouseover="this.style.background='#059669'" onmouseout="this.style.background='#10b981'">선택 전략 적용 및 찾기</button>
+                        </div>
                     </div>
                     <div class="table-responsive">
                         <table id="table-ai-strategies" style="width: 100%; border-collapse: collapse;">
