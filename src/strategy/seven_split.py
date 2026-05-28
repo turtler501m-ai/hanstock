@@ -428,6 +428,7 @@ def find_candidates(
     held_symbols: set[str],
     universe: list[str] | None = None,
     min_score: int = 2,
+    ranker: str = "gpt_5_mini",
 ) -> list[dict]:
     """universe 종목 전체를 기술분석 스코어링해 매수 후보를 반환한다.
 
@@ -443,6 +444,8 @@ def find_candidates(
     scan_summary: list[dict] = []  # 기준 미달 포함 전체 분석 결과
     symbols = [f"{code}.KS" for code in scan_list]
     predictor = ModelPredictor()
+    if ranker == "rule_only":
+        predictor.enabled = False
     ai_candidate_limit = max(0, int(getattr(config, "ai_candidate_limit", 5) or 5))
 
     batch = None
@@ -503,6 +506,7 @@ def find_candidates(
             )
             score = float(profile["score"])
             reasons = profile["reasons"]
+            vol = calc_volatility(price_series) or 0.02
 
             entry = {
                 "ticker": code,
@@ -512,6 +516,7 @@ def find_candidates(
                 "rule_score": round(score, 4),
                 "ml_score": None,
                 "final_score": round(score, 4),
+                "volatility": round(vol, 4),
                 "ai_enabled": predictor.enabled,
                 "ai_model_status": "queued" if predictor.enabled else "disabled",
                 "ai_model_version": predictor.model_name,
@@ -594,7 +599,13 @@ def adjust_tick_size(price: int) -> int:
     else:
         return price - (price % 1000)
 
-def build_orders(candidates: list[dict], get_quote_fn: Callable[[str], dict], held_count: int, cash: int) -> list[dict]:
+def build_orders(
+    candidates: list[dict],
+    get_quote_fn: Callable[[str], dict],
+    held_count: int,
+    cash: int,
+    optimizer: str = "score_tilted_inverse_vol",
+) -> list[dict]:
     available_slots = config.max_positions - held_count
     if available_slots <= 0:
         logger.info(f"[INFO] Max positions reached ({config.max_positions}); no new buy orders")
@@ -605,9 +616,86 @@ def build_orders(candidates: list[dict], get_quote_fn: Callable[[str], dict], he
         raw_price = int(quote["ask1"] or quote["current"])
         c["limit_price"] = adjust_tick_size(raw_price)
 
-    allocator = PortfolioAllocator()
-    orders = allocator.allocate(candidates[:available_slots], cash, config.total_capital)
-    return orders
+    # 1. 단순 점수 비례 분할 배분 (score_proportional)
+    if optimizer == "score_proportional":
+        allocator = PortfolioAllocator()
+        orders = allocator.allocate(candidates[:available_slots], cash, config.total_capital)
+        return orders
+
+    # 2. LLM 확신도 기반 가중 배분 (llm_confidence_weight)
+    elif optimizer == "llm_confidence_weight":
+        score_sum = sum(max(0.1, c.get("ml_score") or c.get("rule_score") or 0.1) for c in candidates[:available_slots])
+        if score_sum <= 0:
+            score_sum = 1.0
+            
+        deployable = config.total_capital * (1 - config.cash_buffer)
+        orders = []
+        cost_mult = 1.001
+        for c in candidates[:available_slots]:
+            price = c.get("limit_price", 0)
+            if price <= 0:
+                continue
+            ml_val = c.get("ml_score") or c.get("rule_score") or 0.1
+            target_weight = min(config.max_single_weight, (ml_val / score_sum) * (1 - config.cash_buffer))
+            per_position = deployable * target_weight
+            qty = math.floor(per_position / (price * cost_mult))
+            if qty > 0:
+                orders.append({
+                    "ticker": c["ticker"],
+                    "quantity": qty,
+                    "limit_price": price,
+                    "estimated_cost": qty * price * cost_mult,
+                    "score": c.get("score", 0),
+                    "reasons": c.get("reasons", [])
+                })
+        
+        total_cost = sum(o["estimated_cost"] for o in orders)
+        budget = min(deployable, cash)
+        if total_cost > budget and budget > 0:
+            scale = budget / total_cost
+            for o in orders:
+                o["quantity"] = math.floor(o["quantity"] * scale)
+                o["estimated_cost"] = o["quantity"] * o["limit_price"] * cost_mult
+        return [o for o in orders if o["quantity"] > 0]
+
+    # 3. 변동성 역수 & 점수 틸트 MPT 배분 (score_tilted_inverse_vol)
+    else:
+        weighted = []
+        for c in candidates[:available_slots]:
+            vol = c.get("volatility") or 0.02
+            expected_score = max(0.1, 1 + c.get("score", 0))
+            weight_signal = expected_score / vol
+            weighted.append({**c, "weight_signal": weight_signal})
+            
+        signal_sum = sum(w["weight_signal"] for w in weighted) or 1.0
+        deployable = config.total_capital * (1 - config.cash_buffer)
+        orders = []
+        cost_mult = 1.001
+        for w in weighted:
+            price = w.get("limit_price", 0)
+            if price <= 0:
+                continue
+            target_weight = min(config.max_single_weight, (1 - config.cash_buffer) * w["weight_signal"] / signal_sum)
+            per_position = deployable * target_weight
+            qty = math.floor(per_position / (price * cost_mult))
+            if qty > 0:
+                orders.append({
+                    "ticker": w["ticker"],
+                    "quantity": qty,
+                    "limit_price": price,
+                    "estimated_cost": qty * price * cost_mult,
+                    "score": w.get("score", 0),
+                    "reasons": w.get("reasons", [])
+                })
+                
+        total_cost = sum(o["estimated_cost"] for o in orders)
+        budget = min(deployable, cash)
+        if total_cost > budget and budget > 0:
+            scale = budget / total_cost
+            for o in orders:
+                o["quantity"] = math.floor(o["quantity"] * scale)
+                o["estimated_cost"] = o["quantity"] * o["limit_price"] * cost_mult
+        return [o for o in orders if o["quantity"] > 0]
 
 
 def generate_signal(stock: dict, daily_data: list) -> dict:

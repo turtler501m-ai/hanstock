@@ -380,7 +380,11 @@ def _get_balance_data(api: KIStockAPI, allow_cache: bool = True) -> dict:
         return balance_data
 
 
-def _load_candidate_cache(min_score: int) -> dict | None:
+def _load_candidate_cache(
+    min_score: int,
+    ranker: str = "gpt_5_mini",
+    optimizer: str = "score_tilted_inverse_vol",
+) -> dict | None:
     if not CANDIDATE_CACHE.exists():
         return None
     try:
@@ -396,6 +400,8 @@ def _load_candidate_cache(min_score: int) -> dict | None:
     if (
         cached.get("trading_env") != trader.TRADING_ENV
         or cached.get("min_score") != min_score
+        or cached.get("ranker") != ranker
+        or cached.get("optimizer") != optimizer
         or cached.get("ai_signature") != expected_ai_signature
     ):
         return None
@@ -421,7 +427,12 @@ def _load_candidate_cache(min_score: int) -> dict | None:
 
 
 def _save_candidate_cache(
-    min_score: int, rows: list[dict], scan_summary: list[dict], scanned: int
+    min_score: int,
+    rows: list[dict],
+    scan_summary: list[dict],
+    scanned: int,
+    ranker: str = "gpt_5_mini",
+    optimizer: str = "score_tilted_inverse_vol",
 ) -> None:
     CANDIDATE_CACHE.parent.mkdir(parents=True, exist_ok=True)
     CANDIDATE_CACHE.write_text(
@@ -429,6 +440,8 @@ def _save_candidate_cache(
             "cached_at": trader.datetime.now(trader.KST).isoformat(),
             "trading_env": trader.TRADING_ENV,
             "min_score": min_score,
+            "ranker": ranker,
+            "optimizer": optimizer,
             "ai_signature": {
                 "enabled": bool(getattr(trader.config, "ai_strategy_enabled", False)),
                 "model": getattr(trader.config, "openai_model", "gpt-5-mini"),
@@ -471,12 +484,30 @@ def build_dashboard_signals(api, parsed: dict) -> list[dict]:
     return signals
 
 
-def build_dashboard_candidates(api, parsed: dict, min_score: int = 2) -> dict:
+def build_dashboard_candidates(
+    api,
+    parsed: dict,
+    min_score: int = 2,
+    ranker: str = "gpt_5_mini",
+    optimizer: str = "score_tilted_inverse_vol",
+) -> dict:
     held_symbols = {holding["symbol"] for holding in parsed["holdings"]}
     universe = trader.build_scan_universe(api, held_symbols)
-    scan_result = trader.find_candidates(held_symbols, universe=universe, min_score=min_score)
+    
+    if ranker == "gpt_5_mini":
+        scan_result = trader.find_candidates(held_symbols, universe=universe, min_score=min_score)
+    else:
+        scan_result = trader.find_candidates(held_symbols, universe=universe, min_score=min_score, ranker=ranker)
+        
     candidates = scan_result.get("candidates", [])
-    orders = trader.build_orders(candidates, api.get_quote, len(parsed["holdings"]), parsed["cash"])
+    
+    if optimizer == "score_tilted_inverse_vol":
+        orders = trader.build_orders(candidates, api.get_quote, len(parsed["holdings"]), parsed["cash"])
+    else:
+        orders = trader.build_orders(
+            candidates, api.get_quote, len(parsed["holdings"]), parsed["cash"], optimizer=optimizer
+        )
+        
     order_by_ticker = {order["ticker"]: order for order in orders}
 
     rows = []
@@ -2370,7 +2401,11 @@ async def get_signals():
 
 
 @app.get("/api/candidates")
-async def get_candidates(min_score: int = 2):
+async def get_candidates(
+    min_score: int = 2,
+    ranker: str = "gpt_5_mini",
+    optimizer: str = "score_tilted_inverse_vol",
+):
     if min_score < 1:
         raise HTTPException(status_code=400, detail="min_score must be greater than 0")
 
@@ -2378,19 +2413,28 @@ async def get_candidates(min_score: int = 2):
     if missing:
         raise HTTPException(status_code=503, detail=f"Missing environment variables: {', '.join(missing)}")
 
-    cached = _load_candidate_cache(min_score)
+    if ranker == "gpt_5_mini" and optimizer == "score_tilted_inverse_vol":
+        cached = _load_candidate_cache(min_score)
+    else:
+        cached = _load_candidate_cache(min_score, ranker, optimizer)
+        
     if cached is not None:
         return cached
 
     try:
         api = _get_api()
         parsed = _parse_balance(_get_balance_data(api))
-        payload = build_dashboard_candidates(api, parsed, min_score=min_score)
+        payload = build_dashboard_candidates(api, parsed, min_score=min_score, ranker=ranker, optimizer=optimizer)
         
         if payload["scanned"] > 0:
-            _save_candidate_cache(
-                min_score, payload["candidates"], payload["scan_summary"], payload["scanned"]
-            )
+            if ranker == "gpt_5_mini" and optimizer == "score_tilted_inverse_vol":
+                _save_candidate_cache(
+                    min_score, payload["candidates"], payload["scan_summary"], payload["scanned"]
+                )
+            else:
+                _save_candidate_cache(
+                    min_score, payload["candidates"], payload["scan_summary"], payload["scanned"], ranker, optimizer
+                )
             # Automatically save scan results to DB for history tracking
             from src.db.repository import save_scanned_candidate
             for cand in payload["candidates"]:

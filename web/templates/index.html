@@ -211,6 +211,26 @@
                         </div>
                         <button type="button" id="btn-candidates">찾기</button>
                     </div>
+                    
+                    <div class="ai-strategy-control-bar" style="display: flex; gap: 16px; align-items: center; margin-bottom: 1.5rem; background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.05); padding: 12px 16px; border-radius: 8px;">
+                        <div style="display: flex; flex-direction: column; gap: 4px;">
+                            <span style="font-size: 0.75rem; color: rgba(255,255,255,0.4);">후보 선정 AI 랭커</span>
+                            <select id="select-ai-ranker" style="background: rgba(30, 41, 59, 0.85); color: #fff; border: 1px solid rgba(255,255,255,0.1); padding: 6px 12px; border-radius: 6px; font-size: 0.85rem; outline: none; cursor: pointer; min-width: 180px;">
+                                <option value="gpt_5_mini">🤖 GPT-5-mini 기반 추론 랭커</option>
+                                <option value="rule_only">⚙️ 기본 기술 룰베이스 랭커</option>
+                            </select>
+                        </div>
+                        <div style="display: flex; flex-direction: column; gap: 4px;">
+                            <span style="font-size: 0.75rem; color: rgba(255,255,255,0.4);">포트폴리오 비중 최적화</span>
+                            <select id="select-portfolio-optimizer" style="background: rgba(30, 41, 59, 0.85); color: #fff; border: 1px solid rgba(255,255,255,0.1); padding: 6px 12px; border-radius: 6px; font-size: 0.85rem; outline: none; cursor: pointer; min-width: 220px;">
+                                <option value="score_tilted_inverse_vol">📊 변동성 역수 & 점수 틸트 (MPT)</option>
+                                <option value="score_proportional">⚖️ 단순 점수 비례 분할 배분</option>
+                                <option value="llm_confidence_weight">🤖 LLM 확신도 기반 가중 배분</option>
+                            </select>
+                        </div>
+                        <button type="button" id="btn-apply-strategy" style="margin-top: 16px; background: rgba(59, 130, 246, 0.2); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.3); padding: 6px 16px; border-radius: 6px; font-size: 0.85rem; cursor: pointer; transition: all 0.2s;" onmouseover="this.style.background='rgba(59, 130, 246, 0.3)'" onmouseout="this.style.background='rgba(59, 130, 246, 0.2)'">전략 적용</button>
+                    </div>
+
                     <div class="ai-strategy-summary" id="ai-strategy-summary">
                         <div>
                             <span>AI</span>

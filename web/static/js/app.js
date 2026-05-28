@@ -903,7 +903,9 @@ async function renderCandidates() {
     setButtonBusy('btn-candidates', true);
     setTableMessage('#table-candidates tbody', 9, '관심종목에서 매수 후보를 찾고 있습니다...');
     try {
-        const data = await fetchJson('/api/candidates?min_score=2', 45000);
+        const ranker = document.getElementById('select-ai-ranker')?.value || 'gpt_5_mini';
+        const optimizer = document.getElementById('select-portfolio-optimizer')?.value || 'score_tilted_inverse_vol';
+        const data = await fetchJson(`/api/candidates?min_score=2&ranker=${ranker}&optimizer=${optimizer}`, 45000);
         const tbody = document.querySelector('#table-candidates tbody');
         tbody.innerHTML = '';
         if (!data.candidates.length) {
@@ -1810,6 +1812,31 @@ window.addEventListener('load', () => {
             setNoCandidatesModalOpen(false);
         }
     });
+
+    // AI 전략 컨트롤 드롭다운 초기화 및 바인딩
+    const rankerSelect = document.getElementById('select-ai-ranker');
+    const optimizerSelect = document.getElementById('select-portfolio-optimizer');
+    const applyBtn = document.getElementById('btn-apply-strategy');
+    
+    if (rankerSelect) {
+        const savedRanker = localStorage.getItem('hanstock_ai_ranker');
+        if (savedRanker) rankerSelect.value = savedRanker;
+        rankerSelect.addEventListener('change', () => {
+            localStorage.setItem('hanstock_ai_ranker', rankerSelect.value);
+        });
+    }
+    
+    if (optimizerSelect) {
+        const savedOptimizer = localStorage.getItem('hanstock_portfolio_optimizer');
+        if (savedOptimizer) optimizerSelect.value = savedOptimizer;
+        optimizerSelect.addEventListener('change', () => {
+            localStorage.setItem('hanstock_portfolio_optimizer', optimizerSelect.value);
+        });
+    }
+    
+    if (applyBtn) {
+        applyBtn.addEventListener('click', renderCandidates);
+    }
 });
 document.getElementById('btn-candidates').addEventListener('click', renderCandidates);
 document.getElementById('btn-execution-plan').addEventListener('click', renderExecutionPlan);
