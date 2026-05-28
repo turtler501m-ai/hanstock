@@ -431,6 +431,33 @@ def load_ai_strategies() -> list[dict]:
             "weight": 0.0,
             "description": "OpenAI API 호출 없이 정량적 기술 지표 규칙(RSI, MACD, SMA)만을 조합하여 0~5점 척도로 계산합니다.",
             "selected": False
+        },
+        {
+            "id": "ranker_lgbm_v3",
+            "name": "📊 LightGBM 순위 예측 랭커 (v3)",
+            "provider": "none",
+            "model": "ranker_lgbm_v3",
+            "weight": 0.5,
+            "description": "LightGBM 모델을 사용하여 종목의 상승 확률 및 순위를 고속으로 정밀 예측하는 단기 스코어링 엔진입니다.",
+            "selected": False
+        },
+        {
+            "id": "allocator_v2",
+            "name": "⚖️ 리스크 예산 배분기 (v2)",
+            "provider": "none",
+            "model": "allocator_v2",
+            "weight": 0.3,
+            "description": "변동성 역수와 점수 분포 틸팅(MPT) 기법을 개량하여 포트폴리오의 리스크 부담을 지능적으로 예산화하여 배분합니다.",
+            "selected": False
+        },
+        {
+            "id": "ppo_policy_v1",
+            "name": "🧠 PPO 강화학습 최적 정책 (v1)",
+            "provider": "none",
+            "model": "ppo_policy_v1",
+            "weight": 0.6,
+            "description": "Proximal Policy Optimization (PPO) 알고리즘으로 훈련된 강화학습 에이전트가 변동성 및 추세를 바탕으로 최적의 거래 액션을 도출합니다.",
+            "selected": False
         }
     ]
     
@@ -441,6 +468,16 @@ def load_ai_strategies() -> list[dict]:
     try:
         data = json.loads(AI_STRATEGIES_FILE.read_text(encoding="utf-8"))
         if isinstance(data, list):
+            existing_ids = {s.get("id") for s in data}
+            needs_update = False
+            for ds in default_strategies:
+                if ds["id"] not in existing_ids:
+                    data.append(ds)
+                    needs_update = True
+            
+            if needs_update:
+                save_ai_strategies(data)
+                
             if not any(s.get("selected") for s in data):
                 data[0]["selected"] = True
                 save_ai_strategies(data)
