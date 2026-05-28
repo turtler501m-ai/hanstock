@@ -498,9 +498,40 @@ def save_ai_strategies(strategies: list[dict]) -> None:
 
 WATCHLIST_FILE = Path(".runtime/watchlist.json")
 
+KOSPI_UNIVERSE = [
+    # 시가총액 상위 (IT/반도체)
+    "005930", "000660", "035420", "035720", "018260", "009150", "066570",
+    # 자동차/운송
+    "005380", "000270", "012330", "003490", "011200",
+    # 바이오/제약
+    "207940", "068270", "000100", "091990", "196170", "145020",
+    # 금융
+    "105560", "055550", "086790", "316140", "032830", "024110", "138040",
+    # 화학/에너지
+    "051910", "006400", "096770", "011170", "010950", "003670", "009830",
+    "011780", "377300",
+    # 철강/소재
+    "005490", "010130", "004020", "011790",
+    # 통신
+    "017670", "030200", "032640",
+    # 건설/중공업
+    "000720", "034020", "042660", "267250", "082740",
+    # 방산/항공
+    "012450", "064350", "272210", "047810",
+    # 유통/소비재
+    "097950", "033780", "023530", "021240",
+    # 지주/기타
+    "003550", "034730", "028260", "000150", "047050",
+    # KOSDAQ 주요종목
+    "247540", "086520", "259960", "352820", "251270", "036570", "293490",
+    "323410", "377300",
+]
+KOSPI_UNIVERSE = list(dict.fromkeys(KOSPI_UNIVERSE))
+
+
 def load_watchlist_data() -> dict:
     default_data = {
-        "symbols": ["005930", "000660", "035420", "035720", "005380", "207940", "068270", "051910"],
+        "symbols": KOSPI_UNIVERSE,
         "ai_auto_add": False
     }
     if not WATCHLIST_FILE.exists():
@@ -511,6 +542,11 @@ def load_watchlist_data() -> dict:
         if isinstance(data, dict) and "symbols" in data:
             if "ai_auto_add" not in data:
                 data["ai_auto_add"] = False
+            # 기존 8개 기본값 수준처럼 종목이 현저히 적으면 KOSPI_UNIVERSE 60여 개 전수 자동 마이그레이션
+            if len(data["symbols"]) < 20:
+                merged = list(dict.fromkeys(data["symbols"] + KOSPI_UNIVERSE))
+                data["symbols"] = merged
+                save_watchlist_data(data)
             return data
     except Exception as e:
         logger.warning(f"Failed to load watchlist: {e}")
