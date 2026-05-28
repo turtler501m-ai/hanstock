@@ -410,3 +410,52 @@ def update_token_usage(prompt: int, completion: int, total: int | None = None) -
         logger.warning(f"Failed to save token usage: {e}")
 
 
+AI_STRATEGIES_FILE = Path(".runtime/ai_strategies.json")
+
+def load_ai_strategies() -> list[dict]:
+    default_strategies = [
+        {
+            "id": "gpt_5_mini_default",
+            "name": "🤖 GPT-5-mini 기본 추론 랭커",
+            "provider": "openai",
+            "model": "gpt-5-mini",
+            "weight": 0.4,
+            "description": "기술적 룰베이스 점수와 GPT-5-mini의 단기 반등 추론 점수를 6:4 비율로 결합하는 표준 AI 랭커입니다.",
+            "selected": True
+        },
+        {
+            "id": "rule_only_default",
+            "name": "⚙️ 기본 기술 룰베이스 랭커",
+            "provider": "none",
+            "model": "none",
+            "weight": 0.0,
+            "description": "OpenAI API 호출 없이 정량적 기술 지표 규칙(RSI, MACD, SMA)만을 조합하여 0~5점 척도로 계산합니다.",
+            "selected": False
+        }
+    ]
+    
+    if not AI_STRATEGIES_FILE.exists():
+        save_ai_strategies(default_strategies)
+        return default_strategies
+        
+    try:
+        data = json.loads(AI_STRATEGIES_FILE.read_text(encoding="utf-8"))
+        if isinstance(data, list):
+            if not any(s.get("selected") for s in data):
+                data[0]["selected"] = True
+                save_ai_strategies(data)
+            return data
+    except Exception as e:
+        logger.warning(f"Failed to load AI strategies: {e}")
+        
+    return default_strategies
+
+
+def save_ai_strategies(strategies: list[dict]) -> None:
+    try:
+        AI_STRATEGIES_FILE.parent.mkdir(parents=True, exist_ok=True)
+        AI_STRATEGIES_FILE.write_text(json.dumps(strategies, ensure_ascii=False, indent=2), encoding="utf-8")
+    except Exception as e:
+        logger.warning(f"Failed to save AI strategies: {e}")
+
+

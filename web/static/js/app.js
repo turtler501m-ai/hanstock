@@ -847,6 +847,131 @@ async function renderOptimizer() {
     }
 }
 
+async function syncStrategiesToDropdown() {
+    try {
+        const data = await fetchJson('/api/ai-strategies');
+        const select = document.getElementById('select-ai-ranker');
+        if (!select) return;
+        
+        const currentSelected = select.value || localStorage.getItem('hanstock_ai_ranker');
+        select.innerHTML = '';
+        
+        const activeStrategies = data.strategies.filter(s => s.selected);
+        
+        if (activeStrategies.length === 0) {
+            const opt = document.createElement('option');
+            opt.value = 'rule_only_default';
+            opt.textContent = '⚙️ 기본 기술 룰베이스 랭커';
+            select.appendChild(opt);
+        } else {
+            activeStrategies.forEach(s => {
+                const opt = document.createElement('option');
+                opt.value = s.id;
+                opt.textContent = `${s.provider === 'openai' ? '🤖' : '⚙️'} ${s.name}`;
+                select.appendChild(opt);
+            });
+        }
+        
+        if (currentSelected && select.querySelector(`option[value="${currentSelected}"]`)) {
+            select.value = currentSelected;
+        } else if (select.options.length > 0) {
+            select.value = select.options[0].value;
+        }
+        localStorage.setItem('hanstock_ai_ranker', select.value);
+    } catch (err) {
+        console.error('Failed to sync strategies to dropdown:', err);
+    }
+}
+
+async function renderAiStrategies() {
+    const tbody = document.querySelector('#table-ai-strategies tbody');
+    if (!tbody) return;
+    
+    try {
+        const data = await fetchJson('/api/ai-strategies');
+        tbody.innerHTML = '';
+        
+        if (!data.strategies.length) {
+            setTableMessage('#table-ai-strategies tbody', 6, '등록된 AI 전략이 없습니다.');
+            return;
+        }
+        
+        data.strategies.forEach(s => {
+            const tr = document.createElement('tr');
+            const isSelected = s.selected ? 'checked' : '';
+            const weightPct = `${Math.round(s.weight * 100)}%`;
+            const modelBadge = s.model === 'none' ? 'Local Rule' : s.model;
+            
+            tr.innerHTML = `
+                <td style="text-align: center; vertical-align: middle;">
+                    <input type="checkbox" class="strategy-select-checkbox" data-id="${s.id}" ${isSelected} style="width: 18px; height: 18px; cursor: pointer;">
+                </td>
+                <td style="font-weight: 600; color: #fff;">${escapeHtml(s.name)}</td>
+                <td><span class="badge badge-model" style="background: rgba(255,255,255,0.08); padding: 4px 8px; border-radius: 4px; font-size: 0.8rem; border: 1px solid rgba(255,255,255,0.1);">${escapeHtml(modelBadge)}</span></td>
+                <td>${pill(weightPct, s.weight > 0 ? 'buy' : 'hold')}</td>
+                <td style="color: rgba(255,255,255,0.65); font-size: 0.85rem; max-width: 350px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${escapeHtml(s.description)}">${escapeHtml(s.description || '-')}</td>
+                <td style="text-align: center; display: flex; gap: 8px; align-items: center; justify-content: center;">
+                    <button type="button" class="button-ghost btn-verify-strategy compact-button" data-id="${s.id}" style="background: rgba(16, 185, 129, 0.15); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.25); padding: 4px 10px; border-radius: 4px; font-size: 0.8rem; cursor: pointer;">검증</button>
+                    <span class="verify-status-msg" data-id="${s.id}" style="font-size: 0.8rem; color: rgba(255,255,255,0.4);">대기 -</span>
+                </td>
+            `;
+            tbody.appendChild(tr);
+        });
+        
+        tbody.querySelectorAll('.strategy-select-checkbox').forEach(cb => {
+            cb.addEventListener('change', async () => {
+                const id = cb.getAttribute('data-id');
+                const checked = cb.checked;
+                try {
+                    await postJson(`/api/ai-strategies/${id}/select`, { selected: checked });
+                    setStatus('전략 선택 상태가 성공적으로 연동되었습니다.', true);
+                    await syncStrategiesToDropdown();
+                } catch (err) {
+                    cb.checked = !checked;
+                    setStatus(`선택 상태 동기화 실패: ${err.message}`);
+                }
+            });
+        });
+        
+        tbody.querySelectorAll('.btn-verify-strategy').forEach(btn => {
+            btn.addEventListener('click', async () => {
+                const id = btn.getAttribute('data-id');
+                const statusMsg = tbody.querySelector(`.verify-status-msg[data-id="${id}"]`);
+                
+                setButtonBusy(btn, true);
+                if (statusMsg) {
+                    statusMsg.textContent = '진행중...';
+                    statusMsg.style.color = '#f59e0b';
+                }
+                
+                try {
+                    const result = await postJson(`/api/ai-strategies/${id}/verify`, {});
+                    if (statusMsg) {
+                        if (result.success) {
+                            statusMsg.innerHTML = `<span style="color:#10b981; font-weight:600;">성공 ✔️ (${result.speed_ms}ms)</span>`;
+                            setStatus(`[검증 통과] ${result.message}`, true);
+                        } else {
+                            statusMsg.innerHTML = `<span style="color:#ef4444; font-weight:600;">실패 ❌</span>`;
+                            setStatus(`[검증 실패] ${result.message}`);
+                        }
+                        statusMsg.title = result.message;
+                    }
+                } catch (err) {
+                    if (statusMsg) {
+                        statusMsg.innerHTML = `<span style="color:#ef4444; font-weight:600;">에러 ❌</span>`;
+                    }
+                    setStatus(`검증 요청 에러: ${err.message}`);
+                } finally {
+                    setButtonBusy(btn, false);
+                }
+            });
+        });
+        
+    } catch (err) {
+        setTableMessage('#table-ai-strategies tbody', 6, err.message);
+    }
+}
+
 async function renderSignals() {
     setButtonBusy('btn-signals', true);
     setTableMessage('#table-signals tbody', 7, '보유 종목을 진단하고 있습니다...');
@@ -1695,7 +1820,9 @@ async function fetchDashboardData() {
         renderBalance(),
         renderTrades(),
         renderApprovals(),
-        renderCandidateHistory()
+        renderCandidateHistory(),
+        syncStrategiesToDropdown(),
+        renderAiStrategies()
     ]);
 }
 
@@ -1707,6 +1834,48 @@ document.addEventListener('DOMContentLoaded', () => {
             setButtonBusy(histRefreshBtn, true);
             await renderCandidateHistory();
             setButtonBusy(histRefreshBtn, false);
+        });
+    }
+
+    const aiRefreshBtn = document.getElementById('btn-refresh-ai-strategies');
+    if (aiRefreshBtn) {
+        aiRefreshBtn.addEventListener('click', async () => {
+            setButtonBusy(aiRefreshBtn, true);
+            await renderAiStrategies();
+            await syncStrategiesToDropdown();
+            setButtonBusy(aiRefreshBtn, false);
+        });
+    }
+
+    const addAiForm = document.getElementById('form-add-ai-strategy');
+    if (addAiForm) {
+        addAiForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const submitBtn = addAiForm.querySelector('button[type="submit"]');
+            setButtonBusy(submitBtn, true);
+
+            const formData = new FormData(addAiForm);
+            const payload = {
+                name: formData.get('strat_name'),
+                model: formData.get('strat_model'),
+                weight: parseFloat(formData.get('strat_weight')),
+                description: formData.get('strat_desc') || ''
+            };
+
+            try {
+                await postJson('/api/ai-strategies', payload);
+                setStatus('신규 AI 전략이 성공적으로 등록되었습니다.', true);
+                addAiForm.reset();
+                const weightInput = addAiForm.querySelector('input[name="strat_weight"]');
+                if (weightInput) weightInput.value = "0.4";
+                
+                await renderAiStrategies();
+                await syncStrategiesToDropdown();
+            } catch (err) {
+                setStatus(`전략 추가 실패: ${err.message}`);
+            } finally {
+                setButtonBusy(submitBtn, false);
+            }
         });
     }
 });
@@ -1853,4 +2022,12 @@ setTableMessage('#table-approvals tbody', 8, '승인 대기 주문이 없습니�
 setTableMessage('#table-ai-allocation tbody', 8, '계산을 누르면 AI 목표 비중을 확인합니다');
 setTableMessage('#table-optimizer tbody', 7, '최적화를 누르면 리스크 기반 목표 비중을 확인합니다');
 fetchDashboardData();
-setInterval(() => Promise.all([renderRuntime(), renderBalance(), renderTrades(), renderApprovals(), renderCandidateHistory()]), 30000);
+setInterval(() => Promise.all([
+    renderRuntime(),
+    renderBalance(),
+    renderTrades(),
+    renderApprovals(),
+    renderCandidateHistory(),
+    syncStrategiesToDropdown(),
+    renderAiStrategies()
+]), 30000);

@@ -489,15 +489,32 @@ def build_dashboard_candidates(
     parsed: dict,
     min_score: int = 2,
     ranker: str = "gpt_5_mini",
+    ranker_weight: float = 0.4,
     optimizer: str = "score_tilted_inverse_vol",
 ) -> dict:
     held_symbols = {holding["symbol"] for holding in parsed["holdings"]}
     universe = trader.build_scan_universe(api, held_symbols)
     
-    if ranker == "gpt_5_mini":
+    if ranker == "gpt_5_mini" and ranker_weight == 0.4:
         scan_result = trader.find_candidates(held_symbols, universe=universe, min_score=min_score)
     else:
-        scan_result = trader.find_candidates(held_symbols, universe=universe, min_score=min_score, ranker=ranker)
+        ranker_param = "rule_only" if ranker == "none" else ranker
+        orig_weight = trader.config.ai_score_weight
+        orig_model = trader.config.openai_model
+        orig_enabled = trader.config.ai_strategy_enabled
+        try:
+            trader.config.ai_score_weight = ranker_weight
+            trader.config.openai_model = ranker_param
+            if ranker_param == "rule_only":
+                trader.config.ai_strategy_enabled = False
+            else:
+                trader.config.ai_strategy_enabled = True
+                
+            scan_result = trader.find_candidates(held_symbols, universe=universe, min_score=min_score, ranker=ranker_param)
+        finally:
+            trader.config.ai_score_weight = orig_weight
+            trader.config.openai_model = orig_model
+            trader.config.ai_strategy_enabled = orig_enabled
         
     candidates = scan_result.get("candidates", [])
     
@@ -2386,6 +2403,127 @@ def get_balance():
         raise HTTPException(status_code=502, detail=f"KIS API request failed: {e}") from e
 
 
+from pydantic import BaseModel, Field
+
+class NewStrategyPayload(BaseModel):
+    name: str = Field(..., min_length=1)
+    model: str = Field(..., min_length=1)
+    weight: float = Field(..., ge=0.0, le=1.0)
+    description: str = Field("")
+
+class SelectStrategyPayload(BaseModel):
+    selected: bool
+
+
+@app.get("/api/ai-strategies")
+def get_ai_strategies():
+    from src.db.repository import load_ai_strategies
+    return {"strategies": load_ai_strategies()}
+
+
+@app.post("/api/ai-strategies")
+def create_ai_strategy(payload: NewStrategyPayload):
+    from src.db.repository import load_ai_strategies, save_ai_strategies
+    import uuid
+    import time
+    
+    strategies = load_ai_strategies()
+    new_id = f"strategy_{int(time.time())}_{uuid.uuid4().hex[:6]}"
+    new_strat = {
+        "id": new_id,
+        "name": payload.name,
+        "provider": "openai" if payload.model != "none" else "none",
+        "model": payload.model,
+        "weight": payload.weight,
+        "description": payload.description,
+        "selected": False
+    }
+    strategies.append(new_strat)
+    save_ai_strategies(strategies)
+    return {"ok": True, "strategy": new_strat}
+
+
+@app.post("/api/ai-strategies/{id}/select")
+def select_ai_strategy(id: str, payload: SelectStrategyPayload):
+    from src.db.repository import load_ai_strategies, save_ai_strategies
+    
+    strategies = load_ai_strategies()
+    found = False
+    for s in strategies:
+        if s["id"] == id:
+            s["selected"] = payload.selected
+            found = True
+            break
+            
+    if not found:
+        raise HTTPException(status_code=404, detail="Strategy not found")
+        
+    save_ai_strategies(strategies)
+    return {"ok": True}
+
+
+@app.post("/api/ai-strategies/{id}/verify")
+def verify_ai_strategy(id: str):
+    from src.db.repository import load_ai_strategies
+    strategies = load_ai_strategies()
+    strategy = next((s for s in strategies if s["id"] == id), None)
+    if not strategy:
+        raise HTTPException(status_code=404, detail="Strategy not found")
+        
+    if strategy["provider"] == "none":
+        return {"ok": True, "success": True, "speed_ms": 1, "message": "룰베이스 지표 점수제: 검증 불필요 (100% 로컬 연산)"}
+        
+    from src.strategy.predict import ModelPredictor
+    import time
+    
+    predictor = ModelPredictor()
+    predictor.enabled = True
+    predictor.model_name = strategy["model"]
+    
+    test_features = {
+        "strategy_score": 3.0,
+        "rsi": 28.5,
+        "rsi2": 12.0,
+        "macd_hist": 0.5,
+        "sma20_gap": 0.02,
+        "sma60_gap": -0.01,
+        "bb_position": -0.05,
+        "return_5d": 0.01,
+        "return_20d": -0.05,
+        "volatility_20d": 0.02,
+        "volume_ratio_20d": 1.6,
+        "max_drawdown_20d": -0.08,
+    }
+    
+    start_time = time.time()
+    try:
+        prediction = predictor.predict(test_features)
+        duration_ms = int((time.time() - start_time) * 1000)
+        
+        if prediction.get("fallback_reason") and not prediction.get("ml_score"):
+            return {
+                "ok": True,
+                "success": False,
+                "speed_ms": duration_ms,
+                "message": f"API 검증 실패 (Fallback 감지): {prediction.get('fallback_reason')}"
+            }
+            
+        return {
+            "ok": True,
+            "success": True,
+            "speed_ms": duration_ms,
+            "message": f"API 추론 검증 성공! 예상 점수: {prediction.get('final_score')}점 (ML 점수: {prediction.get('ml_score')})"
+        }
+    except Exception as ex:
+        duration_ms = int((time.time() - start_time) * 1000)
+        return {
+            "ok": True,
+            "success": False,
+            "speed_ms": duration_ms,
+            "message": f"추론 통신 에러: {type(ex).__name__} — {ex}"
+        }
+
+
 @app.get("/api/signals")
 async def get_signals():
     missing = _required_env_missing()
@@ -2424,7 +2562,23 @@ async def get_candidates(
     try:
         api = _get_api()
         parsed = _parse_balance(_get_balance_data(api))
-        payload = build_dashboard_candidates(api, parsed, min_score=min_score, ranker=ranker, optimizer=optimizer)
+        
+        from src.db.repository import load_ai_strategies
+        strats = load_ai_strategies()
+        selected_strat = next((s for s in strats if s["id"] == ranker), None)
+        
+        if selected_strat:
+            ranker_model = selected_strat["model"]
+            ranker_weight = selected_strat["weight"]
+            if selected_strat["provider"] == "none":
+                ranker_model = "none"
+        else:
+            ranker_model = ranker
+            ranker_weight = 0.4
+            
+        payload = build_dashboard_candidates(
+            api, parsed, min_score=min_score, ranker=ranker_model, ranker_weight=ranker_weight, optimizer=optimizer
+        )
         
         if payload["scanned"] > 0:
             if ranker == "gpt_5_mini" and optimizer == "score_tilted_inverse_vol":
