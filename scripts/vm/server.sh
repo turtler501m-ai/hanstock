@@ -87,7 +87,7 @@ start_server() {
     listening_pids=$(get_listening_pids)
 
     if [ -n "$listening_pids" ]; then
-        echo "[server] already listening on http://127.0.0.1:$PORT (PID $listening_pids)"
+        echo "[server] already listening on http://0.0.0.0:$PORT (PID $listening_pids)"
         return
     fi
 
@@ -96,15 +96,15 @@ start_server() {
         exit 1
     fi
 
-    echo "[server] starting server on http://127.0.0.1:$PORT"
+    echo "[server] starting server on http://0.0.0.0:$PORT"
 
-    nohup "$python" -m uvicorn src.dashboard:app --host 127.0.0.1 --port "$PORT" --reload \
+    nohup "$python" -m uvicorn src.dashboard:app --host 0.0.0.0 --port "$PORT" --reload \
         > "$STDOUT_LOG" 2> "$STDERR_LOG" &
 
     new_pid=$!
     echo "$new_pid" > "$PID_FILE"
 
-    echo "[server] started PID $new_pid -- http://127.0.0.1:$PORT"
+    echo "[server] started PID $new_pid -- http://0.0.0.0:$PORT"
     echo "[server] stdout: $STDOUT_LOG"
     echo "[server] stderr: $STDERR_LOG"
 
@@ -122,7 +122,7 @@ show_status() {
     server_pids=$(get_server_pids)
 
     if [ -n "$listening_pids" ]; then
-        echo "[server] running: http://127.0.0.1:$PORT"
+        echo "[server] running: http://0.0.0.0:$PORT"
         echo "[server] listening PID: $listening_pids"
     else
         echo "[server] stopped on port $PORT"
