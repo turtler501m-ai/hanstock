@@ -2596,6 +2596,59 @@ def toggle_watchlist_auto_add(payload: WatchlistTogglePayload):
     return {"ok": True, "ai_auto_add": data["ai_auto_add"]}
 
 
+@app.post("/api/watchlist/scan-trigger")
+async def trigger_watchlist_ai_scan():
+    from src.db.repository import load_watchlist_data, save_watchlist_data
+    from src.strategy.seven_split import sync_watchlist_runtime, STOCK_NAMES
+    
+    missing = _required_env_missing()
+    if missing:
+        raise HTTPException(status_code=503, detail=f"스캔 환경 변수가 미비합니다: {', '.join(missing)}")
+        
+    try:
+        api = _get_api()
+        parsed = _parse_balance(_get_balance_data(api))
+        
+        # GPT-5-mini 기반 강세 후보 실시간 AI 분석 가동
+        ranker_model = "gpt-5-mini"
+        ranker_weight = 0.4
+        optimizer = "score_tilted_inverse_vol"
+        
+        payload = build_dashboard_candidates(
+            api, parsed, min_score=1, ranker=ranker_model, ranker_weight=ranker_weight, optimizer=optimizer
+        )
+        
+        added_symbols = []
+        watchlist_data = load_watchlist_data()
+        
+        if payload["scanned"] > 0:
+            needs_save = False
+            for cand in payload["candidates"]:
+                if cand.get("score", 0.0) >= 4.0:
+                    symbol = cand["ticker"]
+                    if symbol not in watchlist_data["symbols"]:
+                        watchlist_data["symbols"].append(symbol)
+                        added_symbols.append({
+                            "symbol": symbol,
+                            "name": cand["name"],
+                            "score": cand["score"]
+                        })
+                        needs_save = True
+            if needs_save:
+                save_watchlist_data(watchlist_data)
+                sync_watchlist_runtime()
+                
+        return {
+            "ok": True,
+            "scanned": payload["scanned"],
+            "added_count": len(added_symbols),
+            "added_symbols": added_symbols
+        }
+    except Exception as e:
+        logger.error(f"Failed to manually trigger watchlist AI scan: {e}")
+        raise HTTPException(status_code=500, detail=f"AI 스캔 및 자동추가 실행 중 오류 발생: {str(e)}")
+
+
 @app.get("/api/signals")
 async def get_signals():
     missing = _required_env_missing()

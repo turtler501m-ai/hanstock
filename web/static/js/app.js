@@ -1999,6 +1999,29 @@ document.addEventListener('DOMContentLoaded', () => {
             } catch (err) {
                 chkWatchlistAiAuto.checked = !checked;
                 setStatus(`AI 자동 추가적용 상태 싱크 실패: ${err.message}`);
+        });
+    }
+
+    // AI 자동 즉시 스캔 가동 버튼 바인딩
+    const btnWatchlistAiScan = document.getElementById('btn-watchlist-ai-scan');
+    if (btnWatchlistAiScan) {
+        btnWatchlistAiScan.addEventListener('click', async () => {
+            setButtonBusy(btnWatchlistAiScan, true);
+            setStatus('AI 자동추가 즉시 스캔이 가동되었습니다. 시장 유니버스를 실시간 탐색 중입니다...', true);
+            
+            try {
+                const res = await postJson('/api/watchlist/scan-trigger');
+                if (res.added_count > 0) {
+                    const names = res.added_symbols.map(s => `${s.name}(${s.symbol})`).join(', ');
+                    setStatus(`🔥 AI 스캔 완료! 4.0점 이상 우수 종목 포착 및 자동 관심종목 추가 완료: ${names}`, true);
+                } else {
+                    setStatus(`🔍 AI 스캔 완료! 신규 4.0점 이상 종목이 발견되지 않아 관심종목 변동이 없습니다. (분석: ${res.scanned}종목)`, true);
+                }
+                await renderWatchlist();
+            } catch (err) {
+                setStatus(`AI 즉시 스캔 실패: ${err.message}`);
+            } finally {
+                setButtonBusy(btnWatchlistAiScan, false);
             }
         });
     }
