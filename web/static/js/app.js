@@ -1999,6 +1999,7 @@ document.addEventListener('DOMContentLoaded', () => {
             } catch (err) {
                 chkWatchlistAiAuto.checked = !checked;
                 setStatus(`AI 자동 추가적용 상태 싱크 실패: ${err.message}`);
+            }
         });
     }
 
