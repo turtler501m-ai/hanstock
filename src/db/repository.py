@@ -205,19 +205,23 @@ def init_db() -> None:
         
         # 일회성 관심종목 클린업 마이그레이션 (더 많은 AI 자동 추가 자리를 확보하기 위함)
         try:
-            c = conn.execute("SELECT COUNT(*) FROM watchlist")
-            count = c.fetchone()[0]
-            if count > 20:
-                conn.execute("DELETE FROM watchlist")
-                ts = datetime.now(timezone(timedelta(hours=9))).strftime("%Y-%m-%d %H:%M:%S")
-                default_symbols = ["005930", "000660", "035420", "005380", "035720"]
-                for s in default_symbols:
-                    conn.execute(
-                        "INSERT OR IGNORE INTO watchlist (symbol, name, created_at) VALUES (?, '우량 종목', ?)",
-                        (s, ts)
-                    )
+            c_mig = conn.execute("SELECT value FROM watchlist_settings WHERE key = 'migration_watchlist_cleaned_v3'")
+            row_mig = c_mig.fetchone()
+            if row_mig is None or row_mig[0] != '1':
+                c = conn.execute("SELECT COUNT(*) FROM watchlist")
+                count = c.fetchone()[0]
+                if count > 20:
+                    conn.execute("DELETE FROM watchlist")
+                    ts = datetime.now(timezone(timedelta(hours=9))).strftime("%Y-%m-%d %H:%M:%S")
+                    default_symbols = ["005930", "000660", "035420", "005380", "035720"]
+                    for s in default_symbols:
+                        conn.execute(
+                            "INSERT OR IGNORE INTO watchlist (symbol, name, created_at) VALUES (?, '우량 종목', ?)",
+                            (s, ts)
+                        )
+                    logger.info("[MIGRATION] Watchlist cleaned up to 5 default symbols for AI slots.")
+                conn.execute("INSERT OR REPLACE INTO watchlist_settings (key, value) VALUES ('migration_watchlist_cleaned_v3', '1')")
                 conn.commit()
-                logger.info("[MIGRATION] Watchlist cleaned up to 5 default symbols for AI slots.")
         except Exception as m_err:
             logger.warning(f"Failed to run watchlist migration clean up: {m_err}")
 
