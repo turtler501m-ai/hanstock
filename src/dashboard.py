@@ -2559,12 +2559,10 @@ def get_watchlist():
             "name": STOCK_NAMES.get(code, "알 수 없는 종목"),
             "price": extra["price"],
             "score": extra["score"],
-            "volume": extra["volume"],
             "reason": extra["reason"],
             "change_rate": extra["change_rate"],
             "rsi": extra["rsi"],
-            "updated_at": extra["updated_at"],
-            "sma_trend": extra["sma_trend"]
+            "updated_at": extra["updated_at"]
         })
     return {
         "symbols": symbols_detail,

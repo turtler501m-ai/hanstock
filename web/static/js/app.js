@@ -1006,7 +1006,7 @@ async function renderWatchlist() {
         }
         
         if (!data.symbols.length) {
-            setTableMessage('#table-watchlist tbody', 11, '등록된 관심 종목이 없습니다.');
+            setTableMessage('#table-watchlist tbody', 9, '등록된 관심 종목이 없습니다.');
             return;
         }
         
@@ -1058,31 +1058,10 @@ async function renderWatchlist() {
                 rsiStr = `<span style="padding: 2px 6px; border-radius: 4px; font-size: 0.78rem; ${rsiBadgeStyle}">${rsi.toFixed(1)}</span>`;
             }
             
-            // 4. 이평선 추세 뱃지화
-            let trendStr = `<span style="color: rgba(255,255,255,0.25); font-size: 0.8rem;">-</span>`;
-            if (s.sma_trend) {
-                let trendBadgeStyle = "background: rgba(255,255,255,0.04); color: rgba(255,255,255,0.4);";
-                if (s.sma_trend.includes("정배열 (상승)")) {
-                    trendBadgeStyle = "background: rgba(16, 185, 129, 0.15); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.2); font-weight: 500;";
-                } else if (s.sma_trend.includes("정배열 (조정)")) {
-                    trendBadgeStyle = "background: rgba(59, 130, 246, 0.1); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.15);";
-                } else if (s.sma_trend.includes("반등 시도") || s.sma_trend.includes("20일선 위")) {
-                    trendBadgeStyle = "background: rgba(245, 158, 11, 0.1); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.15);";
-                } else if (s.sma_trend.includes("역배열")) {
-                    trendBadgeStyle = "background: rgba(239, 68, 68, 0.08); color: rgba(255,255,255,0.4); border: 1px solid rgba(239, 68, 68, 0.15);";
-                }
-                trendStr = `<span style="padding: 2px 6px; border-radius: 4px; font-size: 0.78rem; ${trendBadgeStyle}">${escapeHtml(s.sma_trend)}</span>`;
-            }
-            
-            // 5. 거래량 포맷
-            const volStr = s.volume !== null && s.volume !== undefined
-                ? `${formatNumber(s.volume)}주`
-                : `<span style="color: rgba(255,255,255,0.25); font-size: 0.8rem;">-</span>`;
-                
-            // 6. 대표 조건 / 스코어 사유
+            // 4. 대표 조건 / 스코어 사유
             const reasonStr = s.reason ? escapeHtml(s.reason) : "분석 데이터 없음";
             
-            // 7. 분석 최종 시각 콤팩트화
+            // 5. 분석 최종 시각 콤팩트화
             const timeStr = s.updated_at
                 ? (s.updated_at.includes(' ') ? s.updated_at.split(' ')[1].substring(0, 5) : s.updated_at)
                 : '-';
@@ -1094,8 +1073,6 @@ async function renderWatchlist() {
                 <td style="text-align: right;">${priceHtml}</td>
                 <td style="text-align: center;">${scoreStr}</td>
                 <td style="text-align: center;">${rsiStr}</td>
-                <td style="text-align: center;">${trendStr}</td>
-                <td style="text-align: right; color: rgba(255,255,255,0.6);">${volStr}</td>
                 <td style="color: rgba(255,255,255,0.6); font-size: 0.85rem;" title="${reasonStr}">${reasonStr}</td>
                 <td style="text-align: center; color: rgba(255,255,255,0.4); font-size: 0.8rem;">${escapeHtml(timeStr)}</td>
                 <td style="text-align: center;">
