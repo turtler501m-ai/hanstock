@@ -939,20 +939,24 @@ def load_daily_charts(symbol: str, limit: int = 120) -> list[dict]:
 
 
 def get_watchlist_extra_info(symbol: str) -> dict:
-    """관심종목의 최신 분석 점수, 이유, 현재가, 거래량을 DB 캐시에서 조회해 반환한다."""
+    """관심종목의 최신 분석 점수, 이유, 현재가, 거래량, 등락률, RSI, 갱신시각, 이평선 추세를 DB 캐시에서 조회해 반환한다."""
     init_db()
     res = {
         "score": None,
         "reason": "분석 정보 없음",
         "price": None,
-        "volume": None
+        "volume": None,
+        "change_rate": None,
+        "rsi": None,
+        "updated_at": None,
+        "sma_trend": "데이터 없음"
     }
     try:
         with connect_db() as conn:
-            # 1. scanned_candidates 테이블에서 최신 스코어 및 이유 조회
+            # 1. scanned_candidates 테이블에서 최신 스코어, 이유, 가격, RSI, 갱신시각 조회
             c_cand = conn.execute(
                 """
-                SELECT score, reasons, price 
+                SELECT score, reasons, price, rsi, scanned_at 
                 FROM scanned_candidates 
                 WHERE symbol = ? 
                 ORDER BY scanned_at DESC 
@@ -965,23 +969,74 @@ def get_watchlist_extra_info(symbol: str) -> dict:
                 res["score"] = row_cand[0]
                 res["reason"] = row_cand[1] or "조건 미지정"
                 res["price"] = row_cand[2]
+                res["rsi"] = row_cand[3]
+                res["updated_at"] = row_cand[4]
                 
-            # 2. daily_charts 테이블에서 최신 가격 및 거래량 조회 (최신 보정)
+            # 2. daily_charts 테이블에서 최신 가격, 전일 대비 등락률, 거래량 조회
             c_chart = conn.execute(
                 """
-                SELECT close, volume 
+                SELECT close, volume, date 
                 FROM daily_charts 
                 WHERE symbol = ? 
                 ORDER BY date DESC 
-                LIMIT 1
+                LIMIT 2
                 """,
                 (symbol,)
             )
-            row_chart = c_chart.fetchone()
-            if row_chart:
+            rows_chart = c_chart.fetchall()
+            if rows_chart:
+                latest_chart = rows_chart[0]
                 if res["price"] is None:
-                    res["price"] = row_chart[0]
-                res["volume"] = row_chart[1]
+                    res["price"] = latest_chart[0]
+                res["volume"] = latest_chart[1]
+                if res["updated_at"] is None:
+                    res["updated_at"] = latest_chart[2]
+                
+                # 등락률 계산
+                if len(rows_chart) >= 2:
+                    curr_close = rows_chart[0][0]
+                    prev_close = rows_chart[1][0]
+                    if prev_close > 0:
+                        res["change_rate"] = round(((curr_close - prev_close) / prev_close) * 100, 2)
+                        
+            # 3. 이동평균 상태 계산 (SMA20 vs SMA60)
+            c_ma = conn.execute(
+                """
+                SELECT close 
+                FROM daily_charts 
+                WHERE symbol = ? 
+                ORDER BY date DESC 
+                LIMIT 60
+                """,
+                (symbol,)
+            )
+            rows_ma = [r[0] for r in c_ma.fetchall()]
+            if len(rows_ma) >= 60:
+                rows_ma.reverse()  # 오래된 순 정렬
+                sma20 = sum(rows_ma[-20:]) / 20
+                sma60 = sum(rows_ma[-60:]) / 60
+                curr_price = rows_ma[-1]
+                
+                if sma20 > sma60:
+                    if curr_price > sma20:
+                        res["sma_trend"] = "정배열 (상승)"
+                    else:
+                        res["sma_trend"] = "정배열 (조정)"
+                else:
+                    if curr_price > sma20:
+                        res["sma_trend"] = "반등 시도"
+                    else:
+                        res["sma_trend"] = "역배열 (하락)"
+            elif len(rows_ma) >= 20:
+                rows_ma.reverse()
+                sma20 = sum(rows_ma[-20:]) / 20
+                curr_price = rows_ma[-1]
+                if curr_price > sma20:
+                    res["sma_trend"] = "20일선 위"
+                else:
+                    res["sma_trend"] = "20일선 아래"
+            else:
+                res["sma_trend"] = "자료 부족"
     except Exception as e:
         logger.warning(f"Failed to get watchlist extra info for {symbol}: {e}")
     return res

@@ -1006,19 +1006,31 @@ async function renderWatchlist() {
         }
         
         if (!data.symbols.length) {
-            setTableMessage('#table-watchlist tbody', 8, '등록된 관심 종목이 없습니다.');
+            setTableMessage('#table-watchlist tbody', 11, '등록된 관심 종목이 없습니다.');
             return;
         }
         
         data.symbols.forEach((s, idx) => {
             const tr = document.createElement('tr');
             
-            // 금액(현재가) 포맷
-            const priceStr = s.price !== null && s.price !== undefined
-                ? `${formatNumber(s.price)}원`
-                : `<span style="color: rgba(255,255,255,0.25); font-size: 0.8rem;">-</span>`;
+            // 1. 현재가 및 등락률 포맷
+            let priceHtml = `<span style="color: rgba(255,255,255,0.25); font-size: 0.8rem;">-</span>`;
+            if (s.price !== null && s.price !== undefined) {
+                let changeHtml = '';
+                if (s.change_rate !== null && s.change_rate !== undefined) {
+                    const rate = Number(s.change_rate);
+                    if (rate > 0) {
+                        changeHtml = `<span style="color: #f87171; font-size: 0.78rem; font-weight: bold; margin-left: 4px;">▲${rate.toFixed(2)}%</span>`;
+                    } else if (rate < 0) {
+                        changeHtml = `<span style="color: #60a5fa; font-size: 0.78rem; font-weight: bold; margin-left: 4px;">▼${Math.abs(rate).toFixed(2)}%</span>`;
+                    } else {
+                        changeHtml = `<span style="color: rgba(255,255,255,0.4); font-size: 0.78rem; margin-left: 4px;">0.00%</span>`;
+                    }
+                }
+                priceHtml = `<span style="font-weight: 500; color: #fff;">${formatNumber(s.price)}원</span>${changeHtml}`;
+            }
             
-            // AI 스코어
+            // 2. AI 스코어
             let scoreStr = `-`;
             if (s.score !== null && s.score !== undefined) {
                 const score = Number(s.score);
@@ -1033,22 +1045,59 @@ async function renderWatchlist() {
                 scoreStr = `<span style="padding: 2px 8px; border-radius: 20px; font-size: 0.8rem; ${badgeStyle}">${score.toFixed(1)}점</span>`;
             }
             
-            // 거래량 포맷
+            // 3. RSI 보조지표 뱃지화
+            let rsiStr = `<span style="color: rgba(255,255,255,0.25); font-size: 0.8rem;">-</span>`;
+            if (s.rsi !== null && s.rsi !== undefined) {
+                const rsi = Number(s.rsi);
+                let rsiBadgeStyle = "background: rgba(255,255,255,0.06); color: rgba(255,255,255,0.7); border: 1px solid rgba(255,255,255,0.1);";
+                if (rsi <= 30) {
+                    rsiBadgeStyle = "background: rgba(245, 158, 11, 0.2); color: #fbbf24; font-weight: bold; border: 1px solid rgba(245, 158, 11, 0.35);";
+                } else if (rsi >= 70) {
+                    rsiBadgeStyle = "background: rgba(239, 68, 68, 0.2); color: #f87171; font-weight: bold; border: 1px solid rgba(239, 68, 68, 0.35);";
+                }
+                rsiStr = `<span style="padding: 2px 6px; border-radius: 4px; font-size: 0.78rem; ${rsiBadgeStyle}">${rsi.toFixed(1)}</span>`;
+            }
+            
+            // 4. 이평선 추세 뱃지화
+            let trendStr = `<span style="color: rgba(255,255,255,0.25); font-size: 0.8rem;">-</span>`;
+            if (s.sma_trend) {
+                let trendBadgeStyle = "background: rgba(255,255,255,0.04); color: rgba(255,255,255,0.4);";
+                if (s.sma_trend.includes("정배열 (상승)")) {
+                    trendBadgeStyle = "background: rgba(16, 185, 129, 0.15); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.2); font-weight: 500;";
+                } else if (s.sma_trend.includes("정배열 (조정)")) {
+                    trendBadgeStyle = "background: rgba(59, 130, 246, 0.1); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.15);";
+                } else if (s.sma_trend.includes("반등 시도") || s.sma_trend.includes("20일선 위")) {
+                    trendBadgeStyle = "background: rgba(245, 158, 11, 0.1); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.15);";
+                } else if (s.sma_trend.includes("역배열")) {
+                    trendBadgeStyle = "background: rgba(239, 68, 68, 0.08); color: rgba(255,255,255,0.4); border: 1px solid rgba(239, 68, 68, 0.15);";
+                }
+                trendStr = `<span style="padding: 2px 6px; border-radius: 4px; font-size: 0.78rem; ${trendBadgeStyle}">${escapeHtml(s.sma_trend)}</span>`;
+            }
+            
+            // 5. 거래량 포맷
             const volStr = s.volume !== null && s.volume !== undefined
                 ? `${formatNumber(s.volume)}주`
                 : `<span style="color: rgba(255,255,255,0.25); font-size: 0.8rem;">-</span>`;
                 
-            // 대표 조건 / 스코어 사유
+            // 6. 대표 조건 / 스코어 사유
             const reasonStr = s.reason ? escapeHtml(s.reason) : "분석 데이터 없음";
+            
+            // 7. 분석 최종 시각 콤팩트화
+            const timeStr = s.updated_at
+                ? (s.updated_at.includes(' ') ? s.updated_at.split(' ')[1].substring(0, 5) : s.updated_at)
+                : '-';
             
             tr.innerHTML = `
                 <td style="text-align: center; color: rgba(255,255,255,0.4);">${idx + 1}</td>
                 <td style="font-weight: 600; color: #fff;">${escapeHtml(s.symbol)}</td>
                 <td style="color: rgba(255,255,255,0.8);">${escapeHtml(s.name)}</td>
-                <td style="text-align: right; font-weight: 500; color: #fff;">${priceStr}</td>
+                <td style="text-align: right;">${priceHtml}</td>
                 <td style="text-align: center;">${scoreStr}</td>
+                <td style="text-align: center;">${rsiStr}</td>
+                <td style="text-align: center;">${trendStr}</td>
                 <td style="text-align: right; color: rgba(255,255,255,0.6);">${volStr}</td>
                 <td style="color: rgba(255,255,255,0.6); font-size: 0.85rem;" title="${reasonStr}">${reasonStr}</td>
+                <td style="text-align: center; color: rgba(255,255,255,0.4); font-size: 0.8rem;">${escapeHtml(timeStr)}</td>
                 <td style="text-align: center;">
                     <button type="button" class="button-ghost btn-delete-watchlist compact-button" data-symbol="${escapeHtml(s.symbol)}" style="background: rgba(239, 68, 68, 0.15); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.25); padding: 2px 8px; border-radius: 4px; font-size: 0.78rem; cursor: pointer;">삭제</button>
                 </td>

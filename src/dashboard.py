@@ -2560,7 +2560,11 @@ def get_watchlist():
             "price": extra["price"],
             "score": extra["score"],
             "volume": extra["volume"],
-            "reason": extra["reason"]
+            "reason": extra["reason"],
+            "change_rate": extra["change_rate"],
+            "rsi": extra["rsi"],
+            "updated_at": extra["updated_at"],
+            "sma_trend": extra["sma_trend"]
         })
     return {
         "symbols": symbols_detail,
