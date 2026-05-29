@@ -202,6 +202,24 @@ def init_db() -> None:
             )
             """
         )
+        
+        # 일회성 관심종목 클린업 마이그레이션 (더 많은 AI 자동 추가 자리를 확보하기 위함)
+        try:
+            c = conn.execute("SELECT COUNT(*) FROM watchlist")
+            count = c.fetchone()[0]
+            if count > 20:
+                conn.execute("DELETE FROM watchlist")
+                ts = datetime.now(timezone(timedelta(hours=9))).strftime("%Y-%m-%d %H:%M:%S")
+                default_symbols = ["005930", "000660", "035420", "005380", "035720"]
+                for s in default_symbols:
+                    conn.execute(
+                        "INSERT OR IGNORE INTO watchlist (symbol, name, created_at) VALUES (?, '우량 종목', ?)",
+                        (s, ts)
+                    )
+                conn.commit()
+                logger.info("[MIGRATION] Watchlist cleaned up to 5 default symbols for AI slots.")
+        except Exception as m_err:
+            logger.warning(f"Failed to run watchlist migration clean up: {m_err}")
 
 
 def _ensure_column(conn: DBWrapper, table: str, column: str, column_type: str) -> None:
@@ -772,19 +790,18 @@ def load_watchlist_data() -> dict:
             c = conn.execute("SELECT symbol FROM watchlist ORDER BY symbol ASC")
             symbols = [row[0] for row in c.fetchall()]
             
-            # 종목 개수가 현저히 적으면 KOSPI_UNIVERSE 자동 마이그레이션 및 DB 저장
-            if len(symbols) < 20:
-                merged = list(dict.fromkeys(symbols + KOSPI_UNIVERSE))
+            # 종목 개수가 아예 비었을 때(0개)만 대표 우량주 5종목 자동 마이그레이션
+            if len(symbols) == 0:
+                default_symbols = ["005930", "000660", "035420", "005380", "035720"]
                 ts = datetime.now(KST).strftime("%Y-%m-%d %H:%M:%S")
-                for s in merged:
-                    if s not in symbols:
-                        name = STOCK_NAMES.get(s, "우량 종목")
-                        conn.execute(
-                            "INSERT OR IGNORE INTO watchlist (symbol, name, created_at) VALUES (?, ?, ?)",
-                            (s, name, ts)
-                        )
+                for s in default_symbols:
+                    name = STOCK_NAMES.get(s, "우량 종목")
+                    conn.execute(
+                        "INSERT OR IGNORE INTO watchlist (symbol, name, created_at) VALUES (?, ?, ?)",
+                        (s, name, ts)
+                    )
                 conn.commit()
-                symbols = merged
+                symbols = default_symbols
             
             c_set = conn.execute("SELECT value FROM watchlist_settings WHERE key = 'ai_auto_add'")
             row_set = c_set.fetchone()
