@@ -2547,95 +2547,201 @@ async function renderScheduleInfo() {
             const approved = lastResult.result.auto_approved || [];
             const approvalErrors = lastResult.result.auto_approval_errors || [];
             const runErrors = lastResult.result.errors || lastResult.result.retry_errors || [];
-            const failed = lastResult.result.status === 'failed' || lastResult.result.ok === false || approvalErrors.length > 0 || runErrors.length > 0;
             
-            const statusEl = document.getElementById('sched-result-status');
-            if (statusEl) {
-                statusEl.textContent = failed ? '오류 발생' : '정상 완료';
-                statusEl.className = failed ? 'badge badge-danger' : 'badge badge-success';
-                statusEl.style.color = failed ? 'var(--danger)' : 'var(--success)';
-            }
+            // Save to global state for filtering
+            window._schedulerState = {
+                results,
+                approved,
+                approvalErrors,
+                runErrors,
+                lastResult
+            };
             
-            const planCount = lastResult.result.plan ? lastResult.result.plan.length : results.length;
-            const queuedCount = results.filter(r => r.decision === 'queue').length;
-            const approvedCount = approved.filter(a => a.status === 'executed').length;
-            const failedCount = approved.filter(a => a.status === 'failed').length + approvalErrors.length + runErrors.length;
-            
-            const planCntEl = document.getElementById('sched-result-plan-cnt');
-            if (planCntEl) planCntEl.textContent = `${planCount}건`;
-            
-            const queueCntEl = document.getElementById('sched-result-queue-cnt');
-            if (queueCntEl) queueCntEl.textContent = `${queuedCount}건`;
-            
-            const approvedCntEl = document.getElementById('sched-result-approved-cnt');
-            if (approvedCntEl) approvedCntEl.textContent = `${approvedCount}건`;
-            
-            const failedCntEl = document.getElementById('sched-result-failed-cnt');
-            if (failedCntEl) failedCntEl.textContent = `${failedCount}건`;
-            
-            // Build Plan Table
-            const planTbody = document.querySelector('#table-schedule-plans tbody');
-            if (planTbody) {
-                planTbody.innerHTML = '';
-                if (results.length === 0) {
-                    planTbody.innerHTML = '<tr><td colspan="7" class="text-center">생성된 계획이 없습니다.</td></tr>';
-                } else {
-                    results.forEach(row => {
-                        const tr = document.createElement('tr');
-                        const decision = row.decision || (row.approval_id ? 'approved' : 'skip');
-                        const kind = decision === 'execute' || decision === 'approved' ? 'buy' : (decision === 'skip' ? 'hold' : 'warn');
-                        tr.innerHTML = `
-                            <td>${escapeHtml(row.symbol || '-')}</td>
-                            <td><div class="symbol-name">${escapeHtml(row.name || '-')}</div></td>
-                            <td>${pill(row.category || 'ai_rebalance', 'hold')}</td>
-                            <td>${pill(toKorDecision(decision), kind)}</td>
-                            <td>${formatNumber(row.qty || row.signal_qty)}</td>
-                            <td>${formatNumber(row.price || row.signal_price)} 원</td>
-                            <td><div class="reason-cell" title="${escapeHtml(row.reason || '')}">${escapeHtml(translateReason(row.reason) || '스케쥴 분석 결과')}</div></td>
-                        `;
-                        planTbody.appendChild(tr);
+            // Populate Round Select dropdown dynamically
+            const selectEl = document.getElementById('sched-round-select');
+            if (selectEl) {
+                // Clear all except the first option ("all")
+                selectEl.innerHTML = '<option value="all">당일 전체 집계</option>';
+                
+                // Get unique rounds chronologically
+                const uniqueRounds = new Map(); // round -> time
+                results.forEach(r => { if (r.round && r.time) uniqueRounds.set(r.round, r.time); });
+                approved.forEach(a => { if (a.round && a.time) uniqueRounds.set(a.round, a.time); });
+                approvalErrors.forEach(e => { if (e.round && e.time) uniqueRounds.set(e.round, e.time); });
+                
+                // Sort rounds ascending
+                const sortedRounds = Array.from(uniqueRounds.keys()).sort((a, b) => a - b);
+                sortedRounds.forEach(round => {
+                    const timeVal = uniqueRounds.get(round);
+                    const opt = document.createElement('option');
+                    opt.value = round;
+                    opt.textContent = `${round}차 실행 (${timeVal})`;
+                    selectEl.appendChild(opt);
+                });
+                
+                // Bind selection change handler if not already bound
+                if (!selectEl.dataset.bound) {
+                    selectEl.addEventListener('change', () => {
+                        drawFilteredSchedulerData();
                     });
+                    selectEl.dataset.bound = 'true';
                 }
             }
             
-            // Build Orders Table
-            const orderTbody = document.querySelector('#table-schedule-orders tbody');
-            if (orderTbody) {
-                orderTbody.innerHTML = '';
-                if (approved.length === 0 && approvalErrors.length === 0) {
-                    orderTbody.innerHTML = '<tr><td colspan="7" class="text-center">승인 대기 주문이 없거나 자동 승인이 생략되었습니다.</td></tr>';
-                } else {
-                    approved.forEach(ord => {
-                        const tr = document.createElement('tr');
-                        const isSuccess = ord.status === 'executed';
-                        tr.innerHTML = `
-                            <td>${escapeHtml(ord.id || ord.approval_id || '-')}</td>
-                            <td>${escapeHtml(ord.symbol || '-')}</td>
-                            <td>${pill(toKorAction(ord.action || 'buy'), ord.action === 'sell' ? 'sell' : 'buy')}</td>
-                            <td>${formatNumber(ord.qty)}</td>
-                            <td>${formatNumber(ord.price)} 원</td>
-                            <td>${pill(isSuccess ? '성공' : '실패', isSuccess ? 'buy' : 'sell')}</td>
-                            <td><div class="reason-cell" title="${escapeHtml(ord.response_msg || ord.message || '')}">${escapeHtml(ord.response_msg || ord.message || '정상 처리')}</div></td>
-                        `;
-                        orderTbody.appendChild(tr);
-                    });
-                    
-                    approvalErrors.forEach(err => {
-                        const tr = document.createElement('tr');
-                        tr.innerHTML = `
-                            <td>${escapeHtml(err.approval_id || '-')}</td>
-                            <td>-</td>
-                            <td>-</td>
-                            <td>-</td>
-                            <td>-</td>
-                            <td>${pill('실패', 'sell')}</td>
-                            <td><div class="reason-cell text-danger" title="${escapeHtml(err.message || '')}">${escapeHtml(err.message || '오류 발생')}</div></td>
-                        `;
-                        orderTbody.appendChild(tr);
-                    });
-                }
-            }
+            // Initial draw
+            drawFilteredSchedulerData();
         }
+    } catch (err) {
+        console.error('Failed to load schedule status:', err);
+    }
+}
+
+function drawFilteredSchedulerData() {
+    const state = window._schedulerState;
+    if (!state) return;
+    
+    const selectEl = document.getElementById('sched-round-select');
+    const selectedRound = selectEl ? selectEl.value : 'all';
+    
+    // Filter data based on round
+    let results = state.results;
+    let approved = state.approved;
+    let approvalErrors = state.approvalErrors;
+    let runErrors = state.runErrors;
+    
+    if (selectedRound !== 'all') {
+        const roundNum = parseInt(selectedRound, 10);
+        results = results.filter(r => r.round === roundNum);
+        approved = approved.filter(a => a.round === roundNum);
+        approvalErrors = approvalErrors.filter(e => e.round === roundNum);
+        
+        // Filter runErrors by looking for the matching timestamp prefix e.g. "[15:02]"
+        const selectOptText = selectEl.options[selectEl.selectedIndex].text;
+        const timePartMatch = selectOptText.match(/\(([^)]+)\)/);
+        if (timePartMatch && timePartMatch[1]) {
+            const timePart = timePartMatch[1];
+            runErrors = runErrors.filter(err => err.includes(`[${timePart}]`));
+        }
+    }
+    
+    // Update Metrics
+    const planCount = results.length;
+    const queuedCount = results.filter(r => r.decision === 'queue').length;
+    const approvedCount = approved.filter(a => a.status === 'executed').length;
+    const failedCount = approved.filter(a => a.status === 'failed').length + approvalErrors.length + runErrors.length;
+    
+    const planCntEl = document.getElementById('sched-result-plan-cnt');
+    if (planCntEl) planCntEl.textContent = `${planCount}건`;
+    
+    const queueCntEl = document.getElementById('sched-result-queue-cnt');
+    if (queueCntEl) queueCntEl.textContent = `${queuedCount}건`;
+    
+    const approvedCntEl = document.getElementById('sched-result-approved-cnt');
+    if (approvedCntEl) approvedCntEl.textContent = `${approvedCount}건`;
+    
+    const failedCntEl = document.getElementById('sched-result-failed-cnt');
+    if (failedCntEl) failedCntEl.textContent = `${failedCount}건`;
+    
+    // Update Status Badge
+    const failed = failedCount > 0;
+    const statusEl = document.getElementById('sched-result-status');
+    if (statusEl) {
+        statusEl.textContent = failed ? '오류 발생' : '정상 완료';
+        statusEl.className = failed ? 'badge badge-danger' : 'badge badge-success';
+        statusEl.style.color = failed ? 'var(--danger)' : 'var(--success)';
+    }
+    
+    // Build Plan Table
+    const planTbody = document.querySelector('#table-schedule-plans tbody');
+    if (planTbody) {
+        planTbody.innerHTML = '';
+        if (results.length === 0) {
+            planTbody.innerHTML = '<tr><td colspan="8" class="text-center">생성된 계획이 없습니다.</td></tr>';
+        } else {
+            results.forEach(row => {
+                const tr = document.createElement('tr');
+                const decision = row.decision || (row.approval_id ? 'approved' : 'skip');
+                const kind = decision === 'execute' || decision === 'approved' ? 'buy' : (decision === 'skip' ? 'hold' : 'warn');
+                
+                // Clean KST timestamp prefix from display reason since we have a dedicated column
+                let cleanReason = row.reason || '스케쥴 분석 결과';
+                if (cleanReason.startsWith('[')) {
+                    const closingIdx = cleanReason.indexOf(']');
+                    if (closingIdx !== -1) {
+                        cleanReason = cleanReason.substring(closingIdx + 1).trim();
+                    }
+                }
+                
+                tr.innerHTML = `
+                    <td class="text-center"><span class="badge" style="background: var(--bg-card); border: 1px solid var(--border); color: var(--text-muted); font-size: 0.8rem; padding: 0.25rem 0.4rem; border-radius: 4px; font-weight: 500;">${escapeHtml(row.time || '-')}</span></td>
+                    <td>${escapeHtml(row.symbol || '-')}</td>
+                    <td><div class="symbol-name">${escapeHtml(row.name || '-')}</div></td>
+                    <td>${pill(row.category || 'ai_rebalance', 'hold')}</td>
+                    <td>${pill(toKorDecision(decision), kind)}</td>
+                    <td>${formatNumber(row.qty || row.signal_qty)}</td>
+                    <td>${formatNumber(row.price || row.signal_price)} 원</td>
+                    <td><div class="reason-cell" title="${escapeHtml(row.reason || '')}">${escapeHtml(translateReason(cleanReason))}</div></td>
+                `;
+                planTbody.appendChild(tr);
+            });
+        }
+    }
+    
+    // Build Orders Table
+    const orderTbody = document.querySelector('#table-schedule-orders tbody');
+    if (orderTbody) {
+        orderTbody.innerHTML = '';
+        if (approved.length === 0 && approvalErrors.length === 0) {
+            orderTbody.innerHTML = '<tr><td colspan="8" class="text-center">승인 대기 주문이 없거나 자동 승인이 생략되었습니다.</td></tr>';
+        } else {
+            approved.forEach(ord => {
+                const tr = document.createElement('tr');
+                const isSuccess = ord.status === 'executed';
+                let cleanMsg = ord.response_msg || ord.message || '정상 처리';
+                if (cleanMsg.startsWith('[')) {
+                    const closingIdx = cleanMsg.indexOf(']');
+                    if (closingIdx !== -1) {
+                        cleanMsg = cleanMsg.substring(closingIdx + 1).trim();
+                    }
+                }
+                
+                tr.innerHTML = `
+                    <td class="text-center"><span class="badge" style="background: var(--bg-card); border: 1px solid var(--border); color: var(--text-muted); font-size: 0.8rem; padding: 0.25rem 0.4rem; border-radius: 4px; font-weight: 500;">${escapeHtml(ord.time || '-')}</span></td>
+                    <td>${escapeHtml(ord.id || ord.approval_id || '-')}</td>
+                    <td>${escapeHtml(ord.symbol || '-')}</td>
+                    <td>${pill(toKorAction(ord.action || 'buy'), ord.action === 'sell' ? 'sell' : 'buy')}</td>
+                    <td>${formatNumber(ord.qty)}</td>
+                    <td>${formatNumber(ord.price)} 원</td>
+                    <td>${pill(isSuccess ? '성공' : '실패', isSuccess ? 'buy' : 'sell')}</td>
+                    <td><div class="reason-cell" title="${escapeHtml(ord.response_msg || ord.message || '')}">${escapeHtml(cleanMsg)}</div></td>
+                `;
+                orderTbody.appendChild(tr);
+            });
+            
+            approvalErrors.forEach(err => {
+                const tr = document.createElement('tr');
+                let cleanMsg = err.message || '오류 발생';
+                if (cleanMsg.startsWith('[')) {
+                    const closingIdx = cleanMsg.indexOf(']');
+                    if (closingIdx !== -1) {
+                        cleanMsg = cleanMsg.substring(closingIdx + 1).trim();
+                    }
+                }
+                
+                tr.innerHTML = `
+                    <td class="text-center"><span class="badge" style="background: var(--bg-card); border: 1px solid var(--border); color: var(--text-muted); font-size: 0.8rem; padding: 0.25rem 0.4rem; border-radius: 4px; font-weight: 500;">${escapeHtml(err.time || '-')}</span></td>
+                    <td>${escapeHtml(err.approval_id || '-')}</td>
+                    <td>-</td>
+                    <td>-</td>
+                    <td>-</td>
+                    <td>-</td>
+                    <td>${pill('실패', 'sell')}</td>
+                    <td><div class="reason-cell text-danger" title="${escapeHtml(err.message || '')}">${escapeHtml(cleanMsg)}</div></td>
+                `;
+                orderTbody.appendChild(tr);
+            });
+        }
+    }
     } catch (err) {
         console.error('Failed to load schedule status:', err);
     }

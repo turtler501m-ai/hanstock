@@ -711,16 +711,34 @@ def load_latest_scheduler_result() -> dict | None:
             )
             row = c.fetchone()
             if row is not None:
+                res_data = json.loads(row["result"])
+                recorded_at_str = row["recorded_at"]
+                time_part = recorded_at_str.replace("T", " ").split(" ")[1][:5]
+                
+                # Enrich with time and round
+                if "results" in res_data:
+                    for item in res_data["results"]:
+                        item["time"] = time_part
+                        item["round"] = 1
+                if "auto_approved" in res_data:
+                    for item in res_data["auto_approved"]:
+                        item["time"] = time_part
+                        item["round"] = 1
+                if "auto_approval_errors" in res_data:
+                    for item in res_data["auto_approval_errors"]:
+                        item["time"] = time_part
+                        item["round"] = 1
+
                 return {
                     "mode": row["mode"],
                     "recorded_at": row["recorded_at"],
-                    "result": json.loads(row["result"])
+                    "result": res_data
                 }
     except Exception as e:
         logger.warning(f"Failed to load scheduler result from DB: {e}")
     return None
-
-
+ 
+ 
 def load_today_scheduler_results() -> dict | None:
     try:
         init_db()
@@ -747,16 +765,21 @@ def load_today_scheduler_results() -> dict | None:
             latest_recorded_at = rows[-1]["recorded_at"]
             latest_mode = rows[-1]["mode"]
             
-            for row in rows:
+            for idx, row in enumerate(rows):
                 try:
                     res_data = json.loads(row["result"])
                 except Exception:
                     continue
                 
+                round_num = idx + 1
+                recorded_at_str = row["recorded_at"]
+                time_part = recorded_at_str.replace("T", " ").split(" ")[1][:5]
+                
                 # plans / results
                 for item in res_data.get("results", []):
                     item_copy = dict(item)
-                    time_part = row["recorded_at"].split(" ")[1][:5]
+                    item_copy["time"] = time_part
+                    item_copy["round"] = round_num
                     if "reason" in item_copy and item_copy["reason"]:
                         item_copy["reason"] = f"[{time_part}] {item_copy['reason']}"
                     else:
@@ -766,7 +789,8 @@ def load_today_scheduler_results() -> dict | None:
                 # approved / auto_approved
                 for item in res_data.get("auto_approved", []):
                     item_copy = dict(item)
-                    time_part = row["recorded_at"].split(" ")[1][:5]
+                    item_copy["time"] = time_part
+                    item_copy["round"] = round_num
                     if "response_msg" in item_copy and item_copy["response_msg"]:
                         item_copy["response_msg"] = f"[{time_part}] {item_copy['response_msg']}"
                     else:
@@ -776,7 +800,8 @@ def load_today_scheduler_results() -> dict | None:
                 # approval errors
                 for item in res_data.get("auto_approval_errors", []):
                     item_copy = dict(item)
-                    time_part = row["recorded_at"].split(" ")[1][:5]
+                    item_copy["time"] = time_part
+                    item_copy["round"] = round_num
                     if "message" in item_copy and item_copy["message"]:
                         item_copy["message"] = f"[{time_part}] {item_copy['message']}"
                     else:
@@ -787,10 +812,8 @@ def load_today_scheduler_results() -> dict | None:
                 errors = res_data.get("errors", []) or res_data.get("retry_errors", [])
                 if isinstance(errors, list):
                     for err in errors:
-                        time_part = row["recorded_at"].split(" ")[1][:5]
                         merged_run_errors.append(f"[{time_part}] {err}")
                 elif errors:
-                    time_part = row["recorded_at"].split(" ")[1][:5]
                     merged_run_errors.append(f"[{time_part}] {errors}")
                     
             return {

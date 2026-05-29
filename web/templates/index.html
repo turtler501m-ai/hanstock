@@ -450,11 +450,19 @@
                     </div>
 
                     <div class="schedule-tables" style="margin-top: 1.5rem;">
+                        <div style="display: flex; justify-content: flex-end; align-items: center; gap: 0.75rem; margin-bottom: 1.25rem;">
+                            <span class="label" style="font-size: 0.9rem; font-weight: 500; color: var(--text-muted);">조회 차수 선택:</span>
+                            <select id="sched-round-select" style="width: 220px; background: var(--bg-card); color: var(--text); border: 1px solid var(--border); padding: 0.4rem 0.75rem; border-radius: 6px; font-size: 0.9rem; outline: none; cursor: pointer; transition: border-color 0.2s;">
+                                <option value="all">당일 전체 집계</option>
+                            </select>
+                        </div>
+
                         <h3 style="margin-bottom: 0.75rem; font-size: 1.15rem;">생성된 매매 계획 및 판단</h3>
                         <div class="table-responsive">
                             <table id="table-schedule-plans">
                                 <thead>
                                     <tr>
+                                        <th style="width: 80px;">시간</th>
                                         <th>종목코드</th>
                                         <th>종목명</th>
                                         <th>분류</th>
@@ -465,7 +473,7 @@
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    <tr><td colspan="7" class="text-center">로딩 중이거나 내역이 없습니다.</td></tr>
+                                    <tr><td colspan="8" class="text-center">로딩 중이거나 내역이 없습니다.</td></tr>
                                 </tbody>
                             </table>
                         </div>
@@ -475,6 +483,7 @@
                             <table id="table-schedule-orders">
                                 <thead>
                                     <tr>
+                                        <th style="width: 80px;">시간</th>
                                         <th>주문ID</th>
                                         <th>종목코드</th>
                                         <th>구분</th>
@@ -485,7 +494,7 @@
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    <tr><td colspan="7" class="text-center">로딩 중이거나 내역이 없습니다.</td></tr>
+                                    <tr><td colspan="8" class="text-center">로딩 중이거나 내역이 없습니다.</td></tr>
                                 </tbody>
                             </table>
                         </div>
