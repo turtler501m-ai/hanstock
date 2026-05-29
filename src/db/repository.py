@@ -938,3 +938,53 @@ def load_daily_charts(symbol: str, limit: int = 120) -> list[dict]:
         return []
 
 
+def get_watchlist_extra_info(symbol: str) -> dict:
+    """관심종목의 최신 분석 점수, 이유, 현재가, 거래량을 DB 캐시에서 조회해 반환한다."""
+    init_db()
+    res = {
+        "score": None,
+        "reason": "분석 정보 없음",
+        "price": None,
+        "volume": None
+    }
+    try:
+        with connect_db() as conn:
+            # 1. scanned_candidates 테이블에서 최신 스코어 및 이유 조회
+            c_cand = conn.execute(
+                """
+                SELECT score, reasons, price 
+                FROM scanned_candidates 
+                WHERE symbol = ? 
+                ORDER BY scanned_at DESC 
+                LIMIT 1
+                """,
+                (symbol,)
+            )
+            row_cand = c_cand.fetchone()
+            if row_cand:
+                res["score"] = row_cand[0]
+                res["reason"] = row_cand[1] or "조건 미지정"
+                res["price"] = row_cand[2]
+                
+            # 2. daily_charts 테이블에서 최신 가격 및 거래량 조회 (최신 보정)
+            c_chart = conn.execute(
+                """
+                SELECT close, volume 
+                FROM daily_charts 
+                WHERE symbol = ? 
+                ORDER BY date DESC 
+                LIMIT 1
+                """,
+                (symbol,)
+            )
+            row_chart = c_chart.fetchone()
+            if row_chart:
+                if res["price"] is None:
+                    res["price"] = row_chart[0]
+                res["volume"] = row_chart[1]
+    except Exception as e:
+        logger.warning(f"Failed to get watchlist extra info for {symbol}: {e}")
+    return res
+
+
+

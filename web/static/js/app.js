@@ -1006,16 +1006,49 @@ async function renderWatchlist() {
         }
         
         if (!data.symbols.length) {
-            setTableMessage('#table-watchlist tbody', 4, '등록된 관심 종목이 없습니다.');
+            setTableMessage('#table-watchlist tbody', 8, '등록된 관심 종목이 없습니다.');
             return;
         }
         
         data.symbols.forEach((s, idx) => {
             const tr = document.createElement('tr');
+            
+            // 금액(현재가) 포맷
+            const priceStr = s.price !== null && s.price !== undefined
+                ? `${formatNumber(s.price)}원`
+                : `<span style="color: rgba(255,255,255,0.25); font-size: 0.8rem;">-</span>`;
+            
+            // AI 스코어
+            let scoreStr = `-`;
+            if (s.score !== null && s.score !== undefined) {
+                const score = Number(s.score);
+                let badgeStyle = "background: rgba(255,255,255,0.1); color: #ccc;";
+                if (score >= 3.0) {
+                    badgeStyle = "background: rgba(16, 185, 129, 0.2); color: #34d399; font-weight: bold; border: 1px solid rgba(16, 185, 129, 0.3);";
+                } else if (score >= 2.0) {
+                    badgeStyle = "background: rgba(59, 130, 246, 0.2); color: #60a5fa; font-weight: bold; border: 1px solid rgba(59, 130, 246, 0.3);";
+                } else if (score >= 1.0) {
+                    badgeStyle = "background: rgba(245, 158, 11, 0.15); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.25);";
+                }
+                scoreStr = `<span style="padding: 2px 8px; border-radius: 20px; font-size: 0.8rem; ${badgeStyle}">${score.toFixed(1)}점</span>`;
+            }
+            
+            // 거래량 포맷
+            const volStr = s.volume !== null && s.volume !== undefined
+                ? `${formatNumber(s.volume)}주`
+                : `<span style="color: rgba(255,255,255,0.25); font-size: 0.8rem;">-</span>`;
+                
+            // 대표 조건 / 스코어 사유
+            const reasonStr = s.reason ? escapeHtml(s.reason) : "분석 데이터 없음";
+            
             tr.innerHTML = `
                 <td style="text-align: center; color: rgba(255,255,255,0.4);">${idx + 1}</td>
                 <td style="font-weight: 600; color: #fff;">${escapeHtml(s.symbol)}</td>
                 <td style="color: rgba(255,255,255,0.8);">${escapeHtml(s.name)}</td>
+                <td style="text-align: right; font-weight: 500; color: #fff;">${priceStr}</td>
+                <td style="text-align: center;">${scoreStr}</td>
+                <td style="text-align: right; color: rgba(255,255,255,0.6);">${volStr}</td>
+                <td style="color: rgba(255,255,255,0.6); font-size: 0.85rem;" title="${reasonStr}">${reasonStr}</td>
                 <td style="text-align: center;">
                     <button type="button" class="button-ghost btn-delete-watchlist compact-button" data-symbol="${escapeHtml(s.symbol)}" style="background: rgba(239, 68, 68, 0.15); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.25); padding: 2px 8px; border-radius: 4px; font-size: 0.78rem; cursor: pointer;">삭제</button>
                 </td>
