@@ -1,3 +1,8 @@
+// 관심종목 정렬용 상태 변수
+let watchlistCache = [];
+let watchlistSortKey = '';
+let watchlistSortAsc = true;
+
 const formatCurrency = (value) => {
     return new Intl.NumberFormat('ko-KR', {
         style: 'currency',
@@ -988,14 +993,172 @@ async function renderAiStrategies() {
     }
 }
 
-async function renderWatchlist() {
+// 데이터 정렬 처리 유틸리티
+function sortWatchlistData() {
+    if (!watchlistSortKey) return;
+    watchlistCache.sort((a, b) => {
+        let valA = a[watchlistSortKey];
+        let valB = b[watchlistSortKey];
+        
+        // 결측치 예외 처리 (정렬 방향 상관없이 가장 아래로 정렬)
+        if (valA === null || valA === undefined) return watchlistSortAsc ? 1 : -1;
+        if (valB === null || valB === undefined) return watchlistSortAsc ? -1 : 1;
+        
+        if (typeof valA === 'number' && typeof valB === 'number') {
+            return watchlistSortAsc ? valA - valB : valB - valA;
+        }
+        
+        valA = String(valA).toLowerCase();
+        valB = String(valB).toLowerCase();
+        if (valA < valB) return watchlistSortAsc ? -1 : 1;
+        if (valA > valB) return watchlistSortAsc ? 1 : -1;
+        return 0;
+    });
+}
+
+function drawWatchlist() {
     const tbody = document.querySelector('#table-watchlist tbody');
-    const autoChk = document.getElementById('chk-watchlist-ai-auto');
     if (!tbody) return;
+    tbody.innerHTML = '';
     
+    // 데이터 정렬 수행
+    sortWatchlistData();
+    
+    // 헤더 정렬 아이콘 그리기
+    const thead = document.querySelector('#table-watchlist thead');
+    if (thead) {
+        thead.querySelectorAll('.sort-header').forEach(th => {
+            const key = th.getAttribute('data-sort');
+            const iconSpan = th.querySelector('.sort-icon');
+            if (iconSpan) {
+                if (key === watchlistSortKey) {
+                    iconSpan.innerHTML = watchlistSortAsc ? '▲' : '▼';
+                    iconSpan.style.color = '#34d399'; // 활성 정렬 컬럼은 강조
+                } else {
+                    iconSpan.innerHTML = '';
+                    iconSpan.style.color = '';
+                }
+            }
+        });
+    }
+
+    if (!watchlistCache.length) {
+        setTableMessage('#table-watchlist tbody', 9, '등록된 관심 종목이 없습니다.');
+        return;
+    }
+    
+    watchlistCache.forEach((s, idx) => {
+        const tr = document.createElement('tr');
+        
+        // 1. 현재가 및 등락률 포맷
+        let priceHtml = `<span style="color: rgba(255,255,255,0.25); font-size: 0.8rem;">-</span>`;
+        if (s.price !== null && s.price !== undefined) {
+            let changeHtml = '';
+            if (s.change_rate !== null && s.change_rate !== undefined) {
+                const rate = Number(s.change_rate);
+                if (rate > 0) {
+                    changeHtml = `<span style="color: #f87171; font-size: 0.78rem; font-weight: bold; margin-left: 4px;">▲${rate.toFixed(2)}%</span>`;
+                } else if (rate < 0) {
+                    changeHtml = `<span style="color: #60a5fa; font-size: 0.78rem; font-weight: bold; margin-left: 4px;">▼${Math.abs(rate).toFixed(2)}%</span>`;
+                } else {
+                    changeHtml = `<span style="color: rgba(255,255,255,0.4); font-size: 0.78rem; margin-left: 4px;">0.00%</span>`;
+                }
+            }
+            priceHtml = `<span style="font-weight: 500; color: #fff;">${formatNumber(s.price)}원</span>${changeHtml}`;
+        }
+        
+        // 2. AI 스코어
+        let scoreStr = `-`;
+        if (s.score !== null && s.score !== undefined) {
+            const score = Number(s.score);
+            let badgeStyle = "background: rgba(255,255,255,0.1); color: #ccc;";
+            if (score >= 3.0) {
+                badgeStyle = "background: rgba(16, 185, 129, 0.2); color: #34d399; font-weight: bold; border: 1px solid rgba(16, 185, 129, 0.3);";
+            } else if (score >= 2.0) {
+                badgeStyle = "background: rgba(59, 130, 246, 0.2); color: #60a5fa; font-weight: bold; border: 1px solid rgba(59, 130, 246, 0.3);";
+            } else if (score >= 1.0) {
+                badgeStyle = "background: rgba(245, 158, 11, 0.15); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.25);";
+            }
+            scoreStr = `<span style="padding: 2px 8px; border-radius: 20px; font-size: 0.8rem; ${badgeStyle}">${score.toFixed(1)}점</span>`;
+        }
+        
+        // 3. RSI 보조지표 뱃지화
+        let rsiStr = `<span style="color: rgba(255,255,255,0.25); font-size: 0.8rem;">-</span>`;
+        if (s.rsi !== null && s.rsi !== undefined) {
+            const rsi = Number(s.rsi);
+            let rsiBadgeStyle = "background: rgba(255,255,255,0.06); color: rgba(255,255,255,0.7); border: 1px solid rgba(255,255,255,0.1);";
+            if (rsi <= 30) {
+                rsiBadgeStyle = "background: rgba(245, 158, 11, 0.2); color: #fbbf24; font-weight: bold; border: 1px solid rgba(245, 158, 11, 0.35);";
+            } else if (rsi >= 70) {
+                rsiBadgeStyle = "background: rgba(239, 68, 68, 0.2); color: #f87171; font-weight: bold; border: 1px solid rgba(239, 68, 68, 0.35);";
+            }
+            rsiStr = `<span style="padding: 2px 6px; border-radius: 4px; font-size: 0.78rem; ${rsiBadgeStyle}">${rsi.toFixed(1)}</span>`;
+        }
+        
+        // 4. 대표 조건 / 스코어 사유
+        const reasonStr = s.reason ? escapeHtml(s.reason) : "분석 데이터 없음";
+        
+        // 5. 분석 최종 시각 콤팩트화
+        const timeStr = s.updated_at
+            ? (s.updated_at.includes(' ') ? s.updated_at.split(' ')[1].substring(0, 5) : s.updated_at)
+            : '-';
+        
+        tr.innerHTML = `
+            <td style="text-align: center; color: rgba(255,255,255,0.4);">${idx + 1}</td>
+            <td style="font-weight: 600; color: #fff;">${escapeHtml(s.symbol)}</td>
+            <td style="color: rgba(255,255,255,0.8);">${escapeHtml(s.name)}</td>
+            <td style="text-align: right;">${priceHtml}</td>
+            <td style="text-align: center;">${scoreStr}</td>
+            <td style="text-align: center;">${rsiStr}</td>
+            <td style="color: rgba(255,255,255,0.6); font-size: 0.85rem;" title="${reasonStr}">${reasonStr}</td>
+            <td style="text-align: center; color: rgba(255,255,255,0.4); font-size: 0.8rem;">${escapeHtml(timeStr)}</td>
+            <td style="text-align: center;">
+                <button type="button" class="button-ghost btn-delete-watchlist compact-button" data-symbol="${escapeHtml(s.symbol)}" style="background: rgba(239, 68, 68, 0.15); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.25); padding: 2px 8px; border-radius: 4px; font-size: 0.78rem; cursor: pointer;">삭제</button>
+            </td>
+        `;
+        tbody.appendChild(tr);
+    });
+    
+    tbody.querySelectorAll('.btn-delete-watchlist').forEach(btn => {
+        btn.addEventListener('click', async () => {
+            const symbol = btn.getAttribute('data-symbol');
+            setButtonBusy(btn, true);
+            try {
+                await deleteJson(`/api/watchlist/${symbol}`);
+                setStatus(`관심 종목(${symbol})이 삭제되었습니다.`, true);
+                await renderWatchlist();
+            } catch (err) {
+                setStatus(`관심 종목 삭제 실패: ${err.message}`);
+                setButtonBusy(btn, false);
+            }
+        });
+    });
+}
+
+async function renderWatchlist() {
+    const autoChk = document.getElementById('chk-watchlist-ai-auto');
+    
+    // 테이블 헤더에 이벤트 리스너 바인딩 (최초 1회 실행)
+    const thead = document.querySelector('#table-watchlist thead');
+    if (thead && !thead.dataset.listenerBound) {
+        thead.dataset.listenerBound = 'true';
+        thead.querySelectorAll('.sort-header').forEach(th => {
+            th.addEventListener('click', () => {
+                const key = th.getAttribute('data-sort');
+                if (watchlistSortKey === key) {
+                    watchlistSortAsc = !watchlistSortAsc;
+                } else {
+                    watchlistSortKey = key;
+                    watchlistSortAsc = true;
+                }
+                drawWatchlist();
+            });
+        });
+    }
+
     try {
         const data = await fetchJson('/api/watchlist');
-        tbody.innerHTML = '';
+        watchlistCache = data.symbols || [];
         
         if (autoChk) {
             autoChk.checked = data.ai_auto_add;
@@ -1005,97 +1168,7 @@ async function renderWatchlist() {
             threshInput.value = data.ai_auto_add_threshold;
         }
         
-        if (!data.symbols.length) {
-            setTableMessage('#table-watchlist tbody', 9, '등록된 관심 종목이 없습니다.');
-            return;
-        }
-        
-        data.symbols.forEach((s, idx) => {
-            const tr = document.createElement('tr');
-            
-            // 1. 현재가 및 등락률 포맷
-            let priceHtml = `<span style="color: rgba(255,255,255,0.25); font-size: 0.8rem;">-</span>`;
-            if (s.price !== null && s.price !== undefined) {
-                let changeHtml = '';
-                if (s.change_rate !== null && s.change_rate !== undefined) {
-                    const rate = Number(s.change_rate);
-                    if (rate > 0) {
-                        changeHtml = `<span style="color: #f87171; font-size: 0.78rem; font-weight: bold; margin-left: 4px;">▲${rate.toFixed(2)}%</span>`;
-                    } else if (rate < 0) {
-                        changeHtml = `<span style="color: #60a5fa; font-size: 0.78rem; font-weight: bold; margin-left: 4px;">▼${Math.abs(rate).toFixed(2)}%</span>`;
-                    } else {
-                        changeHtml = `<span style="color: rgba(255,255,255,0.4); font-size: 0.78rem; margin-left: 4px;">0.00%</span>`;
-                    }
-                }
-                priceHtml = `<span style="font-weight: 500; color: #fff;">${formatNumber(s.price)}원</span>${changeHtml}`;
-            }
-            
-            // 2. AI 스코어
-            let scoreStr = `-`;
-            if (s.score !== null && s.score !== undefined) {
-                const score = Number(s.score);
-                let badgeStyle = "background: rgba(255,255,255,0.1); color: #ccc;";
-                if (score >= 3.0) {
-                    badgeStyle = "background: rgba(16, 185, 129, 0.2); color: #34d399; font-weight: bold; border: 1px solid rgba(16, 185, 129, 0.3);";
-                } else if (score >= 2.0) {
-                    badgeStyle = "background: rgba(59, 130, 246, 0.2); color: #60a5fa; font-weight: bold; border: 1px solid rgba(59, 130, 246, 0.3);";
-                } else if (score >= 1.0) {
-                    badgeStyle = "background: rgba(245, 158, 11, 0.15); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.25);";
-                }
-                scoreStr = `<span style="padding: 2px 8px; border-radius: 20px; font-size: 0.8rem; ${badgeStyle}">${score.toFixed(1)}점</span>`;
-            }
-            
-            // 3. RSI 보조지표 뱃지화
-            let rsiStr = `<span style="color: rgba(255,255,255,0.25); font-size: 0.8rem;">-</span>`;
-            if (s.rsi !== null && s.rsi !== undefined) {
-                const rsi = Number(s.rsi);
-                let rsiBadgeStyle = "background: rgba(255,255,255,0.06); color: rgba(255,255,255,0.7); border: 1px solid rgba(255,255,255,0.1);";
-                if (rsi <= 30) {
-                    rsiBadgeStyle = "background: rgba(245, 158, 11, 0.2); color: #fbbf24; font-weight: bold; border: 1px solid rgba(245, 158, 11, 0.35);";
-                } else if (rsi >= 70) {
-                    rsiBadgeStyle = "background: rgba(239, 68, 68, 0.2); color: #f87171; font-weight: bold; border: 1px solid rgba(239, 68, 68, 0.35);";
-                }
-                rsiStr = `<span style="padding: 2px 6px; border-radius: 4px; font-size: 0.78rem; ${rsiBadgeStyle}">${rsi.toFixed(1)}</span>`;
-            }
-            
-            // 4. 대표 조건 / 스코어 사유
-            const reasonStr = s.reason ? escapeHtml(s.reason) : "분석 데이터 없음";
-            
-            // 5. 분석 최종 시각 콤팩트화
-            const timeStr = s.updated_at
-                ? (s.updated_at.includes(' ') ? s.updated_at.split(' ')[1].substring(0, 5) : s.updated_at)
-                : '-';
-            
-            tr.innerHTML = `
-                <td style="text-align: center; color: rgba(255,255,255,0.4);">${idx + 1}</td>
-                <td style="font-weight: 600; color: #fff;">${escapeHtml(s.symbol)}</td>
-                <td style="color: rgba(255,255,255,0.8);">${escapeHtml(s.name)}</td>
-                <td style="text-align: right;">${priceHtml}</td>
-                <td style="text-align: center;">${scoreStr}</td>
-                <td style="text-align: center;">${rsiStr}</td>
-                <td style="color: rgba(255,255,255,0.6); font-size: 0.85rem;" title="${reasonStr}">${reasonStr}</td>
-                <td style="text-align: center; color: rgba(255,255,255,0.4); font-size: 0.8rem;">${escapeHtml(timeStr)}</td>
-                <td style="text-align: center;">
-                    <button type="button" class="button-ghost btn-delete-watchlist compact-button" data-symbol="${escapeHtml(s.symbol)}" style="background: rgba(239, 68, 68, 0.15); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.25); padding: 2px 8px; border-radius: 4px; font-size: 0.78rem; cursor: pointer;">삭제</button>
-                </td>
-            `;
-            tbody.appendChild(tr);
-        });
-        
-        tbody.querySelectorAll('.btn-delete-watchlist').forEach(btn => {
-            btn.addEventListener('click', async () => {
-                const symbol = btn.getAttribute('data-symbol');
-                setButtonBusy(btn, true);
-                try {
-                    await deleteJson(`/api/watchlist/${symbol}`);
-                    setStatus(`관심 종목(${symbol})이 삭제되었습니다.`, true);
-                    await renderWatchlist();
-                } catch (err) {
-                    setStatus(`관심 종목 삭제 실패: ${err.message}`);
-                    setButtonBusy(btn, false);
-                }
-            });
-        });
+        drawWatchlist();
     } catch (err) {
         console.error("Failed to render watchlist:", err);
         setStatus(`관심종목 갱신 일시 실패 (기존 데이터 보존됨): ${err.message}`);
