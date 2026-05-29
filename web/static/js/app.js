@@ -2742,9 +2742,6 @@ function drawFilteredSchedulerData() {
             });
         }
     }
-    } catch (err) {
-        console.error('Failed to load schedule status:', err);
-    }
 }
 
 function disableTriggerButtons(disabled) {
