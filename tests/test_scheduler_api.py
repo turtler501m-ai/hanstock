@@ -15,9 +15,17 @@ class SchedulerApiTests(unittest.TestCase):
             _scheduler_run_state["completed_at"] = None
             _scheduler_run_state["result"] = None
             _scheduler_run_state["error"] = None
+        
+        # Clear database
+        from src.db.repository import init_db, connect_db
+        init_db()
+        with connect_db() as conn:
+            conn.execute("DELETE FROM scheduler_results")
+            conn.commit()
 
     @patch("src.dashboard.Path.exists", return_value=False)
-    def test_get_scheduler_status_handles_missing_file_gracefully(self, mock_exists):
+    @patch("src.db.repository.load_latest_scheduler_result", return_value=None)
+    def test_get_scheduler_status_handles_missing_file_gracefully(self, mock_load, mock_exists):
         status = get_scheduler_status()
         self.assertIn("config", status)
         self.assertIn("last_result", status)

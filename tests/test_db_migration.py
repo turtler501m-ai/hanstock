@@ -18,6 +18,24 @@ from src.db.repository import (
 class DbMigrationTests(unittest.TestCase):
     def setUp(self):
         init_db()
+        with connect_db() as conn:
+            conn.execute("DELETE FROM ai_strategies")
+            conn.execute("DELETE FROM token_usage")
+            conn.execute("DELETE FROM auto_approval")
+            conn.execute("DELETE FROM scheduler_results")
+            conn.commit()
+            
+        from src.db.repository import TOKEN_USAGE_FILE, AI_STRATEGIES_FILE
+        if TOKEN_USAGE_FILE.exists():
+            try:
+                TOKEN_USAGE_FILE.unlink()
+            except Exception:
+                pass
+        if AI_STRATEGIES_FILE.exists():
+            try:
+                AI_STRATEGIES_FILE.unlink()
+            except Exception:
+                pass
 
     def test_ai_strategies_db_persistence(self):
         # Create a test strategy

@@ -781,15 +781,29 @@ def load_watchlist_data() -> dict:
             else:
                 ai_auto_add = (row_set[0] == '1')
                 
+            c_thresh = conn.execute("SELECT value FROM watchlist_settings WHERE key = 'ai_auto_add_threshold'")
+            row_thresh = c_thresh.fetchone()
+            if row_thresh is None:
+                conn.execute("INSERT OR IGNORE INTO watchlist_settings (key, value) VALUES ('ai_auto_add_threshold', '3.0')")
+                conn.commit()
+                ai_auto_add_threshold = 3.0
+            else:
+                try:
+                    ai_auto_add_threshold = float(row_thresh[0])
+                except ValueError:
+                    ai_auto_add_threshold = 3.0
+                
             return {
                 "symbols": symbols,
-                "ai_auto_add": ai_auto_add
+                "ai_auto_add": ai_auto_add,
+                "ai_auto_add_threshold": ai_auto_add_threshold
             }
     except Exception as e:
         logger.warning(f"Failed to load watchlist from DB: {e}")
         return {
             "symbols": KOSPI_UNIVERSE,
-            "ai_auto_add": False
+            "ai_auto_add": False,
+            "ai_auto_add_threshold": 3.0
         }
 
 
@@ -797,11 +811,18 @@ def save_watchlist_data(data: dict) -> None:
     try:
         init_db()
         with connect_db() as conn:
-            ai_auto_add_val = "1" if data.get("ai_auto_add", False) else "0"
-            conn.execute(
-                "INSERT OR REPLACE INTO watchlist_settings (key, value) VALUES ('ai_auto_add', ?)",
-                (ai_auto_add_val,)
-            )
+            if "ai_auto_add" in data:
+                ai_auto_add_val = "1" if data["ai_auto_add"] else "0"
+                conn.execute(
+                    "INSERT OR REPLACE INTO watchlist_settings (key, value) VALUES ('ai_auto_add', ?)",
+                    (ai_auto_add_val,)
+                )
+            
+            if "ai_auto_add_threshold" in data:
+                conn.execute(
+                    "INSERT OR REPLACE INTO watchlist_settings (key, value) VALUES ('ai_auto_add_threshold', ?)",
+                    (str(float(data["ai_auto_add_threshold"])),)
+                )
             
             if "symbols" in data:
                 conn.execute("DELETE FROM watchlist")

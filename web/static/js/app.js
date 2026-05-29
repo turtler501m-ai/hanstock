@@ -1000,6 +1000,10 @@ async function renderWatchlist() {
         if (autoChk) {
             autoChk.checked = data.ai_auto_add;
         }
+        const threshInput = document.getElementById('num-watchlist-ai-threshold');
+        if (threshInput && data.ai_auto_add_threshold !== undefined) {
+            threshInput.value = data.ai_auto_add_threshold;
+        }
         
         if (!data.symbols.length) {
             setTableMessage('#table-watchlist tbody', 4, '등록된 관심 종목이 없습니다.');
@@ -2010,19 +2014,27 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // AI 자동 추가 적용 토글 제어 바인딩
+    // AI 자동 추가 적용 토글 및 임계값 제어 바인딩
     const chkWatchlistAiAuto = document.getElementById('chk-watchlist-ai-auto');
+    const numWatchlistAiThreshold = document.getElementById('num-watchlist-ai-threshold');
+    
+    async function syncWatchlistSettings() {
+        if (!chkWatchlistAiAuto) return;
+        const checked = chkWatchlistAiAuto.checked;
+        const threshold = numWatchlistAiThreshold ? parseFloat(numWatchlistAiThreshold.value) : 3.0;
+        try {
+            await postJson('/api/watchlist/toggle-auto', { enabled: checked, threshold: threshold });
+            setStatus(`AI 자동 관심 종목 추가설정(여부: ${checked ? '활성화' : '비활성화'}, 기준: ${threshold}점)이 반영되었습니다.`, true);
+        } catch (err) {
+            setStatus(`AI 자동 추가설정 동기화 실패: ${err.message}`);
+        }
+    }
+
     if (chkWatchlistAiAuto) {
-        chkWatchlistAiAuto.addEventListener('change', async () => {
-            const checked = chkWatchlistAiAuto.checked;
-            try {
-                await postJson('/api/watchlist/toggle-auto', { enabled: checked });
-                setStatus(`AI 자동 관심 종목 추가적용이 ${checked ? '활성화' : '비활성화'}되었습니다.`, true);
-            } catch (err) {
-                chkWatchlistAiAuto.checked = !checked;
-                setStatus(`AI 자동 추가적용 상태 싱크 실패: ${err.message}`);
-            }
-        });
+        chkWatchlistAiAuto.addEventListener('change', syncWatchlistSettings);
+    }
+    if (numWatchlistAiThreshold) {
+        numWatchlistAiThreshold.addEventListener('change', syncWatchlistSettings);
     }
 
     // AI 자동 즉시 스캔 가동 버튼 바인딩
@@ -2034,11 +2046,12 @@ document.addEventListener('DOMContentLoaded', () => {
             
             try {
                 const res = await postJson('/api/watchlist/scan-trigger');
+                const threshold = numWatchlistAiThreshold ? parseFloat(numWatchlistAiThreshold.value) : 3.0;
                 if (res.added_count > 0) {
                     const names = res.added_symbols.map(s => `${s.name}(${s.symbol})`).join(', ');
-                    setStatus(`🔥 AI 스캔 완료! 4.0점 이상 우수 종목 포착 및 자동 관심종목 추가 완료: ${names}`, true);
+                    setStatus(`🔥 AI 스캔 완료! ${threshold}점 이상 우수 종목 포착 및 자동 관심종목 추가 완료: ${names}`, true);
                 } else {
-                    setStatus(`🔍 AI 스캔 완료! 신규 4.0점 이상 종목이 발견되지 않아 관심종목 변동이 없습니다. (분석: ${res.scanned}종목)`, true);
+                    setStatus(`🔍 AI 스캔 완료! 신규 ${threshold}점 이상 종목이 발견되지 않아 관심종목 변동이 없습니다. (분석: ${res.scanned}종목)`, true);
                 }
                 await renderWatchlist();
             } catch (err) {

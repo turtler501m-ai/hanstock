@@ -2537,11 +2537,14 @@ def verify_ai_strategy(id: str):
         }
 
 
+from typing import Optional
+
 class WatchlistAddPayload(BaseModel):
     symbol: str = Field(..., min_length=6, max_length=6)
 
 class WatchlistTogglePayload(BaseModel):
     enabled: bool
+    threshold: Optional[float] = None
 
 @app.get("/api/watchlist")
 def get_watchlist():
@@ -2556,7 +2559,8 @@ def get_watchlist():
         })
     return {
         "symbols": symbols_detail,
-        "ai_auto_add": data.get("ai_auto_add", False)
+        "ai_auto_add": data.get("ai_auto_add", False),
+        "ai_auto_add_threshold": data.get("ai_auto_add_threshold", 3.0)
     }
 
 @app.post("/api/watchlist")
@@ -2604,9 +2608,15 @@ def toggle_watchlist_auto_add(payload: WatchlistTogglePayload):
     
     data = load_watchlist_data()
     data["ai_auto_add"] = payload.enabled
+    if payload.threshold is not None:
+        data["ai_auto_add_threshold"] = payload.threshold
     save_watchlist_data(data)
     
-    return {"ok": True, "ai_auto_add": data["ai_auto_add"]}
+    return {
+        "ok": True,
+        "ai_auto_add": data["ai_auto_add"],
+        "ai_auto_add_threshold": data.get("ai_auto_add_threshold", 3.0)
+    }
 
 
 @app.post("/api/watchlist/scan-trigger")
@@ -2636,8 +2646,9 @@ async def trigger_watchlist_ai_scan():
         
         if payload["scanned"] > 0:
             needs_save = False
+            threshold = watchlist_data.get("ai_auto_add_threshold", 3.0)
             for cand in payload["candidates"]:
-                if cand.get("score", 0.0) >= 3.0:
+                if cand.get("score", 0.0) >= threshold:
                     symbol = cand["ticker"]
                     if symbol not in watchlist_data["symbols"]:
                         watchlist_data["symbols"].append(symbol)
@@ -2753,8 +2764,9 @@ async def get_candidates(
                 watchlist_data = load_watchlist_data()
                 if watchlist_data.get("ai_auto_add", False):
                     needs_save = False
+                    threshold = watchlist_data.get("ai_auto_add_threshold", 3.0)
                     for cand in payload["candidates"]:
-                        if cand.get("score", 0.0) >= 4.0:
+                        if cand.get("score", 0.0) >= threshold:
                             symbol = cand["ticker"]
                             if symbol not in watchlist_data["symbols"]:
                                 watchlist_data["symbols"].append(symbol)
