@@ -1043,7 +1043,7 @@ function drawWatchlist() {
     }
 
     if (!watchlistCache.length) {
-        setTableMessage('#table-watchlist tbody', 9, '등록된 관심 종목이 없습니다.');
+        setTableMessage('#table-watchlist tbody', 10, '등록된 관심 종목이 없습니다.');
         return;
     }
     
@@ -1095,10 +1095,26 @@ function drawWatchlist() {
             rsiStr = `<span style="padding: 2px 6px; border-radius: 4px; font-size: 0.78rem; ${rsiBadgeStyle}">${rsi.toFixed(1)}</span>`;
         }
         
-        // 4. 대표 조건 / 스코어 사유
+        // 4. 섹터 뱃지 스타일 지정
+        const sectorStr = s.sector ? escapeHtml(s.sector) : "미분류";
+        let sectorBadgeStyle = "background: rgba(255,255,255,0.05); color: rgba(255,255,255,0.7); border: 1px solid rgba(255,255,255,0.08); padding: 2px 6px; border-radius: 4px; font-size: 0.78rem;";
+        if (s.sector === "반도체") {
+            sectorBadgeStyle = "background: rgba(52, 211, 153, 0.15); color: #34d399; border: 1px solid rgba(52, 211, 153, 0.25); padding: 2px 6px; border-radius: 4px; font-size: 0.78rem;";
+        } else if (s.sector && (s.sector.includes("바이오") || s.sector.includes("제약"))) {
+            sectorBadgeStyle = "background: rgba(244, 63, 94, 0.15); color: #f43f5e; border: 1px solid rgba(244, 63, 94, 0.25); padding: 2px 6px; border-radius: 4px; font-size: 0.78rem;";
+        } else if (s.sector && s.sector.includes("2차전지")) {
+            sectorBadgeStyle = "background: rgba(245, 158, 11, 0.15); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.25); padding: 2px 6px; border-radius: 4px; font-size: 0.78rem;";
+        } else if (s.sector && s.sector.includes("자동차")) {
+            sectorBadgeStyle = "background: rgba(59, 130, 246, 0.15); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.25); padding: 2px 6px; border-radius: 4px; font-size: 0.78rem;";
+        } else if (s.sector && (s.sector.includes("금융") || s.sector.includes("은행") || s.sector.includes("증권") || s.sector.includes("생명보험") || s.sector.includes("손해보험") || s.sector.includes("지주") || s.sector.includes("투자"))) {
+            sectorBadgeStyle = "background: rgba(167, 139, 250, 0.15); color: #a78bfa; border: 1px solid rgba(167, 139, 250, 0.25); padding: 2px 6px; border-radius: 4px; font-size: 0.78rem;";
+        }
+        const sectorHtml = `<span style="${sectorBadgeStyle}">${sectorStr}</span>`;
+
+        // 5. 대표 조건 / 스코어 사유
         const reasonStr = s.reason ? escapeHtml(s.reason) : "분석 데이터 없음";
         
-        // 5. 분석 최종 시각 콤팩트화
+        // 6. 분석 최종 시각 콤팩트화
         const timeStr = s.updated_at
             ? (s.updated_at.includes(' ') ? s.updated_at.split(' ')[1].substring(0, 5) : s.updated_at)
             : '-';
@@ -1107,6 +1123,7 @@ function drawWatchlist() {
             <td style="text-align: center; color: rgba(255,255,255,0.4);">${idx + 1}</td>
             <td style="font-weight: 600; color: #fff;">${escapeHtml(s.symbol)}</td>
             <td style="color: rgba(255,255,255,0.8);">${escapeHtml(s.name)}</td>
+            <td style="text-align: center;">${sectorHtml}</td>
             <td style="text-align: right;">${priceHtml}</td>
             <td style="text-align: center;">${scoreStr}</td>
             <td style="text-align: center;">${rsiStr}</td>

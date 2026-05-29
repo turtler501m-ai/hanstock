@@ -2549,7 +2549,7 @@ class WatchlistTogglePayload(BaseModel):
 @app.get("/api/watchlist")
 def get_watchlist():
     from src.db.repository import load_watchlist_data, get_watchlist_extra_info
-    from src.strategy.seven_split import STOCK_NAMES
+    from src.strategy.seven_split import STOCK_NAMES, STOCK_SECTORS
     data = load_watchlist_data()
     symbols_detail = []
     for code in data.get("symbols", []):
@@ -2557,6 +2557,7 @@ def get_watchlist():
         symbols_detail.append({
             "symbol": code,
             "name": STOCK_NAMES.get(code, "알 수 없는 종목"),
+            "sector": STOCK_SECTORS.get(code, "미분류"),
             "price": extra["price"],
             "score": extra["score"],
             "reason": extra["reason"],
