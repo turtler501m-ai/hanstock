@@ -1120,7 +1120,7 @@ function drawWatchlist() {
             : '-';
         
         tr.innerHTML = `
-            <td style="text-align: center; color: rgba(255,255,255,0.4);">${idx + 1}</td>
+            <td style="text-align: center; color: rgba(255,255,255,0.4);">${s.index}</td>
             <td style="font-weight: 600; color: #fff;">${escapeHtml(s.symbol)}</td>
             <td style="color: rgba(255,255,255,0.8);">${escapeHtml(s.name)}</td>
             <td style="text-align: center;">${sectorHtml}</td>
