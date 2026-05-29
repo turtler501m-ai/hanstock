@@ -4212,8 +4212,10 @@ def get_scheduler_status():
     
     last_result = None
     try:
-        from src.db.repository import load_latest_scheduler_result
-        last_result = load_latest_scheduler_result()
+        from src.db.repository import load_today_scheduler_results, load_latest_scheduler_result
+        last_result = load_today_scheduler_results()
+        if last_result is None:
+            last_result = load_latest_scheduler_result()
     except Exception:
         pass
         

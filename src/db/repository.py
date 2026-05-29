@@ -705,6 +705,95 @@ def load_latest_scheduler_result() -> dict | None:
     return None
 
 
+def load_today_scheduler_results() -> dict | None:
+    try:
+        init_db()
+        with connect_db() as conn:
+            conn.row_factory = sqlite3.Row
+            
+            from datetime import datetime, timezone, timedelta
+            KST = timezone(timedelta(hours=9))
+            today_str = datetime.now(KST).strftime("%Y-%m-%d")
+            
+            c = conn.execute(
+                "SELECT * FROM scheduler_results WHERE recorded_at >= ? ORDER BY recorded_at ASC",
+                (f"{today_str} 00:00:00",)
+            )
+            rows = c.fetchall()
+            if not rows:
+                return None
+                
+            merged_results = []
+            merged_approved = []
+            merged_approval_errors = []
+            merged_run_errors = []
+            
+            latest_recorded_at = rows[-1]["recorded_at"]
+            latest_mode = rows[-1]["mode"]
+            
+            for row in rows:
+                try:
+                    res_data = json.loads(row["result"])
+                except Exception:
+                    continue
+                
+                # plans / results
+                for item in res_data.get("results", []):
+                    item_copy = dict(item)
+                    time_part = row["recorded_at"].split(" ")[1][:5]
+                    if "reason" in item_copy and item_copy["reason"]:
+                        item_copy["reason"] = f"[{time_part}] {item_copy['reason']}"
+                    else:
+                        item_copy["reason"] = f"[{time_part}] 스케쥴 분석 결과"
+                    merged_results.append(item_copy)
+                    
+                # approved / auto_approved
+                for item in res_data.get("auto_approved", []):
+                    item_copy = dict(item)
+                    time_part = row["recorded_at"].split(" ")[1][:5]
+                    if "response_msg" in item_copy and item_copy["response_msg"]:
+                        item_copy["response_msg"] = f"[{time_part}] {item_copy['response_msg']}"
+                    else:
+                        item_copy["response_msg"] = f"[{time_part}] 정상 처리"
+                    merged_approved.append(item_copy)
+                    
+                # approval errors
+                for item in res_data.get("auto_approval_errors", []):
+                    item_copy = dict(item)
+                    time_part = row["recorded_at"].split(" ")[1][:5]
+                    if "message" in item_copy and item_copy["message"]:
+                        item_copy["message"] = f"[{time_part}] {item_copy['message']}"
+                    else:
+                        item_copy["message"] = f"[{time_part}] 오류 발생"
+                    merged_approval_errors.append(item_copy)
+                    
+                # run errors
+                errors = res_data.get("errors", []) or res_data.get("retry_errors", [])
+                if isinstance(errors, list):
+                    for err in errors:
+                        time_part = row["recorded_at"].split(" ")[1][:5]
+                        merged_run_errors.append(f"[{time_part}] {err}")
+                elif errors:
+                    time_part = row["recorded_at"].split(" ")[1][:5]
+                    merged_run_errors.append(f"[{time_part}] {errors}")
+                    
+            return {
+                "mode": latest_mode,
+                "recorded_at": f"{today_str} (당일 전체 집계)",
+                "result": {
+                    "results": merged_results,
+                    "auto_approved": merged_approved,
+                    "auto_approval_errors": merged_approval_errors,
+                    "errors": merged_run_errors,
+                    "status": "success" if not merged_approval_errors and not merged_run_errors else "failed",
+                    "ok": True
+                }
+            }
+    except Exception as e:
+        logger.warning(f"Failed to load today scheduler results from DB: {e}")
+    return None
+
+
 def load_auto_approval_state() -> bool:
     try:
         init_db()
