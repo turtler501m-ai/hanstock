@@ -2500,8 +2500,14 @@ async function renderScheduleInfo() {
         const dailyRetriesEl = document.getElementById('sched-daily-retries');
         if (dailyRetriesEl) dailyRetriesEl.textContent = `${data.config.daily_auto_retries}회`;
         
+        const dailyRetryDelayEl = document.getElementById('sched-daily-retry-delay');
+        if (dailyRetryDelayEl) dailyRetryDelayEl.textContent = `${data.config.daily_auto_retry_delay_seconds}초`;
+        
+        const retriesEl = document.getElementById('sched-retries');
+        if (retriesEl) retriesEl.textContent = `${data.config.scheduler_retries}회`;
+        
         const retryDelayEl = document.getElementById('sched-retry-delay');
-        if (retryDelayEl) retryDelayEl.textContent = `${data.config.scheduler_retries}회 (스케쥴)`;
+        if (retryDelayEl) retryDelayEl.textContent = `${data.config.scheduler_retry_delay_seconds}초`;
         
         const slackEnabledEl = document.getElementById('sched-slack-enabled');
         if (slackEnabledEl) slackEnabledEl.textContent = data.config.slack_enabled === 'true' ? '활성화' : '비활성화';

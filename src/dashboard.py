@@ -4199,7 +4199,9 @@ def get_scheduler_status():
     config = {
         "cron_tz": os.environ.get("HANSTOCK_CRON_TZ", "Asia/Seoul"),
         "daily_auto_retries": os.environ.get("HANSTOCK_DAILY_AUTO_RETRIES", "3"),
+        "daily_auto_retry_delay_seconds": os.environ.get("HANSTOCK_DAILY_AUTO_RETRY_DELAY_SECONDS", "10"),
         "scheduler_retries": os.environ.get("HANSTOCK_SCHEDULER_RETRIES", "1"),
+        "scheduler_retry_delay_seconds": os.environ.get("HANSTOCK_SCHEDULER_RETRY_DELAY_SECONDS", "5"),
         "slack_enabled": os.environ.get("HANSTOCK_SCHEDULER_SLACK", "true"),
         "sync_enabled": os.environ.get("HANSTOCK_ORDER_STATUS_SYNC", "true"),
         "result_path": os.environ.get("HANSTOCK_SCHEDULER_RESULT_PATH", ".runtime/daily_auto_last_result.json"),
