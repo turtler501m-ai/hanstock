@@ -1,0 +1,195 @@
+# -*- coding: utf-8 -*-
+from fastapi import Body, HTTPException, Request
+from fastapi.responses import FileResponse
+import src.dashboard.core as _core
+from src.dashboard.core import *
+globals().update({k: v for k, v in _core.__dict__.items() if not k.startswith('__')})
+
+@app.get("/api/health")
+def health():
+    missing = _required_env_missing()
+    account_warning = _account_format_warning(trader.config.kistock_account)
+    demo_readiness = _demo_trading_readiness()
+    from src.db.repository import _load_token_usage
+    return {
+        "ok": not missing and not account_warning,
+        "missing": missing,
+        "account_warning": account_warning,
+        "trading_env": trader.TRADING_ENV,
+        "dry_run": trader.DRY_RUN,
+        "enable_live_trading": trader.ENABLE_LIVE_TRADING,
+        "require_approval": trader.REQUIRE_APPROVAL,
+        "order_submission_enabled": trader.ORDER_SUBMISSION_ENABLED,
+        "real_orders_enabled": trader.REAL_ORDERS_ENABLED,
+        "circuit_breaker": KIStockAPI.circuit_status(),
+        "active_model_version": getattr(trader.config, "active_model_version", "v1"),
+        "ai_analysis": _ai_analysis_config(),
+        "auto_approval_enabled": _auto_approval_enabled(),
+        "demo_trading_ready": demo_readiness["ready"],
+        "demo_trading_readiness": demo_readiness,
+        "kill_switch_active": Path(".runtime/kill_switch.json").exists(),
+        "dashboard_runtime": _runtime_dashboard_info(),
+        "token_usage": _load_token_usage(),
+    }
+
+
+
+
+@app.get("/api/demo-trading/readiness")
+def get_demo_trading_readiness():
+    return _demo_trading_readiness()
+
+
+
+
+@app.get("/api/mock-trading/summary")
+def get_mock_trading_summary():
+    """모의거래 성과 요약"""
+    import os
+    json_path = Path(".runtime/mock_trades.json")
+    if not json_path.exists():
+        return {
+            "open_positions": 0,
+            "closed_trades": 0,
+            "total_pnl": 0,
+            "win_rate": 0,
+            "wins": 0,
+            "losses": 0,
+            "positions": [],
+            "recent_trades": []
+        }
+    
+    with open(json_path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+    
+    positions = data.get("positions", [])
+    history = data.get("history", [])
+    
+    total_pnl = sum(h.get("pnl", 0) for h in history)
+    wins = sum(1 for h in history if h.get("pnl", 0) > 0)
+    losses = sum(1 for h in history if h.get("pnl", 0) <= 0)
+    total_trades = len(history)
+    win_rate = (wins / total_trades * 100) if total_trades > 0 else 0
+    
+    return {
+        "open_positions": len(positions),
+        "closed_trades": total_trades,
+        "total_pnl": round(total_pnl, 4),
+        "win_rate": round(win_rate, 1),
+        "wins": wins,
+        "losses": losses,
+        "positions": positions,
+        "recent_trades": history[-10:] if history else []
+    }
+
+
+
+
+@app.get("/api/mock-trading/positions")
+def get_mock_trading_positions():
+    """모의거래 현재 포지션"""
+    import os
+    from datetime import datetime
+    import requests
+    
+    json_path = Path(".runtime/mock_trades.json")
+    if not json_path.exists():
+        return {"positions": []}
+    
+    with open(json_path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+    
+    positions = data.get("positions", [])
+    
+    # 실시간 시세 조회
+    try:
+        resp = requests.get("https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT", timeout=5)
+        current_price = float(resp.json()["price"])
+    except:
+        current_price = 0
+    
+    # PnL 계산
+    for pos in positions:
+        if pos.get("symbol") == "BTC" and current_price:
+            entry = pos.get("entry_price", 0)
+            qty = pos.get("qty", 0)
+            if pos.get("side") == "LONG":
+                pnl = (current_price - entry) * qty
+            else:
+                pnl = (entry - current_price) * qty
+            pos["current_price"] = current_price
+            pos["current_pnl"] = round(pnl, 4)
+    
+    return {"positions": positions, "current_price": current_price}
+
+
+
+
+@app.get("/api/mock-trading/trades")
+def get_mock_trading_trades(limit: int = 200):
+    """모의거래 체결 내역"""
+    json_path = Path(".runtime/mock_trades.json")
+    if not json_path.exists():
+        return {"trades": []}
+    try:
+        data = json.loads(json_path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        return {"error": str(exc), "trades": []}
+    history = data.get("history", [])
+    if not isinstance(history, list):
+        history = []
+    safe_limit = max(1, min(int(limit or 200), 1000))
+    return {"trades": history[-safe_limit:][::-1]}
+
+
+
+
+@app.get("/api/balance")
+def get_balance():
+    missing = _required_env_missing()
+    if missing:
+        if "KISTOCK_ACCOUNT_FORMAT" in missing:
+            raise HTTPException(status_code=503, detail="KISTOCK_ACCOUNT must be 10 digits: 8-digit account number + 2-digit product code")
+        raise HTTPException(status_code=503, detail=f"Missing environment variables: {', '.join(missing)}")
+
+    try:
+        api = _get_api()
+        balance_data = _get_balance_data(api)
+        parsed = _parse_balance(balance_data)
+        for holding in parsed["holdings"]:
+            holding.pop("_raw", None)
+        if balance_data.get("_cache"):
+            parsed["_cache"] = balance_data["_cache"]
+        return parsed
+    except SystemExit as e:
+        raise HTTPException(status_code=502, detail=f"KIS API initialization failed: {e}") from e
+    except KISAccountError as e:
+        raise HTTPException(status_code=503, detail=f"KIS account setting is invalid. Check KISTOCK_ACCOUNT: {e}") from e
+    except KISRateLimitError as e:
+        raise HTTPException(status_code=429, detail=f"KIS API rate limit exceeded. Retry shortly: {e}") from e
+    except RuntimeError as e:
+        if "timed out" in str(e):
+            raise HTTPException(status_code=504, detail=f"KIS balance API timed out after {BALANCE_FETCH_TIMEOUT_SECONDS:g}s") from e
+        raise HTTPException(status_code=502, detail=f"KIS API request failed: {e}") from e
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"KIS API request failed: {e}") from e
+
+
+
+
+@app.get("/api/portfolio-optimizer")
+def get_portfolio_optimizer():
+    missing = _required_env_missing()
+    if missing:
+        raise HTTPException(status_code=503, detail=f"Missing environment variables: {', '.join(missing)}")
+
+    try:
+        api = _get_api()
+        parsed = _parse_balance(_get_balance_data(api))
+        holdings = _holding_history(api, parsed, n=120)
+        return trader.generate_portfolio_optimizer_plan(holdings, parsed["total_eval"])
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Portfolio optimizer failed: {e}") from e
+
+
+
