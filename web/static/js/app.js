@@ -2548,201 +2548,297 @@ async function renderScheduleInfo() {
             const approvalErrors = lastResult.result.auto_approval_errors || [];
             const runErrors = lastResult.result.errors || lastResult.result.retry_errors || [];
             
-            // Save to global state for filtering
-            window._schedulerState = {
-                results,
-                approved,
-                approvalErrors,
-                runErrors,
-                lastResult
-            };
+            // Update daily total summary metrics at the top
+            const totalPlanCount = results.length;
+            const totalQueuedCount = results.filter(r => r.decision === 'queue').length;
+            const totalApprovedCount = approved.filter(a => a.status === 'executed').length;
+            const totalFailedCount = approved.filter(a => a.status === 'failed').length + approvalErrors.length + runErrors.length;
             
-            // Populate Round Select dropdown dynamically
-            const selectEl = document.getElementById('sched-round-select');
-            if (selectEl) {
-                // Clear all except the first option ("all")
-                selectEl.innerHTML = '<option value="all">당일 전체 집계</option>';
-                
-                // Get unique rounds chronologically
-                const uniqueRounds = new Map(); // round -> time
-                results.forEach(r => { if (r.round && r.time) uniqueRounds.set(r.round, r.time); });
-                approved.forEach(a => { if (a.round && a.time) uniqueRounds.set(a.round, a.time); });
-                approvalErrors.forEach(e => { if (e.round && e.time) uniqueRounds.set(e.round, e.time); });
-                
-                // Sort rounds ascending
-                const sortedRounds = Array.from(uniqueRounds.keys()).sort((a, b) => a - b);
-                sortedRounds.forEach(round => {
-                    const timeVal = uniqueRounds.get(round);
-                    const opt = document.createElement('option');
-                    opt.value = round;
-                    opt.textContent = `${round}차 실행 (${timeVal})`;
-                    selectEl.appendChild(opt);
+            const planCntEl = document.getElementById('sched-result-plan-cnt');
+            if (planCntEl) planCntEl.textContent = `${totalPlanCount}건`;
+            
+            const queueCntEl = document.getElementById('sched-result-queue-cnt');
+            if (queueCntEl) queueCntEl.textContent = `${totalQueuedCount}건`;
+            
+            const approvedCntEl = document.getElementById('sched-result-approved-cnt');
+            if (approvedCntEl) approvedCntEl.textContent = `${totalApprovedCount}건`;
+            
+            const failedCntEl = document.getElementById('sched-result-failed-cnt');
+            if (failedCntEl) failedCntEl.textContent = `${totalFailedCount}건`;
+            
+            // Update Daily Status Badge at the top
+            const totalFailed = totalFailedCount > 0;
+            const statusEl = document.getElementById('sched-result-status');
+            if (statusEl) {
+                statusEl.textContent = totalFailed ? '오류 발생' : '정상 완료';
+                statusEl.className = totalFailed ? 'badge badge-danger' : 'badge badge-success';
+                statusEl.style.color = totalFailed ? 'var(--danger)' : 'var(--success)';
+            }
+            
+            // Build groups dynamically by round
+            const uniqueRounds = new Map(); // round -> { time, results, approved, approvalErrors, mode }
+            results.forEach(r => {
+                if (r.round) {
+                    if (!uniqueRounds.has(r.round)) {
+                        uniqueRounds.set(r.round, { time: r.time || '', results: [], approved: [], approvalErrors: [], mode: lastResult.mode });
+                    }
+                    uniqueRounds.get(r.round).results.push(r);
+                }
+            });
+            approved.forEach(a => {
+                if (a.round) {
+                    if (!uniqueRounds.has(a.round)) {
+                        uniqueRounds.set(a.round, { time: a.time || '', results: [], approved: [], approvalErrors: [], mode: lastResult.mode });
+                    }
+                    uniqueRounds.get(a.round).approved.push(a);
+                }
+            });
+            approvalErrors.forEach(e => {
+                if (e.round) {
+                    if (!uniqueRounds.has(e.round)) {
+                        uniqueRounds.set(e.round, { time: e.time || '', results: [], approved: [], approvalErrors: [], mode: lastResult.mode });
+                    }
+                    uniqueRounds.get(e.round).approvalErrors.push(e);
+                }
+            });
+            
+            // If no rounds were parsed (e.g. single fallback run), group under Round 1
+            if (uniqueRounds.size === 0 && (results.length > 0 || approved.length > 0 || approvalErrors.length > 0)) {
+                uniqueRounds.set(1, {
+                    time: lastResult.recorded_at ? lastResult.recorded_at.replace("T", " ").split(" ")[1]?.substring(0, 5) || '-' : '-',
+                    results: results,
+                    approved: approved,
+                    approvalErrors: approvalErrors,
+                    mode: lastResult.mode
                 });
-                
-                // Bind selection change handler if not already bound
-                if (!selectEl.dataset.bound) {
-                    selectEl.addEventListener('change', () => {
-                        drawFilteredSchedulerData();
-                    });
-                    selectEl.dataset.bound = 'true';
+            }
+            
+            // Initialize expanded rounds set if not exists
+            const sortedRoundIds = Array.from(uniqueRounds.keys()).sort((a, b) => b - a); // DESC: latest at top
+            if (!window._expandedRounds) {
+                window._expandedRounds = new Set();
+                if (sortedRoundIds.length > 0) {
+                    window._expandedRounds.add(sortedRoundIds[0]); // Expand latest round by default
                 }
             }
             
-            // Initial draw
-            drawFilteredSchedulerData();
+            // Build collapsible rounds container HTML
+            const runsContainer = document.getElementById('scheduler-runs-container');
+            if (runsContainer) {
+                runsContainer.innerHTML = '';
+                if (uniqueRounds.size === 0) {
+                    runsContainer.innerHTML = `
+                        <div class="text-center" style="color: var(--text-muted); font-size: 0.95rem; padding: 3rem 0;">
+                            생성된 실행 계획 및 결과 내역이 없습니다.
+                        </div>`;
+                } else {
+                    sortedRoundIds.forEach(round => {
+                        const roundData = uniqueRounds.get(round);
+                        const isExpanded = window._expandedRounds.has(round);
+                        const planCount = roundData.results.length;
+                        const approvedCount = roundData.approved.filter(a => a.status === 'executed').length;
+                        const failedCount = roundData.approved.filter(a => a.status === 'failed').length + roundData.approvalErrors.length;
+                        const hasFailure = failedCount > 0;
+                        const timeVal = roundData.time || '-';
+                        const modeKor = roundData.mode === 'daily_auto' ? 'AI 자동매매' : (roundData.mode === 'execute' ? '주문 실행' : '분석 전용');
+                        
+                        // Create card element
+                        const card = document.createElement('div');
+                        card.className = 'card glass scheduler-round-card';
+                        card.style.cssText = 'margin-bottom: 1.25rem; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; background: var(--bg-card); box-shadow: 0 4px 15px rgba(0,0,0,0.15);';
+                        
+                        card.innerHTML = `
+                            <!-- Card Header -->
+                            <div class="round-header" 
+                                 style="padding: 1rem 1.25rem; display: flex; justify-content: space-between; align-items: center; cursor: pointer; background: rgba(255, 255, 255, 0.02); transition: background 0.2s;" 
+                                 onclick="toggleRoundCollapse(${round})" 
+                                 onmouseover="this.style.background='rgba(255, 255, 255, 0.05)'" 
+                                 onmouseout="this.style.background='rgba(255, 255, 255, 0.02)'">
+                                <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
+                                    <span class="badge" style="background: var(--primary); color: #fff; padding: 0.25rem 0.5rem; font-size: 0.8rem; font-weight: 600; border-radius: 4px;">${round}차 실행</span>
+                                    <span style="font-weight: 500; font-size: 0.95rem; color: var(--text); display: flex; align-items: center; gap: 0.25rem;">
+                                        <i class="far fa-clock" style="font-size: 0.85rem; color: var(--text-muted);"></i> ${timeVal}
+                                    </span>
+                                    <span class="badge" style="background: rgba(255,255,255,0.05); border: 1px solid var(--border); color: var(--text-muted); font-size: 0.75rem; padding: 0.15rem 0.4rem; border-radius: 4px;">${modeKor}</span>
+                                </div>
+                                <div style="display: flex; align-items: center; gap: 1rem;">
+                                    <span style="font-size: 0.85rem; color: var(--text-muted);" class="d-none d-sm-inline">
+                                        계획 <strong style="color: var(--text);">${planCount}</strong>건 | 
+                                        승인 <strong style="color: var(--success);">${approvedCount}</strong>건 | 
+                                        실패 <strong style="color: var(--danger);">${failedCount}</strong>건
+                                    </span>
+                                    <span class="badge" style="background: ${hasFailure ? 'rgba(var(--danger-rgb, 220, 53, 69), 0.1)' : 'rgba(var(--success-rgb, 40, 167, 69), 0.1)'}; color: ${hasFailure ? 'var(--danger)' : 'var(--success)'}; border: 1px solid ${hasFailure ? 'rgba(var(--danger-rgb), 0.2)' : 'rgba(var(--success-rgb), 0.2)'}; font-size: 0.8rem; padding: 0.2rem 0.5rem; border-radius: 4px;">
+                                        ${hasFailure ? '오류 발생' : '정상 완료'}
+                                    </span>
+                                    <i class="fas fa-chevron-down toggle-icon" id="toggle-icon-${round}" style="transition: transform 0.2s; color: var(--text-muted); transform: ${isExpanded ? 'rotate(180deg)' : 'rotate(0deg)'};"></i>
+                                </div>
+                            </div>
+                            
+                            <!-- Card Body -->
+                            <div class="round-body" id="round-body-${round}" style="display: ${isExpanded ? 'block' : 'none'}; padding: 1.25rem; border-top: 1px solid var(--border); background: rgba(0, 0, 0, 0.05);">
+                                <h4 style="margin-bottom: 0.75rem; font-size: 0.95rem; font-weight: 500; display: flex; align-items: center; gap: 0.5rem; color: var(--text);">
+                                    <span style="width: 4px; height: 14px; background: var(--primary); display: inline-block; border-radius: 2px;"></span>
+                                    생성된 매매 계획 및 판단
+                                </h4>
+                                <div class="table-responsive" style="margin-bottom: 1.5rem; border-radius: 6px; border: 1px solid var(--border); overflow: hidden;">
+                                    <table class="table-plans" style="width: 100%; border-collapse: collapse;">
+                                        <thead>
+                                            <tr style="background: rgba(255,255,255,0.02); border-bottom: 1px solid var(--border);">
+                                                <th style="padding: 0.6rem 0.75rem; text-align: left; font-size: 0.85rem; font-weight: 500; color: var(--text-muted); width: 100px;">종목코드</th>
+                                                <th style="padding: 0.6rem 0.75rem; text-align: left; font-size: 0.85rem; font-weight: 500; color: var(--text-muted);">종목명</th>
+                                                <th style="padding: 0.6rem 0.75rem; text-align: left; font-size: 0.85rem; font-weight: 500; color: var(--text-muted); width: 100px;">분류</th>
+                                                <th style="padding: 0.6rem 0.75rem; text-align: left; font-size: 0.85rem; font-weight: 500; color: var(--text-muted); width: 100px;">결정</th>
+                                                <th style="padding: 0.6rem 0.75rem; text-align: right; font-size: 0.85rem; font-weight: 500; color: var(--text-muted); width: 80px;">수량</th>
+                                                <th style="padding: 0.6rem 0.75rem; text-align: right; font-size: 0.85rem; font-weight: 500; color: var(--text-muted); width: 120px;">가격</th>
+                                                <th style="padding: 0.6rem 0.75rem; text-align: left; font-size: 0.85rem; font-weight: 500; color: var(--text-muted);">근거</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            <!-- plans rows go here -->
+                                        </tbody>
+                                    </table>
+                                </div>
+                                
+                                <h4 style="margin-bottom: 0.75rem; font-size: 0.95rem; font-weight: 500; display: flex; align-items: center; gap: 0.5rem; color: var(--text);">
+                                    <span style="width: 4px; height: 14px; background: var(--success); display: inline-block; border-radius: 2px;"></span>
+                                    자동 승인 및 주문 전송 내역
+                                </h4>
+                                <div class="table-responsive" style="border-radius: 6px; border: 1px solid var(--border); overflow: hidden;">
+                                    <table class="table-orders" style="width: 100%; border-collapse: collapse;">
+                                        <thead>
+                                            <tr style="background: rgba(255,255,255,0.02); border-bottom: 1px solid var(--border);">
+                                                <th style="padding: 0.6rem 0.75rem; text-align: left; font-size: 0.85rem; font-weight: 500; color: var(--text-muted); width: 150px;">주문ID</th>
+                                                <th style="padding: 0.6rem 0.75rem; text-align: left; font-size: 0.85rem; font-weight: 500; color: var(--text-muted); width: 100px;">종목코드</th>
+                                                <th style="padding: 0.6rem 0.75rem; text-align: left; font-size: 0.85rem; font-weight: 500; color: var(--text-muted); width: 80px;">구분</th>
+                                                <th style="padding: 0.6rem 0.75rem; text-align: right; font-size: 0.85rem; font-weight: 500; color: var(--text-muted); width: 80px;">수량</th>
+                                                <th style="padding: 0.6rem 0.75rem; text-align: right; font-size: 0.85rem; font-weight: 500; color: var(--text-muted); width: 120px;">가격</th>
+                                                <th style="padding: 0.6rem 0.75rem; text-align: left; font-size: 0.85rem; font-weight: 500; color: var(--text-muted); width: 100px;">상태</th>
+                                                <th style="padding: 0.6rem 0.75rem; text-align: left; font-size: 0.85rem; font-weight: 500; color: var(--text-muted);">응답 메세지</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            <!-- orders rows go here -->
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        `;
+                        
+                        // Populate Plans table inside this round body
+                        const plansTbody = card.querySelector('.table-plans tbody');
+                        if (plansTbody) {
+                            if (roundData.results.length === 0) {
+                                plansTbody.innerHTML = '<tr><td colspan="7" class="text-center" style="padding: 1.5rem; font-size: 0.9rem; color: var(--text-muted);">생성된 계획이 없습니다.</td></tr>';
+                            } else {
+                                roundData.results.forEach(row => {
+                                    const tr = document.createElement('tr');
+                                    tr.style.borderBottom = '1px solid var(--border)';
+                                    const decision = row.decision || (row.approval_id ? 'approved' : 'skip');
+                                    const kind = decision === 'execute' || decision === 'approved' ? 'buy' : (decision === 'skip' ? 'hold' : 'warn');
+                                    
+                                    let cleanReason = row.reason || '스케쥴 분석 결과';
+                                    if (cleanReason.startsWith('[')) {
+                                        const closingIdx = cleanReason.indexOf(']');
+                                        if (closingIdx !== -1) {
+                                            cleanReason = cleanReason.substring(closingIdx + 1).trim();
+                                        }
+                                    }
+                                    
+                                    tr.innerHTML = `
+                                        <td style="padding: 0.6rem 0.75rem; font-size: 0.85rem;">${escapeHtml(row.symbol || '-')}</td>
+                                        <td style="padding: 0.6rem 0.75rem; font-size: 0.85rem;"><div class="symbol-name" style="font-weight: 500;">${escapeHtml(row.name || '-')}</div></td>
+                                        <td style="padding: 0.6rem 0.75rem; font-size: 0.85rem;">${pill(row.category || 'ai_rebalance', 'hold')}</td>
+                                        <td style="padding: 0.6rem 0.75rem; font-size: 0.85rem;">${pill(toKorDecision(decision), kind)}</td>
+                                        <td style="padding: 0.6rem 0.75rem; font-size: 0.85rem; text-align: right;">${formatNumber(row.qty || row.signal_qty)}</td>
+                                        <td style="padding: 0.6rem 0.75rem; font-size: 0.85rem; text-align: right; font-weight: 500;">${formatNumber(row.price || row.signal_price)} 원</td>
+                                        <td style="padding: 0.6rem 0.75rem; font-size: 0.85rem;"><div class="reason-cell" style="max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${escapeHtml(row.reason || '')}">${escapeHtml(translateReason(cleanReason))}</div></td>
+                                    `;
+                                    plansTbody.appendChild(tr);
+                                });
+                            }
+                        }
+                        
+                        // Populate Orders table inside this round body
+                        const ordersTbody = card.querySelector('.table-orders tbody');
+                        if (ordersTbody) {
+                            if (roundData.approved.length === 0 && roundData.approvalErrors.length === 0) {
+                                ordersTbody.innerHTML = '<tr><td colspan="7" class="text-center" style="padding: 1.5rem; font-size: 0.9rem; color: var(--text-muted);">승인 대기 주문이 없거나 자동 승인이 생략되었습니다.</td></tr>';
+                            } else {
+                                roundData.approved.forEach(ord => {
+                                    const tr = document.createElement('tr');
+                                    tr.style.borderBottom = '1px solid var(--border)';
+                                    const isSuccess = ord.status === 'executed';
+                                    let cleanMsg = ord.response_msg || ord.message || '정상 처리';
+                                    if (cleanMsg.startsWith('[')) {
+                                        const closingIdx = cleanMsg.indexOf(']');
+                                        if (closingIdx !== -1) {
+                                            cleanMsg = cleanMsg.substring(closingIdx + 1).trim();
+                                        }
+                                    }
+                                    
+                                    tr.innerHTML = `
+                                        <td style="padding: 0.6rem 0.75rem; font-size: 0.85rem;">${escapeHtml(ord.id || ord.approval_id || '-')}</td>
+                                        <td style="padding: 0.6rem 0.75rem; font-size: 0.85rem;">${escapeHtml(ord.symbol || '-')}</td>
+                                        <td style="padding: 0.6rem 0.75rem; font-size: 0.85rem;">${pill(toKorAction(ord.action || 'buy'), ord.action === 'sell' ? 'sell' : 'buy')}</td>
+                                        <td style="padding: 0.6rem 0.75rem; font-size: 0.85rem; text-align: right;">${formatNumber(ord.qty)}</td>
+                                        <td style="padding: 0.6rem 0.75rem; font-size: 0.85rem; text-align: right; font-weight: 500;">${formatNumber(ord.price)} 원</td>
+                                        <td style="padding: 0.6rem 0.75rem; font-size: 0.85rem;">${pill(isSuccess ? '성공' : '실패', isSuccess ? 'buy' : 'sell')}</td>
+                                        <td style="padding: 0.6rem 0.75rem; font-size: 0.85rem;"><div class="reason-cell" style="max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${escapeHtml(ord.response_msg || ord.message || '')}">${escapeHtml(cleanMsg)}</div></td>
+                                    `;
+                                    ordersTbody.appendChild(tr);
+                                });
+                                
+                                roundData.approvalErrors.forEach(err => {
+                                    const tr = document.createElement('tr');
+                                    tr.style.borderBottom = '1px solid var(--border)';
+                                    let cleanMsg = err.message || '오류 발생';
+                                    if (cleanMsg.startsWith('[')) {
+                                        const closingIdx = cleanMsg.indexOf(']');
+                                        if (closingIdx !== -1) {
+                                            cleanMsg = cleanMsg.substring(closingIdx + 1).trim();
+                                        }
+                                    }
+                                    
+                                    tr.innerHTML = `
+                                        <td style="padding: 0.6rem 0.75rem; font-size: 0.85rem;">${escapeHtml(err.approval_id || '-')}</td>
+                                        <td style="padding: 0.6rem 0.75rem; font-size: 0.85rem;">-</td>
+                                        <td style="padding: 0.6rem 0.75rem; font-size: 0.85rem;">-</td>
+                                        <td style="padding: 0.6rem 0.75rem; font-size: 0.85rem; text-align: right;">-</td>
+                                        <td style="padding: 0.6rem 0.75rem; font-size: 0.85rem; text-align: right; font-weight: 500;">-</td>
+                                        <td style="padding: 0.6rem 0.75rem; font-size: 0.85rem;">${pill('실패', 'sell')}</td>
+                                        <td style="padding: 0.6rem 0.75rem; font-size: 0.85rem;"><div class="reason-cell text-danger" style="max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${escapeHtml(err.message || '')}">${escapeHtml(cleanMsg)}</div></td>
+                                    `;
+                                    ordersTbody.appendChild(tr);
+                                });
+                            }
+                        }
+                        
+                        runsContainer.appendChild(card);
+                    });
+                }
+            }
         }
     } catch (err) {
         console.error('Failed to load schedule status:', err);
     }
 }
 
-function drawFilteredSchedulerData() {
-    const state = window._schedulerState;
-    if (!state) return;
+window.toggleRoundCollapse = function(round) {
+    const body = document.getElementById(`round-body-${round}`);
+    if (!body) return;
+    const isExpanded = body.style.display !== 'none';
+    const icon = document.getElementById(`toggle-icon-${round}`);
     
-    const selectEl = document.getElementById('sched-round-select');
-    const selectedRound = selectEl ? selectEl.value : 'all';
-    
-    // Filter data based on round
-    let results = state.results;
-    let approved = state.approved;
-    let approvalErrors = state.approvalErrors;
-    let runErrors = state.runErrors;
-    
-    if (selectedRound !== 'all') {
-        const roundNum = parseInt(selectedRound, 10);
-        results = results.filter(r => r.round === roundNum);
-        approved = approved.filter(a => a.round === roundNum);
-        approvalErrors = approvalErrors.filter(e => e.round === roundNum);
-        
-        // Filter runErrors by looking for the matching timestamp prefix e.g. "[15:02]"
-        const selectOptText = selectEl.options[selectEl.selectedIndex].text;
-        const timePartMatch = selectOptText.match(/\(([^)]+)\)/);
-        if (timePartMatch && timePartMatch[1]) {
-            const timePart = timePartMatch[1];
-            runErrors = runErrors.filter(err => err.includes(`[${timePart}]`));
-        }
+    if (isExpanded) {
+        body.style.display = 'none';
+        if (icon) icon.style.transform = 'rotate(0deg)';
+        if (window._expandedRounds) window._expandedRounds.delete(round);
+    } else {
+        body.style.display = 'block';
+        if (icon) icon.style.transform = 'rotate(180deg)';
+        if (window._expandedRounds) window._expandedRounds.add(round);
     }
-    
-    // Update Metrics
-    const planCount = results.length;
-    const queuedCount = results.filter(r => r.decision === 'queue').length;
-    const approvedCount = approved.filter(a => a.status === 'executed').length;
-    const failedCount = approved.filter(a => a.status === 'failed').length + approvalErrors.length + runErrors.length;
-    
-    const planCntEl = document.getElementById('sched-result-plan-cnt');
-    if (planCntEl) planCntEl.textContent = `${planCount}건`;
-    
-    const queueCntEl = document.getElementById('sched-result-queue-cnt');
-    if (queueCntEl) queueCntEl.textContent = `${queuedCount}건`;
-    
-    const approvedCntEl = document.getElementById('sched-result-approved-cnt');
-    if (approvedCntEl) approvedCntEl.textContent = `${approvedCount}건`;
-    
-    const failedCntEl = document.getElementById('sched-result-failed-cnt');
-    if (failedCntEl) failedCntEl.textContent = `${failedCount}건`;
-    
-    // Update Status Badge
-    const failed = failedCount > 0;
-    const statusEl = document.getElementById('sched-result-status');
-    if (statusEl) {
-        statusEl.textContent = failed ? '오류 발생' : '정상 완료';
-        statusEl.className = failed ? 'badge badge-danger' : 'badge badge-success';
-        statusEl.style.color = failed ? 'var(--danger)' : 'var(--success)';
-    }
-    
-    // Build Plan Table
-    const planTbody = document.querySelector('#table-schedule-plans tbody');
-    if (planTbody) {
-        planTbody.innerHTML = '';
-        if (results.length === 0) {
-            planTbody.innerHTML = '<tr><td colspan="8" class="text-center">생성된 계획이 없습니다.</td></tr>';
-        } else {
-            results.forEach(row => {
-                const tr = document.createElement('tr');
-                const decision = row.decision || (row.approval_id ? 'approved' : 'skip');
-                const kind = decision === 'execute' || decision === 'approved' ? 'buy' : (decision === 'skip' ? 'hold' : 'warn');
-                
-                // Clean KST timestamp prefix from display reason since we have a dedicated column
-                let cleanReason = row.reason || '스케쥴 분석 결과';
-                if (cleanReason.startsWith('[')) {
-                    const closingIdx = cleanReason.indexOf(']');
-                    if (closingIdx !== -1) {
-                        cleanReason = cleanReason.substring(closingIdx + 1).trim();
-                    }
-                }
-                
-                tr.innerHTML = `
-                    <td class="text-center"><span class="badge" style="background: var(--bg-card); border: 1px solid var(--border); color: var(--text-muted); font-size: 0.8rem; padding: 0.25rem 0.4rem; border-radius: 4px; font-weight: 500;">${escapeHtml(row.time || '-')}</span></td>
-                    <td>${escapeHtml(row.symbol || '-')}</td>
-                    <td><div class="symbol-name">${escapeHtml(row.name || '-')}</div></td>
-                    <td>${pill(row.category || 'ai_rebalance', 'hold')}</td>
-                    <td>${pill(toKorDecision(decision), kind)}</td>
-                    <td>${formatNumber(row.qty || row.signal_qty)}</td>
-                    <td>${formatNumber(row.price || row.signal_price)} 원</td>
-                    <td><div class="reason-cell" title="${escapeHtml(row.reason || '')}">${escapeHtml(translateReason(cleanReason))}</div></td>
-                `;
-                planTbody.appendChild(tr);
-            });
-        }
-    }
-    
-    // Build Orders Table
-    const orderTbody = document.querySelector('#table-schedule-orders tbody');
-    if (orderTbody) {
-        orderTbody.innerHTML = '';
-        if (approved.length === 0 && approvalErrors.length === 0) {
-            orderTbody.innerHTML = '<tr><td colspan="8" class="text-center">승인 대기 주문이 없거나 자동 승인이 생략되었습니다.</td></tr>';
-        } else {
-            approved.forEach(ord => {
-                const tr = document.createElement('tr');
-                const isSuccess = ord.status === 'executed';
-                let cleanMsg = ord.response_msg || ord.message || '정상 처리';
-                if (cleanMsg.startsWith('[')) {
-                    const closingIdx = cleanMsg.indexOf(']');
-                    if (closingIdx !== -1) {
-                        cleanMsg = cleanMsg.substring(closingIdx + 1).trim();
-                    }
-                }
-                
-                tr.innerHTML = `
-                    <td class="text-center"><span class="badge" style="background: var(--bg-card); border: 1px solid var(--border); color: var(--text-muted); font-size: 0.8rem; padding: 0.25rem 0.4rem; border-radius: 4px; font-weight: 500;">${escapeHtml(ord.time || '-')}</span></td>
-                    <td>${escapeHtml(ord.id || ord.approval_id || '-')}</td>
-                    <td>${escapeHtml(ord.symbol || '-')}</td>
-                    <td>${pill(toKorAction(ord.action || 'buy'), ord.action === 'sell' ? 'sell' : 'buy')}</td>
-                    <td>${formatNumber(ord.qty)}</td>
-                    <td>${formatNumber(ord.price)} 원</td>
-                    <td>${pill(isSuccess ? '성공' : '실패', isSuccess ? 'buy' : 'sell')}</td>
-                    <td><div class="reason-cell" title="${escapeHtml(ord.response_msg || ord.message || '')}">${escapeHtml(cleanMsg)}</div></td>
-                `;
-                orderTbody.appendChild(tr);
-            });
-            
-            approvalErrors.forEach(err => {
-                const tr = document.createElement('tr');
-                let cleanMsg = err.message || '오류 발생';
-                if (cleanMsg.startsWith('[')) {
-                    const closingIdx = cleanMsg.indexOf(']');
-                    if (closingIdx !== -1) {
-                        cleanMsg = cleanMsg.substring(closingIdx + 1).trim();
-                    }
-                }
-                
-                tr.innerHTML = `
-                    <td class="text-center"><span class="badge" style="background: var(--bg-card); border: 1px solid var(--border); color: var(--text-muted); font-size: 0.8rem; padding: 0.25rem 0.4rem; border-radius: 4px; font-weight: 500;">${escapeHtml(err.time || '-')}</span></td>
-                    <td>${escapeHtml(err.approval_id || '-')}</td>
-                    <td>-</td>
-                    <td>-</td>
-                    <td>-</td>
-                    <td>-</td>
-                    <td>${pill('실패', 'sell')}</td>
-                    <td><div class="reason-cell text-danger" title="${escapeHtml(err.message || '')}">${escapeHtml(cleanMsg)}</div></td>
-                `;
-                orderTbody.appendChild(tr);
-            });
-        }
-    }
-}
+};
 
 function disableTriggerButtons(disabled) {
     const b1 = document.getElementById('btn-run-daily-auto');
