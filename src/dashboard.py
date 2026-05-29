@@ -654,24 +654,37 @@ def _approval_by_id(approval_id: int) -> dict | None:
 
 
 def _auto_approval_enabled() -> bool:
-    if not AUTO_APPROVAL_STATE.exists():
-        return False
     try:
-        state = json.loads(AUTO_APPROVAL_STATE.read_text(encoding="utf-8"))
+        from src.db.repository import load_auto_approval_state
+        return load_auto_approval_state()
     except Exception:
-        return False
-    return bool(state.get("enabled"))
+        if not AUTO_APPROVAL_STATE.exists():
+            return False
+        try:
+            state = json.loads(AUTO_APPROVAL_STATE.read_text(encoding="utf-8"))
+            return bool(state.get("enabled"))
+        except Exception:
+            return False
 
 
 def _save_auto_approval(enabled: bool) -> None:
-    AUTO_APPROVAL_STATE.parent.mkdir(parents=True, exist_ok=True)
-    AUTO_APPROVAL_STATE.write_text(
-        json.dumps({
-            "enabled": bool(enabled),
-            "updated_at": trader.datetime.now(trader.KST).isoformat(),
-        }, ensure_ascii=False),
-        encoding="utf-8",
-    )
+    try:
+        AUTO_APPROVAL_STATE.parent.mkdir(parents=True, exist_ok=True)
+        AUTO_APPROVAL_STATE.write_text(
+            json.dumps({
+                "enabled": bool(enabled),
+                "updated_at": trader.datetime.now(trader.KST).isoformat(),
+            }, ensure_ascii=False),
+            encoding="utf-8",
+        )
+    except Exception:
+        pass
+        
+    try:
+        from src.db.repository import save_auto_approval_state
+        save_auto_approval_state(enabled)
+    except Exception:
+        pass
 
 
 def _read_env_values(path: Path = ENV_PATH) -> dict[str, str]:
@@ -4176,12 +4189,19 @@ def get_scheduler_status():
     }
     
     last_result = None
-    path = Path(config["result_path"])
-    if path.exists():
-        try:
-            last_result = json.loads(path.read_text(encoding="utf-8"))
-        except Exception:
-            pass
+    try:
+        from src.db.repository import load_latest_scheduler_result
+        last_result = load_latest_scheduler_result()
+    except Exception:
+        pass
+        
+    if last_result is None:
+        path = Path(config["result_path"])
+        if path.exists():
+            try:
+                last_result = json.loads(path.read_text(encoding="utf-8"))
+            except Exception:
+                pass
             
     return {
         "config": config,

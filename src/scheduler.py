@@ -125,12 +125,20 @@ def _sync_order_status_after_cycle(result: dict) -> dict:
 def _write_cycle_result(result: dict, *, mode: str) -> None:
     path = Path(os.environ.get("HANSTOCK_SCHEDULER_RESULT_PATH", ".runtime/daily_auto_last_result.json"))
     path.parent.mkdir(parents=True, exist_ok=True)
+    recorded_at = datetime.now(trader.KST).isoformat()
     payload = {
         "mode": mode,
-        "recorded_at": datetime.now(trader.KST).isoformat(),
+        "recorded_at": recorded_at,
         "result": result,
     }
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
+    
+    # Save to database
+    try:
+        from src.db.repository import save_scheduler_result
+        save_scheduler_result(mode, recorded_at, result)
+    except Exception as e:
+        pass
 
 
 def _slack_enabled() -> bool:

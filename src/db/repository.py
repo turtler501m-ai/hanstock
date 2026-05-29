@@ -147,6 +147,47 @@ def init_db() -> None:
             )
             """
         )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS ai_strategies (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                provider TEXT NOT NULL,
+                model TEXT NOT NULL,
+                weight REAL NOT NULL,
+                description TEXT,
+                selected INTEGER NOT NULL DEFAULT 0
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS token_usage (
+                date TEXT PRIMARY KEY,
+                prompt_tokens INTEGER NOT NULL,
+                completion_tokens INTEGER NOT NULL,
+                total_tokens INTEGER NOT NULL,
+                api_calls INTEGER NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS auto_approval (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS scheduler_results (
+                recorded_at TEXT PRIMARY KEY,
+                mode TEXT NOT NULL,
+                result TEXT NOT NULL
+            )
+            """
+        )
 
 
 def _ensure_column(conn: DBWrapper, table: str, column: str, column_type: str) -> None:
@@ -383,15 +424,31 @@ def delete_scanned_candidate(candidate_id: int) -> int:
 TOKEN_USAGE_FILE = Path(".runtime/token_usage.json")
 
 def _load_token_usage() -> dict:
-    if not TOKEN_USAGE_FILE.exists():
-        return {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0, "api_calls": 0}
+    today = datetime.now(KST).strftime("%Y-%m-%d")
     try:
-        data = json.loads(TOKEN_USAGE_FILE.read_text(encoding="utf-8"))
-        today = datetime.now(KST).strftime("%Y-%m-%d")
-        if today in data:
-            return data[today]
-    except Exception:
-        pass
+        init_db()
+        with connect_db() as conn:
+            conn.row_factory = sqlite3.Row
+            c = conn.execute("SELECT * FROM token_usage WHERE date = ?", (today,))
+            row = c.fetchone()
+            if row is not None:
+                return {
+                    "prompt_tokens": int(row["prompt_tokens"]),
+                    "completion_tokens": int(row["completion_tokens"]),
+                    "total_tokens": int(row["total_tokens"]),
+                    "api_calls": int(row["api_calls"])
+                }
+    except Exception as e:
+        logger.warning(f"Failed to load token usage from DB: {e}")
+        
+    # Fallback to JSON
+    if TOKEN_USAGE_FILE.exists():
+        try:
+            data = json.loads(TOKEN_USAGE_FILE.read_text(encoding="utf-8"))
+            if today in data:
+                return data[today]
+        except Exception:
+            pass
     return {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0, "api_calls": 0}
 
 
@@ -399,32 +456,60 @@ def update_token_usage(prompt: int, completion: int, total: int | None = None) -
     prompt = int(prompt or 0)
     completion = int(completion or 0)
     total = int(total or (prompt + completion))
-    
-    TOKEN_USAGE_FILE.parent.mkdir(parents=True, exist_ok=True)
-    
-    data = {}
-    if TOKEN_USAGE_FILE.exists():
-        try:
-            data = json.loads(TOKEN_USAGE_FILE.read_text(encoding="utf-8"))
-        except Exception:
-            pass
-            
     today = datetime.now(KST).strftime("%Y-%m-%d")
-    today_data = data.setdefault(today, {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0, "api_calls": 0})
     
-    today_data["prompt_tokens"] += prompt
-    today_data["completion_tokens"] += completion
-    today_data["total_tokens"] += total
-    today_data["api_calls"] += 1
-    
+    # Update in DB
     try:
+        init_db()
+        with connect_db() as conn:
+            c = conn.execute("SELECT * FROM token_usage WHERE date = ?", (today,))
+            row = c.fetchone()
+            if row is not None:
+                conn.execute(
+                    """
+                    UPDATE token_usage
+                    SET prompt_tokens = prompt_tokens + ?,
+                        completion_tokens = completion_tokens + ?,
+                        total_tokens = total_tokens + ?,
+                        api_calls = api_calls + 1
+                    WHERE date = ?
+                    """,
+                    (prompt, completion, total, today)
+                )
+            else:
+                conn.execute(
+                    """
+                    INSERT INTO token_usage (date, prompt_tokens, completion_tokens, total_tokens, api_calls)
+                    VALUES (?, ?, ?, ?, 1)
+                    """,
+                    (today, prompt, completion, total)
+                )
+            conn.commit()
+    except Exception as e:
+        logger.warning(f"Failed to update token usage in DB: {e}")
+        
+    # Fallback/Sync to JSON
+    try:
+        TOKEN_USAGE_FILE.parent.mkdir(parents=True, exist_ok=True)
+        data = {}
+        if TOKEN_USAGE_FILE.exists():
+            try:
+                data = json.loads(TOKEN_USAGE_FILE.read_text(encoding="utf-8"))
+            except Exception:
+                pass
+        today_data = data.setdefault(today, {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0, "api_calls": 0})
+        today_data["prompt_tokens"] += prompt
+        today_data["completion_tokens"] += completion
+        today_data["total_tokens"] += total
+        today_data["api_calls"] += 1
+        
         sorted_keys = sorted(data.keys())
         if len(sorted_keys) > 30:
             for key in sorted_keys[:-30]:
                 data.pop(key, None)
         TOKEN_USAGE_FILE.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
     except Exception as e:
-        logger.warning(f"Failed to save token usage: {e}")
+        logger.warning(f"Failed to save token usage to JSON: {e}")
 
 
 AI_STRATEGIES_FILE = Path(".runtime/ai_strategies.json")
@@ -478,39 +563,136 @@ def load_ai_strategies() -> list[dict]:
         }
     ]
     
-    if not AI_STRATEGIES_FILE.exists():
-        save_ai_strategies(default_strategies)
-        return default_strategies
-        
     try:
-        data = json.loads(AI_STRATEGIES_FILE.read_text(encoding="utf-8"))
-        if isinstance(data, list):
-            existing_ids = {s.get("id") for s in data}
-            needs_update = False
-            for ds in default_strategies:
-                if ds["id"] not in existing_ids:
-                    data.append(ds)
-                    needs_update = True
-            
-            if needs_update:
-                save_ai_strategies(data)
-                
-            if not any(s.get("selected") for s in data):
-                data[0]["selected"] = True
-                save_ai_strategies(data)
-            return data
+        init_db()
+        with connect_db() as conn:
+            conn.row_factory = sqlite3.Row
+            c = conn.execute("SELECT * FROM ai_strategies ORDER BY id ASC")
+            rows = c.fetchall()
+            if len(rows) > 0:
+                strategies = []
+                for row in rows:
+                    strategies.append({
+                        "id": row["id"],
+                        "name": row["name"],
+                        "provider": row["provider"],
+                        "model": row["model"],
+                        "weight": float(row["weight"]),
+                        "description": row["description"],
+                        "selected": row["selected"] == 1
+                    })
+                return strategies
     except Exception as e:
-        logger.warning(f"Failed to load AI strategies: {e}")
+        logger.warning(f"Failed to load AI strategies from DB: {e}")
         
-    return default_strategies
+    # Fallback/Migration: Load from JSON if exists, else defaults
+    strategies = default_strategies
+    if AI_STRATEGIES_FILE.exists():
+        try:
+            strategies = json.loads(AI_STRATEGIES_FILE.read_text(encoding="utf-8"))
+        except Exception:
+            pass
+            
+    # Migrate JSON/defaults into DB
+    try:
+        save_ai_strategies(strategies)
+    except Exception:
+        pass
+    return strategies
 
 
 def save_ai_strategies(strategies: list[dict]) -> None:
+    # Save to JSON as backup
     try:
         AI_STRATEGIES_FILE.parent.mkdir(parents=True, exist_ok=True)
         AI_STRATEGIES_FILE.write_text(json.dumps(strategies, ensure_ascii=False, indent=2), encoding="utf-8")
     except Exception as e:
-        logger.warning(f"Failed to save AI strategies: {e}")
+        logger.warning(f"Failed to save AI strategies to JSON: {e}")
+        
+    # Save to DB
+    try:
+        init_db()
+        with connect_db() as conn:
+            # Clear and rebuild
+            conn.execute("DELETE FROM ai_strategies")
+            for s in strategies:
+                conn.execute(
+                    """
+                    INSERT OR REPLACE INTO ai_strategies (id, name, provider, model, weight, description, selected)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        s["id"],
+                        s["name"],
+                        s["provider"],
+                        s["model"],
+                        float(s["weight"]),
+                        s.get("description", ""),
+                        1 if s.get("selected", False) else 0
+                    )
+                )
+            conn.commit()
+    except Exception as e:
+        logger.warning(f"Failed to save AI strategies to DB: {e}")
+
+
+def save_scheduler_result(mode: str, recorded_at: str, result: dict) -> None:
+    try:
+        init_db()
+        with connect_db() as conn:
+            conn.execute(
+                "INSERT OR REPLACE INTO scheduler_results (recorded_at, mode, result) VALUES (?, ?, ?)",
+                (recorded_at, mode, json.dumps(result, ensure_ascii=False))
+            )
+            conn.commit()
+    except Exception as e:
+        logger.warning(f"Failed to save scheduler result to DB: {e}")
+
+
+def load_latest_scheduler_result() -> dict | None:
+    try:
+        init_db()
+        with connect_db() as conn:
+            conn.row_factory = sqlite3.Row
+            c = conn.execute(
+                "SELECT * FROM scheduler_results ORDER BY recorded_at DESC LIMIT 1"
+            )
+            row = c.fetchone()
+            if row is not None:
+                return {
+                    "mode": row["mode"],
+                    "recorded_at": row["recorded_at"],
+                    "result": json.loads(row["result"])
+                }
+    except Exception as e:
+        logger.warning(f"Failed to load scheduler result from DB: {e}")
+    return None
+
+
+def load_auto_approval_state() -> bool:
+    try:
+        init_db()
+        with connect_db() as conn:
+            c = conn.execute("SELECT value FROM auto_approval WHERE key = 'enabled'")
+            row = c.fetchone()
+            if row is not None:
+                return row[0] == "1"
+    except Exception as e:
+        logger.warning(f"Failed to load auto approval state: {e}")
+    return False
+
+
+def save_auto_approval_state(enabled: bool) -> None:
+    try:
+        init_db()
+        with connect_db() as conn:
+            conn.execute(
+                "INSERT OR REPLACE INTO auto_approval (key, value) VALUES ('enabled', ?)",
+                ("1" if enabled else "0",)
+            )
+            conn.commit()
+    except Exception as e:
+        logger.warning(f"Failed to save auto approval state: {e}")
 
 
 WATCHLIST_FILE = Path(".runtime/watchlist.json")
