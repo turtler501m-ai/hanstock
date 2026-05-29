@@ -450,11 +450,14 @@ def build_scan_universe(api: "KIStockAPI", held_symbols: set[str]) -> list[str]:
     return universe
 
 
+from datetime import datetime, timedelta, timezone
+
 def find_candidates(
     held_symbols: set[str],
     universe: list[str] | None = None,
     min_score: int = 2,
     ranker: str = "gpt_5_mini",
+    api = None,
 ) -> list[dict]:
     """universe 종목 전체를 기술분석 스코어링해 매수 후보를 반환한다.
 
@@ -498,7 +501,125 @@ def find_candidates(
         batch = None
 
     if batch is None:
-        return {"candidates": [], "scan_summary": [], "scanned": 0, "min_score": min_score, "scan_error": scan_error}
+        logger.info("[SCAN] yfinance 통신 차단 상태 감지. KIS API 및 로컬 DB 차트 캐시 기반 하이브리드 스캔 모드를 가동합니다.")
+        from src.db.repository import save_daily_charts, load_daily_charts
+        
+        KST = timezone(timedelta(hours=9))
+        
+        if api is None:
+            try:
+                from src.trader import KIStockAPI
+                api = KIStockAPI()
+            except Exception as api_err:
+                logger.warning(f"[SCAN] KIS API 객체 생성 실패: {api_err}")
+        
+        for code in scan_list:
+            try:
+                # 1. DB에서 캐시 로드
+                db_charts = load_daily_charts(code, limit=120)
+                
+                # 2. 캐시 유효성 검사 (오늘 날짜 데이터가 있는지 또는 개수가 부족한지)
+                today_str = datetime.now(KST).strftime("%Y-%m-%d")
+                has_today = any(c.get("date") == today_str for c in db_charts)
+                
+                # 데이터가 아예 없거나, 최근 데이터가 없고, KIS API가 사용 가능할 때 동기화 진행
+                if (len(db_charts) < 60 or not has_today) and api is not None:
+                    logger.info(f"[SCAN] {code}의 캐시 데이터가 부족하여 KIS API에서 시세를 가져옵니다.")
+                    try:
+                        kis_data = api.get_daily(code, n=120)
+                        if kis_data:
+                            save_daily_charts(code, kis_data)
+                            db_charts = load_daily_charts(code, limit=120)
+                    except Exception as kis_err:
+                        logger.warning(f"[SCAN] {code} KIS API 조회 실패: {kis_err}")
+                
+                if len(db_charts) < 60:
+                    logger.warning(f"[SCAN] {code} 시세 데이터 부족으로 분석 생략 (보유 개수: {len(db_charts)}개)")
+                    continue
+                
+                # 3. 데이터 로딩 및 시리즈 구성
+                price_series = [float(c["close"]) for c in db_charts]
+                high_series = [float(c["high"]) for c in db_charts]
+                volume_series = [float(c["volume"]) for c in db_charts]
+                current = price_series[-1]
+                
+                profile = calc_strategy_profile(price_series, high_series, volume_series)
+                feature_payload = build_strategy_features(
+                    price_series,
+                    high_series,
+                    volume_series,
+                    strategy_score=profile["score"],
+                )
+                score = float(profile["score"])
+                reasons = profile["reasons"]
+                vol = calc_volatility(price_series) or 0.02
+                
+                entry = {
+                    "ticker": code,
+                    "name": STOCK_NAMES.get(code, code),
+                    "current_price": current,
+                    "score": round(score, 4),
+                    "rule_score": round(score, 4),
+                    "ml_score": None,
+                    "final_score": round(score, 4),
+                    "volatility": round(vol, 4),
+                    "ai_enabled": predictor.enabled,
+                    "ai_model_status": "queued" if predictor.enabled else "disabled",
+                    "ai_model_version": predictor.model_name,
+                    "feature_version": feature_payload.get("feature_version", "features_v1"),
+                    "ai_score_weight": predictor.score_weight if predictor.enabled else 0.0,
+                    "ai_fallback_reason": "OpenAI pending for top candidates" if predictor.enabled else None,
+                    "top_features": feature_payload.get("top_features", []),
+                    "feature_payload": feature_payload,
+                    "min_score": min_score,
+                    "passed": score >= min_score,
+                    "reasons": reasons,
+                    "rsi": profile["rsi"],
+                    "rsi2": profile["rsi2"],
+                    "macd_hist": profile["macd_hist"],
+                    "sma20": profile["sma20"],
+                    "sma60": profile["sma60"],
+                    "bb_lo": profile["bb_lo"],
+                    "bb_hi": profile["bb_hi"],
+                }
+                scan_summary.append(entry)
+                
+                if score >= min_score:
+                    candidates.append(entry)
+                    logger.info(f"[CANDIDATE] {code} (하이브리드) score={score} ({', '.join(reasons)})")
+                else:
+                    logger.info(f"[SKIP] {code} (하이브리드) score={score}/{min_score}")
+            except Exception as err:
+                logger.warning(f"[SCAN] {code} 하이브리드 스캔 중 예외 발생: {err}")
+                
+        # 하이브리드 완료 시 조기 리턴 처리
+        if predictor.enabled and predictor.api_key and ai_candidate_limit > 0 and scan_summary:
+            ai_targets = sorted(
+                scan_summary,
+                key=lambda item: (-float(item.get("score", 0) or 0), item.get("ticker", "")),
+            )[:ai_candidate_limit]
+            for entry in ai_targets:
+                try:
+                    prediction = predictor.predict(entry.get("feature_payload", {}))
+                    entry["score"] = round(float(prediction["final_score"]), 4)
+                    entry["ml_score"] = (
+                        round(float(prediction["ml_score"]), 4)
+                        if prediction.get("ml_score") is not None
+                        else None
+                    )
+                    entry["final_score"] = round(float(prediction["final_score"]), 4)
+                    entry["ai_enabled"] = prediction["ai_enabled"]
+                except Exception as p_err:
+                    logger.warning(f"[AI] Hybrid ranker update failed for {entry['ticker']}: {p_err}")
+                    
+        return {
+            "candidates": candidates,
+            "universe_size": len(scan_list),
+            "scanned": len(scan_summary),
+            "min_score": min_score,
+            "scan_summary": scan_summary,
+            "scan_error": None if scan_summary else "No charts cached or fetched successfully via KIS"
+        }
 
     for code in scan_list:
         ticker = get_yfinance_ticker(code)

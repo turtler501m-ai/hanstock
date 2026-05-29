@@ -188,6 +188,20 @@ def init_db() -> None:
             )
             """
         )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS daily_charts (
+                symbol TEXT,
+                date TEXT,
+                open REAL,
+                high REAL,
+                low REAL,
+                close REAL,
+                volume REAL,
+                PRIMARY KEY (symbol, date)
+            )
+            """
+        )
 
 
 def _ensure_column(conn: DBWrapper, table: str, column: str, column_type: str) -> None:
@@ -836,5 +850,70 @@ def save_watchlist_data(data: dict) -> None:
             conn.commit()
     except Exception as e:
         logger.warning(f"Failed to save watchlist to DB: {e}")
+
+
+def save_daily_charts(symbol: str, data: list[dict]) -> None:
+    """symbol에 해당하는 차트 목록을 daily_charts 테이블에 저장한다."""
+    try:
+        init_db()
+        with connect_db() as conn:
+            for row in data:
+                date_str = row.get("date") or row.get("stck_bsop_date")
+                # KIS API 날짜 포맷 'YYYYMMDD'을 'YYYY-MM-DD'로 규격화
+                if date_str and len(date_str) == 8 and date_str.isdigit():
+                    date_str = f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:8]}"
+                
+                if not date_str:
+                    continue
+                
+                open_val = float(row.get("open") or row.get("stck_opn_prpr") or 0.0)
+                high_val = float(row.get("high") or row.get("stck_hgpr") or 0.0)
+                low_val = float(row.get("low") or row.get("stck_lwpr") or 0.0)
+                close_val = float(row.get("close") or row.get("stck_clpr") or row.get("stck_prpr") or 0.0)
+                vol_val = float(row.get("volume") or row.get("acml_vol") or 0.0)
+                
+                conn.execute(
+                    """
+                    INSERT OR REPLACE INTO daily_charts (symbol, date, open, high, low, close, volume)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (symbol, date_str, open_val, high_val, low_val, close_val, vol_val)
+                )
+            conn.commit()
+    except Exception as e:
+        logger.warning(f"Failed to save daily charts for {symbol} to DB: {e}")
+
+
+def load_daily_charts(symbol: str, limit: int = 120) -> list[dict]:
+    """symbol에 해당하는 일별 차트 데이터를 날짜 정렬하여 로드한다."""
+    try:
+        init_db()
+        with connect_db() as conn:
+            c = conn.execute(
+                """
+                SELECT date, open, high, low, close, volume 
+                FROM daily_charts 
+                WHERE symbol = ? 
+                ORDER BY date ASC
+                """,
+                (symbol,)
+            )
+            rows = c.fetchall()
+            charts = []
+            for r in rows:
+                charts.append({
+                    "date": r[0],
+                    "open": r[1],
+                    "high": r[2],
+                    "low": r[3],
+                    "close": r[4],
+                    "volume": r[5]
+                })
+            if len(charts) > limit:
+                charts = charts[-limit:]
+            return charts
+    except Exception as e:
+        logger.warning(f"Failed to load daily charts for {symbol} from DB: {e}")
+        return []
 
 
