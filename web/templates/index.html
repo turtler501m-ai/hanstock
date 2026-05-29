@@ -775,78 +775,81 @@
             </section>
 
             <section class="dashboard-section" id="dashboard-tab-watchlist">
-                <section class="card glass panel-watchlist-control" style="display: grid; grid-template-columns: 2fr 1fr; gap: 1.5rem;">
-                    <!-- 현재 관심 종목 목록 -->
-                    <div style="display: flex; flex-direction: column; gap: 1rem;">
-                        <div class="panel-header split-header">
+                <!-- 관심종목 컨트롤 바 (관심종목 위로 이동) -->
+                <div class="card glass panel-watchlist-control" style="display: flex; flex-wrap: wrap; gap: 1.5rem; align-items: center; justify-content: space-between; margin-bottom: 1.5rem; padding: 1.25rem;">
+                    
+                    <!-- Left: AI 자동 추가 토글 & 임계값 설정 -->
+                    <div style="display: flex; align-items: center; gap: 1.25rem; flex: 1; min-width: 320px;">
+                        <div style="display: flex; align-items: center; gap: 0.75rem;">
+                            <label class="switch-toggle" style="margin-bottom: 0;">
+                                <input type="checkbox" id="chk-watchlist-ai-auto">
+                                <span class="slider-toggle"></span>
+                            </label>
                             <div>
-                                <h2>현재 포트폴리오 관심 종목 (Watchlist)</h2>
-                                <p class="section-help">지정된 종목들은 AI 매수후보 스캔 시 항시 스캔 모수에 병합되어 우선 연산됩니다.</p>
+                                <h3 style="font-size: 0.95rem; font-weight: 600; color: #fff; margin: 0;">AI 자동 추가 적용</h3>
+                                <p style="font-size: 0.75rem; color: rgba(255,255,255,0.45); margin: 2px 0 0 0; line-height: 1.2;">
+                                    기준 점수 포착 시 관심종목 자동 등록
+                                </p>
                             </div>
                         </div>
-                        <div class="table-responsive" style="max-height: 500px; overflow-y: auto;">
-                            <table id="table-watchlist" style="width: 100%; border-collapse: collapse;">
-                                <thead>
-                                    <tr>
-                                        <th style="width: 40px; text-align: center;">순번</th>
-                                        <th style="width: 100px; text-align: center; cursor: pointer; user-select: none;" class="sort-header" data-sort="symbol">종목코드 <span class="sort-icon" style="font-size: 0.72rem; margin-left: 2px;"></span></th>
-                                        <th style="cursor: pointer; user-select: none;" class="sort-header" data-sort="name">종목명 <span class="sort-icon" style="font-size: 0.72rem; margin-left: 2px;"></span></th>
-                                        <th style="text-align: center; width: 100px; cursor: pointer; user-select: none;" class="sort-header" data-sort="sector">섹터 <span class="sort-icon" style="font-size: 0.72rem; margin-left: 2px;"></span></th>
-                                        <th style="text-align: right; width: 140px; cursor: pointer; user-select: none;" class="sort-header" data-sort="price">현재가(등락률) <span class="sort-icon" style="font-size: 0.72rem; margin-left: 2px;"></span></th>
-                                        <th style="text-align: center; width: 90px; cursor: pointer; user-select: none;" class="sort-header" data-sort="score">AI 점수 <span class="sort-icon" style="font-size: 0.72rem; margin-left: 2px;"></span></th>
-                                        <th style="text-align: center; width: 90px; cursor: pointer; user-select: none;" class="sort-header" data-sort="rsi">RSI 지표 <span class="sort-icon" style="font-size: 0.72rem; margin-left: 2px;"></span></th>
-                                        <th style="cursor: pointer; user-select: none;" class="sort-header" data-sort="reason">대표 조건 <span class="sort-icon" style="font-size: 0.72rem; margin-left: 2px;"></span></th>
-                                        <th style="text-align: center; width: 90px; cursor: pointer; user-select: none;" class="sort-header" data-sort="updated_at">분석시각 <span class="sort-icon" style="font-size: 0.72rem; margin-left: 2px;"></span></th>
-                                        <th style="width: 60px; text-align: center;">작업</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    <!-- JS 동적 렌더링 -->
-                                </tbody>
-                            </table>
+                        <div style="display: flex; align-items: center; gap: 8px; background: rgba(255,255,255,0.03); padding: 6px 12px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.04);">
+                            <span style="font-size: 0.8rem; color: rgba(255,255,255,0.7); font-weight: 500;">자동 추가 기준 점수</span>
+                            <input type="number" id="num-watchlist-ai-threshold" min="1.0" max="10.0" step="0.5" value="3.0" style="width: 60px; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.15); color: #fff; text-align: center; border-radius: 4px; padding: 2px 4px; font-size: 0.82rem; font-weight: bold;">
+                            <span style="font-size: 0.8rem; color: rgba(255,255,255,0.4);">점 이상</span>
                         </div>
                     </div>
 
-                    <!-- 수동 추가 및 AI 자동 추가적용 설정 -->
-                    <div style="display: flex; flex-direction: column; gap: 1.5rem; border-left: 1px solid rgba(255,255,255,0.08); padding-left: 1.5rem;">
-                        <!-- AI 자동 추가 적용 제어 토글 -->
-                        <div class="card" style="background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.06); padding: 16px; border-radius: 8px;">
-                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-                                <h3 style="font-size: 0.95rem; font-weight: 600; color: #fff; margin: 0;">AI 자동 추가 적용</h3>
-                                <label class="switch-toggle">
-                                    <input type="checkbox" id="chk-watchlist-ai-auto">
-                                    <span class="slider-toggle"></span>
-                                </label>
-                            </div>
-                            <p style="font-size: 0.78rem; color: rgba(255,255,255,0.45); margin: 0 0 12px 0; line-height: 1.4;">
-                                AI 후보 스캔 구동 시 아래에서 지정한 기준 점수 이상인 우수 종목을 포착하면 관심목록(Watchlist)에 자동으로 신설 추가하여 타겟팅합니다.
-                            </p>
-                            <div style="display: flex; align-items: center; justify-content: space-between; background: rgba(255,255,255,0.03); padding: 8px 12px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.04);">
-                                <span style="font-size: 0.8rem; color: rgba(255,255,255,0.7); font-weight: 500;">자동 추가 기준 점수</span>
-                                <div style="display: flex; align-items: center; gap: 8px;">
-                                    <input type="number" id="num-watchlist-ai-threshold" min="1.0" max="10.0" step="0.5" value="3.0" style="width: 60px; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.15); color: #fff; text-align: center; border-radius: 4px; padding: 2px 4px; font-size: 0.82rem; font-weight: bold;">
-                                    <span style="font-size: 0.8rem; color: rgba(255,255,255,0.4);">점 이상</span>
-                                </div>
-                            </div>
-                        </div>
+                    <!-- Right: 수동 종목 코드 추가 & AI 즉시 스캔 가동 -->
+                    <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 1.25rem; justify-content: flex-end; flex: 1.5; min-width: 480px;">
+                        <!-- 수동 추가 폼 -->
+                        <form id="form-watchlist-add" style="display: flex; gap: 8px; align-items: center; margin-bottom: 0;">
+                            <span style="font-size: 0.85rem; color: rgba(255,255,255,0.7); white-space: nowrap; font-weight: 500;">수동 종목 코드 추가</span>
+                            <input type="text" name="watchlist_code" placeholder="예: 005930" required maxlength="6" style="width: 110px; background: rgba(30, 41, 59, 0.85); color: #fff; border: 1px solid rgba(255,255,255,0.1); padding: 8px 12px; border-radius: 6px; font-size: 0.85rem;">
+                            <button type="submit" style="background: #3b82f6; color: white; border: none; padding: 8px 16px; border-radius: 6px; font-size: 0.85rem; font-weight: 500; cursor: pointer; transition: background 0.2s;" onmouseover="this.style.background='#2563eb'" onmouseout="this.style.background='#3b82f6'">추가</button>
+                        </form>
+
+                        <div style="height: 28px; width: 1px; background: rgba(255,255,255,0.08);"></div>
 
                         <!-- AI 자동 즉시 스캔 가동 버튼 -->
-                        <div style="margin-top: -0.5rem; margin-bottom: 0.5rem;">
-                            <button type="button" id="btn-watchlist-ai-scan" style="width: 100%; background: rgba(16, 185, 129, 0.15); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.25); padding: 10px 16px; border-radius: 6px; font-size: 0.85rem; font-weight: 600; cursor: pointer; transition: all 0.2s;" onmouseover="this.style.background='rgba(16, 185, 129, 0.25)'" onmouseout="this.style.background='rgba(16, 185, 129, 0.15)'">
+                        <div>
+                            <button type="button" id="btn-watchlist-ai-scan" style="background: rgba(16, 185, 129, 0.15); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.25); padding: 8px 16px; border-radius: 6px; font-size: 0.85rem; font-weight: 600; cursor: pointer; transition: all 0.2s; white-space: nowrap;" onmouseover="this.style.background='rgba(16, 185, 129, 0.25)'" onmouseout="this.style.background='rgba(16, 185, 129, 0.15)'">
                                 🔍 AI 자동추가 즉시 스캔 가동
                             </button>
                         </div>
+                    </div>
+                </div>
 
-                        <!-- 수동 추가 폼 -->
+                <!-- 관심 종목 테이블 -->
+                <div class="card glass" style="display: flex; flex-direction: column; gap: 1rem; padding: 1.5rem;">
+                    <div class="panel-header split-header" style="margin-bottom: 0.5rem;">
                         <div>
-                            <h3 style="font-size: 0.95rem; font-weight: 600; color: #fff; margin-top: 0; margin-bottom: 10px;">수동 종목 코드 추가</h3>
-                            <form id="form-watchlist-add" style="display: flex; gap: 8px;">
-                                <input type="text" name="watchlist_code" placeholder="예: 005930" required maxlength="6" style="flex: 1; background: rgba(30, 41, 59, 0.85); color: #fff; border: 1px solid rgba(255,255,255,0.1); padding: 8px 12px; border-radius: 6px; font-size: 0.85rem;">
-                                <button type="submit" style="background: #3b82f6; color: white; border: none; padding: 8px 16px; border-radius: 6px; font-size: 0.85rem; font-weight: 500; cursor: pointer; transition: background 0.2s;" onmouseover="this.style.background='#2563eb'" onmouseout="this.style.background='#3b82f6'">추가</button>
-                            </form>
+                            <h2>현재 포트폴리오 관심 종목 (Watchlist)</h2>
+                            <p class="section-help">지정된 종목들은 AI 매수후보 스캔 시 항시 스캔 모수에 병합되어 우선 연산됩니다.</p>
                         </div>
                     </div>
-                </section>
+                    <div class="table-responsive" style="max-height: 600px; overflow-y: auto;">
+                        <table id="table-watchlist" style="width: 100%; border-collapse: collapse;">
+                            <thead>
+                                <tr>
+                                    <th style="width: 40px; text-align: center;">순번</th>
+                                    <th style="width: 100px; text-align: center; cursor: pointer; user-select: none;" class="sort-header" data-sort="symbol">종목코드 <span class="sort-icon" style="font-size: 0.72rem; margin-left: 2px;"></span></th>
+                                    <th style="cursor: pointer; user-select: none;" class="sort-header" data-sort="name">종목명 <span class="sort-icon" style="font-size: 0.72rem; margin-left: 2px;"></span></th>
+                                    <th style="text-align: center; width: 100px; cursor: pointer; user-select: none;" class="sort-header" data-sort="sector">섹터 <span class="sort-icon" style="font-size: 0.72rem; margin-left: 2px;"></span></th>
+                                    <th style="text-align: right; width: 140px; cursor: pointer; user-select: none;" class="sort-header" data-sort="price">현재가(등락률) <span class="sort-icon" style="font-size: 0.72rem; margin-left: 2px;"></span></th>
+                                    <th style="text-align: center; width: 90px; cursor: pointer; user-select: none;" class="sort-header" data-sort="score">AI 점수 <span class="sort-icon" style="font-size: 0.72rem; margin-left: 2px;"></span></th>
+                                    <th style="text-align: center; width: 90px; cursor: pointer; user-select: none;" class="sort-header" data-sort="rsi">RSI 지표 <span class="sort-icon" style="font-size: 0.72rem; margin-left: 2px;"></span></th>
+                                    <th style="cursor: pointer; user-select: none;" class="sort-header" data-sort="reason">대표 조건 <span class="sort-icon" style="font-size: 0.72rem; margin-left: 2px;"></span></th>
+                                    <th style="text-align: center; width: 90px; cursor: pointer; user-select: none;" class="sort-header" data-sort="updated_at">분석시각 <span class="sort-icon" style="font-size: 0.72rem; margin-left: 2px;"></span></th>
+                                    <th style="width: 60px; text-align: center;">작업</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <!-- JS 동적 렌더링 -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
             </section>
         </main>
     </div>
