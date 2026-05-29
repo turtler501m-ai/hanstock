@@ -675,10 +675,26 @@ def save_ai_strategies(strategies: list[dict]) -> None:
 def save_scheduler_result(mode: str, recorded_at: str, result: dict) -> None:
     try:
         init_db()
+        
+        # Robust conversion of sets/unserializable types to list/str
+        def convert_unserializable(obj):
+            if isinstance(obj, dict):
+                return {k: convert_unserializable(v) for k, v in obj.items()}
+            elif isinstance(obj, list):
+                return [convert_unserializable(x) for x in obj]
+            elif isinstance(obj, set):
+                try:
+                    return [convert_unserializable(x) for x in sorted(list(obj))]
+                except Exception:
+                    return [convert_unserializable(x) for x in list(obj)]
+            return obj
+
+        cleaned_result = convert_unserializable(result)
+        
         with connect_db() as conn:
             conn.execute(
                 "INSERT OR REPLACE INTO scheduler_results (recorded_at, mode, result) VALUES (?, ?, ?)",
-                (recorded_at, mode, json.dumps(result, ensure_ascii=False))
+                (recorded_at, mode, json.dumps(cleaned_result, ensure_ascii=False, default=str))
             )
             conn.commit()
     except Exception as e:
