@@ -2624,7 +2624,7 @@ async def trigger_watchlist_ai_scan():
         if payload["scanned"] > 0:
             needs_save = False
             for cand in payload["candidates"]:
-                if cand.get("score", 0.0) >= 4.0:
+                if cand.get("score", 0.0) >= 3.0:
                     symbol = cand["ticker"]
                     if symbol not in watchlist_data["symbols"]:
                         watchlist_data["symbols"].append(symbol)
@@ -4070,3 +4070,152 @@ async def telegram_auth_verify(request: Request):
         return {"ok": True, "message": "Telegram 인증이 완료되었습니다. 서버를 재시작하거나 폴링을 수동으로 시작하세요."}
     except Exception as e:
         return {"ok": False, "error": str(e)}
+
+
+@app.get("/api/usage/quota")
+def get_antigravity_quota_api():
+    import subprocess
+    import re
+    
+    try:
+        res = subprocess.run(
+            ["antigravity-usage", "quota"],
+            capture_output=True,
+            text=True,
+            shell=True,
+            timeout=12
+        )
+        if res.returncode != 0:
+            logger.warning(f"antigravity-usage quota CLI failed with code {res.returncode}: {res.stderr}")
+            return {"ok": False, "error": "CLI 실행에 실패했습니다. (로그인 필요)"}
+            
+        stdout = res.stdout
+        
+        email = "Unknown"
+        email_match = re.search(r"👤\s*(\S+@\S+)", stdout)
+        if email_match:
+            email = email_match.group(1).strip()
+            
+        quota_list = []
+        lines = stdout.splitlines()
+        for line in lines:
+            if "│" in line and "Model" not in line and "┌" not in line and "├" not in line and "└" not in line:
+                parts = [p.strip() for p in line.split("│") if p.strip()]
+                if len(parts) >= 2:
+                    model = parts[0]
+                    remaining = parts[1]
+                    resets = parts[2] if len(parts) >= 3 else ""
+                    remaining_clean = remaining.replace("🟢", "").replace("🟡", "").replace("🔴", "").strip()
+                    quota_list.append({
+                        "model": model,
+                        "remaining": remaining_clean,
+                        "resets_in": resets
+                    })
+                    
+        return {
+            "ok": True,
+            "email": email,
+            "quota": quota_list,
+            "raw_text": stdout.strip()
+        }
+    except Exception as e:
+        logger.error(f"Failed to fetch antigravity quota: {e}")
+        return {"ok": False, "error": str(e)}
+
+
+# ----------------------------------------------------
+# Scheduler Run and Status Management APIs
+# ----------------------------------------------------
+
+_scheduler_running_lock = threading.Lock()
+_scheduler_run_state = {
+    "is_running": False,
+    "mode": None,
+    "started_at": None,
+    "completed_at": None,
+    "result": None,
+    "error": None
+}
+
+def _bg_run_scheduled_cycle(mode: str, include_ai_rebalance: bool, auto_approve: bool):
+    global _scheduler_run_state
+    try:
+        from src.scheduler import run_scheduled_cycle
+        result = run_scheduled_cycle(
+            mode=mode,
+            include_ai_rebalance=include_ai_rebalance,
+            auto_approve=auto_approve
+        )
+        with _scheduler_running_lock:
+            _scheduler_run_state["is_running"] = False
+            _scheduler_run_state["completed_at"] = trader.datetime.now(trader.KST).isoformat()
+            _scheduler_run_state["result"] = result
+            _scheduler_run_state["error"] = None
+    except Exception as e:
+        with _scheduler_running_lock:
+            _scheduler_run_state["is_running"] = False
+            _scheduler_run_state["completed_at"] = trader.datetime.now(trader.KST).isoformat()
+            _scheduler_run_state["result"] = None
+            _scheduler_run_state["error"] = str(e)
+
+
+@app.get("/api/scheduler/status")
+def get_scheduler_status():
+    global _scheduler_run_state
+    
+    config = {
+        "cron_tz": os.environ.get("HANSTOCK_CRON_TZ", "Asia/Seoul"),
+        "daily_auto_retries": os.environ.get("HANSTOCK_DAILY_AUTO_RETRIES", "3"),
+        "scheduler_retries": os.environ.get("HANSTOCK_SCHEDULER_RETRIES", "1"),
+        "slack_enabled": os.environ.get("HANSTOCK_SCHEDULER_SLACK", "true"),
+        "sync_enabled": os.environ.get("HANSTOCK_ORDER_STATUS_SYNC", "true"),
+        "result_path": os.environ.get("HANSTOCK_SCHEDULER_RESULT_PATH", ".runtime/daily_auto_last_result.json"),
+        "trading_env": trader.TRADING_ENV,
+        "dry_run": trader.DRY_RUN,
+        "order_submission": trader.ORDER_SUBMISSION_ENABLED,
+    }
+    
+    last_result = None
+    path = Path(config["result_path"])
+    if path.exists():
+        try:
+            last_result = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            pass
+            
+    return {
+        "config": config,
+        "last_result": last_result,
+        "run_state": _scheduler_run_state
+    }
+
+
+@app.post("/api/scheduler/run")
+def trigger_scheduler_run(payload: dict = Body(...)):
+    global _scheduler_run_state
+    mode = str(payload.get("mode", "daily_auto")).lower()
+    if mode not in {"daily_auto", "execute", "analysis_only"}:
+        raise HTTPException(status_code=400, detail="Invalid scheduler mode")
+        
+    include_ai_rebalance = bool(payload.get("include_ai_rebalance", True))
+    auto_approve = bool(payload.get("auto_approve", mode == "daily_auto"))
+    
+    with _scheduler_running_lock:
+        if _scheduler_run_state["is_running"]:
+            raise HTTPException(status_code=409, detail="스케줄러가 이미 실행 중입니다.")
+        
+        _scheduler_run_state["is_running"] = True
+        _scheduler_run_state["mode"] = mode
+        _scheduler_run_state["started_at"] = trader.datetime.now(trader.KST).isoformat()
+        _scheduler_run_state["completed_at"] = None
+        _scheduler_run_state["result"] = None
+        _scheduler_run_state["error"] = None
+        
+    t = threading.Thread(
+        target=_bg_run_scheduled_cycle,
+        args=(mode, include_ai_rebalance, auto_approve),
+        daemon=True
+    )
+    t.start()
+    return {"status": "started", "mode": mode}
+

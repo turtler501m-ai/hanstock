@@ -2231,4 +2231,337 @@ window.addEventListener('load', () => {
     if (applyBtn) {
         applyBtn.addEventListener('click', renderCandidates);
     }
+
+    // ----------------------------------------------------
+    // Antigravity AI Quota StatusBar 연동 및 실시간 주기 갱신
+    // ----------------------------------------------------
+    async function updateAiQuotaStatusBar() {
+        const statusTextEl = document.getElementById('statusbar-quota-text');
+        const statusEmailEl = document.getElementById('statusbar-email');
+        if (!statusTextEl || !statusEmailEl) return;
+
+        try {
+            const res = await fetchJson('/api/usage/quota');
+            if (res.ok && res.quota && res.quota.length > 0) {
+                const targetModels = {
+                    'Claude Opus 4.6 (Thinking)': 'Opus',
+                    'Claude Sonnet 4.6 (Thinking)': 'Sonnet',
+                    'Gemini 3.5 Flash (Medium)': 'Gemini3.5'
+                };
+                
+                let quotaSummary = [];
+                res.quota.forEach(item => {
+                    const nick = targetModels[item.model];
+                    if (nick) {
+                        quotaSummary.push(`${nick}: ${item.remaining}`);
+                    }
+                });
+
+                if (quotaSummary.length === 0) {
+                    quotaSummary = res.quota.slice(0, 3).map(item => {
+                        const shortName = item.model.split(' ')[0] || item.model;
+                        return `${shortName}: ${item.remaining}`;
+                    });
+                }
+
+                statusTextEl.textContent = quotaSummary.join(' | ');
+                statusEmailEl.textContent = res.email || 'Connected';
+                
+                const dot = document.querySelector('#ai-quota-statusbar .dot');
+                if (dot) {
+                    dot.className = 'dot pulse';
+                    dot.style.backgroundColor = '#10b981';
+                }
+            } else {
+                statusTextEl.textContent = res.error || '연동 크레덴셜 없음 (로그인 필요)';
+                statusEmailEl.textContent = '로그인 필요';
+                
+                const dot = document.querySelector('#ai-quota-statusbar .dot');
+                if (dot) {
+                    dot.className = 'dot';
+                    dot.style.backgroundColor = '#ef4444';
+                }
+            }
+        } catch (err) {
+            console.error('Failed to update AI Quota Statusbar:', err);
+            statusTextEl.textContent = `연동 에러: ${err.message}`;
+            
+            const dot = document.querySelector('#ai-quota-statusbar .dot');
+            if (dot) {
+                dot.className = 'dot';
+                dot.style.backgroundColor = '#ef4444';
+            }
+        }
+    }
+
+    updateAiQuotaStatusBar();
+    setInterval(updateAiQuotaStatusBar, 300000);
+
+    // ----------------------------------------------------
+    // Scheduler Tab Manual Run Buttons Binding
+    // ----------------------------------------------------
+    const btnRunDailyAuto = document.getElementById('btn-run-daily-auto');
+    const btnRunAnalysisOnly = document.getElementById('btn-run-analysis-only');
+    const btnRunExecute = document.getElementById('btn-run-execute');
+
+    if (btnRunDailyAuto) {
+        btnRunDailyAuto.addEventListener('click', () => triggerSchedule('daily_auto'));
+    }
+    if (btnRunAnalysisOnly) {
+        btnRunAnalysisOnly.addEventListener('click', () => triggerSchedule('analysis_only'));
+    }
+    if (btnRunExecute) {
+        btnRunExecute.addEventListener('click', () => triggerSchedule('execute'));
+    }
+
+    // Load initial schedule info
+    if (typeof renderScheduleInfo === 'function') {
+        renderScheduleInfo();
+    }
 });
+
+// ----------------------------------------------------
+// Scheduler Tab Rendering & Operation Helpers
+// ----------------------------------------------------
+
+async function renderScheduleInfo() {
+    try {
+        const data = await fetchJson('/api/scheduler/status');
+        
+        // 1. Config / Settings
+        const cronTzEl = document.getElementById('sched-cron-tz');
+        if (cronTzEl) cronTzEl.textContent = data.config.cron_tz || '-';
+        
+        const dailyRetriesEl = document.getElementById('sched-daily-retries');
+        if (dailyRetriesEl) dailyRetriesEl.textContent = `${data.config.daily_auto_retries}회`;
+        
+        const retryDelayEl = document.getElementById('sched-retry-delay');
+        if (retryDelayEl) retryDelayEl.textContent = `${data.config.scheduler_retries}회 (스케쥴)`;
+        
+        const slackEnabledEl = document.getElementById('sched-slack-enabled');
+        if (slackEnabledEl) slackEnabledEl.textContent = data.config.slack_enabled === 'true' ? '활성화' : '비활성화';
+        
+        const syncEnabledEl = document.getElementById('sched-sync-enabled');
+        if (syncEnabledEl) syncEnabledEl.textContent = data.config.sync_enabled === 'true' ? '활성화' : '비활성화';
+        
+        const tradingEnvEl = document.getElementById('sched-trading-env');
+        if (tradingEnvEl) tradingEnvEl.textContent = data.config.trading_env === 'real' ? '실전투자' : '모의투자';
+        
+        // 2. Dynamic status of current/last execution state
+        const runState = data.run_state;
+        const runningPanel = document.getElementById('scheduler-running-panel');
+        if (runningPanel) {
+            if (runState.is_running) {
+                runningPanel.style.display = 'block';
+                const logBox = document.getElementById('scheduler-running-log');
+                if (logBox) {
+                    logBox.textContent = `[${new Date().toLocaleTimeString()}] ${runState.mode} 모드로 스케쥴러 실행 중...\n(시작 시간: ${formatKstTime(runState.started_at)})`;
+                }
+                // Disable trigger buttons while running
+                disableTriggerButtons(true);
+            } else {
+                runningPanel.style.display = 'none';
+                // Enable trigger buttons
+                disableTriggerButtons(false);
+            }
+        }
+        
+        // 3. Render last result
+        const lastResult = data.last_result;
+        if (lastResult) {
+            const timeEl = document.getElementById('sched-last-run-time');
+            if (timeEl) timeEl.textContent = `최종 실행: ${formatKstTime(lastResult.recorded_at)}`;
+            
+            const results = lastResult.result.results || [];
+            const approved = lastResult.result.auto_approved || [];
+            const approvalErrors = lastResult.result.auto_approval_errors || [];
+            const runErrors = lastResult.result.errors || lastResult.result.retry_errors || [];
+            const failed = lastResult.result.status === 'failed' || lastResult.result.ok === false || approvalErrors.length > 0 || runErrors.length > 0;
+            
+            const statusEl = document.getElementById('sched-result-status');
+            if (statusEl) {
+                statusEl.textContent = failed ? '오류 발생' : '정상 완료';
+                statusEl.className = failed ? 'badge badge-danger' : 'badge badge-success';
+                statusEl.style.color = failed ? 'var(--danger)' : 'var(--success)';
+            }
+            
+            const planCount = lastResult.result.plan ? lastResult.result.plan.length : results.length;
+            const queuedCount = results.filter(r => r.decision === 'queue').length;
+            const approvedCount = approved.filter(a => a.status === 'executed').length;
+            const failedCount = approved.filter(a => a.status === 'failed').length + approvalErrors.length + runErrors.length;
+            
+            const planCntEl = document.getElementById('sched-result-plan-cnt');
+            if (planCntEl) planCntEl.textContent = `${planCount}건`;
+            
+            const queueCntEl = document.getElementById('sched-result-queue-cnt');
+            if (queueCntEl) queueCntEl.textContent = `${queuedCount}건`;
+            
+            const approvedCntEl = document.getElementById('sched-result-approved-cnt');
+            if (approvedCntEl) approvedCntEl.textContent = `${approvedCount}건`;
+            
+            const failedCntEl = document.getElementById('sched-result-failed-cnt');
+            if (failedCntEl) failedCntEl.textContent = `${failedCount}건`;
+            
+            // Build Plan Table
+            const planTbody = document.querySelector('#table-schedule-plans tbody');
+            if (planTbody) {
+                planTbody.innerHTML = '';
+                if (results.length === 0) {
+                    planTbody.innerHTML = '<tr><td colspan="7" class="text-center">생성된 계획이 없습니다.</td></tr>';
+                } else {
+                    results.forEach(row => {
+                        const tr = document.createElement('tr');
+                        const decision = row.decision || (row.approval_id ? 'approved' : 'skip');
+                        const kind = decision === 'execute' || decision === 'approved' ? 'buy' : (decision === 'skip' ? 'hold' : 'warn');
+                        tr.innerHTML = `
+                            <td>${escapeHtml(row.symbol || '-')}</td>
+                            <td><div class="symbol-name">${escapeHtml(row.name || '-')}</div></td>
+                            <td>${pill(row.category || 'ai_rebalance', 'hold')}</td>
+                            <td>${pill(toKorDecision(decision), kind)}</td>
+                            <td>${formatNumber(row.qty || row.signal_qty)}</td>
+                            <td>${formatNumber(row.price || row.signal_price)} 원</td>
+                            <td><div class="reason-cell" title="${escapeHtml(row.reason || '')}">${escapeHtml(translateReason(row.reason) || '스케쥴 분석 결과')}</div></td>
+                        `;
+                        planTbody.appendChild(tr);
+                    });
+                }
+            }
+            
+            // Build Orders Table
+            const orderTbody = document.querySelector('#table-schedule-orders tbody');
+            if (orderTbody) {
+                orderTbody.innerHTML = '';
+                if (approved.length === 0 && approvalErrors.length === 0) {
+                    orderTbody.innerHTML = '<tr><td colspan="7" class="text-center">승인 대기 주문이 없거나 자동 승인이 생략되었습니다.</td></tr>';
+                } else {
+                    approved.forEach(ord => {
+                        const tr = document.createElement('tr');
+                        const isSuccess = ord.status === 'executed';
+                        tr.innerHTML = `
+                            <td>${escapeHtml(ord.id || ord.approval_id || '-')}</td>
+                            <td>${escapeHtml(ord.symbol || '-')}</td>
+                            <td>${pill(toKorAction(ord.action || 'buy'), ord.action === 'sell' ? 'sell' : 'buy')}</td>
+                            <td>${formatNumber(ord.qty)}</td>
+                            <td>${formatNumber(ord.price)} 원</td>
+                            <td>${pill(isSuccess ? '성공' : '실패', isSuccess ? 'buy' : 'sell')}</td>
+                            <td><div class="reason-cell" title="${escapeHtml(ord.response_msg || ord.message || '')}">${escapeHtml(ord.response_msg || ord.message || '정상 처리')}</div></td>
+                        `;
+                        orderTbody.appendChild(tr);
+                    });
+                    
+                    approvalErrors.forEach(err => {
+                        const tr = document.createElement('tr');
+                        tr.innerHTML = `
+                            <td>${escapeHtml(err.approval_id || '-')}</td>
+                            <td>-</td>
+                            <td>-</td>
+                            <td>-</td>
+                            <td>-</td>
+                            <td>${pill('실패', 'sell')}</td>
+                            <td><div class="reason-cell text-danger" title="${escapeHtml(err.message || '')}">${escapeHtml(err.message || '오류 발생')}</div></td>
+                        `;
+                        orderTbody.appendChild(tr);
+                    });
+                }
+            }
+        }
+    } catch (err) {
+        console.error('Failed to load schedule status:', err);
+    }
+}
+
+function disableTriggerButtons(disabled) {
+    const b1 = document.getElementById('btn-run-daily-auto');
+    const b2 = document.getElementById('btn-run-analysis-only');
+    const b3 = document.getElementById('btn-run-execute');
+    if (b1) b1.disabled = disabled;
+    if (b2) b2.disabled = disabled;
+    if (b3) b3.disabled = disabled;
+}
+
+function toKorDecision(dec) {
+    if (dec === 'execute' || dec === 'approved') return '즉시 실행';
+    if (dec === 'queue') return '승인 대기';
+    if (dec === 'skip') return '수행 보류';
+    return dec || '보류';
+}
+
+function formatKstTime(isoStr) {
+    if (!isoStr) return '-';
+    try {
+        const d = new Date(isoStr);
+        return d.toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' });
+    } catch (e) {
+        return isoStr;
+    }
+}
+
+async function triggerSchedule(mode) {
+    const btnId = mode === 'daily_auto' ? 'btn-run-daily-auto' : (mode === 'analysis_only' ? 'btn-run-analysis-only' : 'btn-run-execute');
+    const btn = document.getElementById(btnId);
+    if (!btn) return;
+    
+    setButtonBusy(btn, true);
+    disableTriggerButtons(true);
+    
+    // Show running panel
+    const runningPanel = document.getElementById('scheduler-running-panel');
+    if (runningPanel) runningPanel.style.display = 'block';
+    
+    const logBox = document.getElementById('scheduler-running-log');
+    if (logBox) {
+        logBox.textContent = `[${new Date().toLocaleTimeString()}] ${mode} 스케쥴러 구동을 시작합니다. KIS API 호출 및 포트폴리오 분석으로 약 15~40초가 소요됩니다...\n`;
+    }
+    
+    try {
+        const res = await postJson('/api/scheduler/run', { mode: mode });
+        if (res.status === 'started') {
+            if (logBox) {
+                logBox.textContent += `[${new Date().toLocaleTimeString()}] 스케쥴러 백그라운드 태스크가 성공적으로 등록되었습니다. 실시간 기동 중입니다.\n`;
+            }
+            
+            // Poll for status until it's finished
+            let attempts = 0;
+            const interval = setInterval(async () => {
+                attempts++;
+                const data = await fetchJson('/api/scheduler/status');
+                const runState = data.run_state;
+                
+                if (!runState.is_running) {
+                    clearInterval(interval);
+                    if (logBox) {
+                        logBox.textContent += `[${new Date().toLocaleTimeString()}] 스케쥴러 실행이 완료되었습니다!\n`;
+                        if (runState.error) {
+                            logBox.textContent += `[오류] ${runState.error}\n`;
+                            setStatus(`스케쥴러 실행 오류: ${runState.error}`);
+                        } else {
+                            logBox.textContent += `[성공] 실행이 정상 완료되었습니다.\n`;
+                            setStatus('스케쥴러 구동이 성공적으로 완료되었습니다.', true);
+                        }
+                    }
+                    
+                    // Force refresh schedule UI and other tabs
+                    await renderScheduleInfo();
+                    if (typeof refreshOverview === 'function') refreshOverview();
+                    if (typeof renderSignals === 'function') renderSignals();
+                    if (typeof renderApprovals === 'function') renderApprovals();
+                } else {
+                    if (attempts % 3 === 0 && logBox) {
+                        logBox.textContent += `[${new Date().toLocaleTimeString()}] 실행 중... (통신 및 분석 진행 중)\n`;
+                    }
+                }
+            }, 3000);
+        } else {
+            throw new Error(res.detail || '기동 요청 거절됨');
+        }
+    } catch (err) {
+        if (logBox) {
+            logBox.textContent += `[에러] 기동 실패: ${err.message}\n`;
+        }
+        setStatus(`스케쥴 즉시실행 실패: ${err.message}`);
+        disableTriggerButtons(false);
+    } finally {
+        setButtonBusy(btn, false);
+    }
+}
+

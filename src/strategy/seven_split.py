@@ -79,6 +79,29 @@ STOCK_NAMES: dict[str, str] = {
     "293490": "카카오게임즈", "323410": "카카오뱅크", "091990": "셀트리온헬스케어",
 }
 
+# 코스닥 종목 리스트 (야후 파이낸스에서 .KQ를 붙여야 하는 종목 코드들)
+KOSDAQ_SYMBOLS = {
+    "247540", # 에코프로비엠
+    "086520", # 에코프로
+    "293490", # 카카오게임즈
+    "091990", # 셀트리온헬스케어
+    "196170", # 알테오젠
+    "145020", # 휴젤
+    "253450", # 에프앤가이드
+    "058470", # 리노공업
+    "028300", # HLB
+    "095700", # 제네신
+    "035900", # JYP Ent.
+    "066970", # 엘앤에프
+    "041510", # 에스엠
+}
+
+def get_yfinance_ticker(code: str) -> str:
+    """종목 코드별 야후 파이낸스 적합한 티커 심볼을 반환한다."""
+    if code in KOSDAQ_SYMBOLS:
+        return f"{code}.KQ"
+    return f"{code}.KS"
+
 def calc_strategy_profile(prices: list[float], highs: list[float] | None = None,
                           volumes: list[float] | None = None) -> dict:
     highs = highs or prices
@@ -445,7 +468,7 @@ def find_candidates(
     logger.info(f"[SCAN] yfinance 배치 다운로드 시작: {len(scan_list)}종목")
     candidates: list[dict] = []
     scan_summary: list[dict] = []  # 기준 미달 포함 전체 분석 결과
-    symbols = [f"{code}.KS" for code in scan_list]
+    symbols = [get_yfinance_ticker(code) for code in scan_list]
     predictor = ModelPredictor()
     if ranker == "rule_only":
         predictor.enabled = False
@@ -478,7 +501,7 @@ def find_candidates(
         return {"candidates": [], "scan_summary": [], "scanned": 0, "min_score": min_score, "scan_error": scan_error}
 
     for code in scan_list:
-        ticker = f"{code}.KS"
+        ticker = get_yfinance_ticker(code)
         try:
             if getattr(batch.columns, "nlevels", 1) > 1:
                 if ticker not in batch.columns.get_level_values(0):

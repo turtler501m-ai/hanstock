@@ -39,6 +39,7 @@
                 <button type="button" class="dashboard-tab" data-dashboard-tab="watchlist">관심종목 (Watchlist)</button>
                 <button type="button" class="dashboard-tab" data-dashboard-tab="ai-strategies">AI 전략</button>
                 <button type="button" class="dashboard-tab" data-dashboard-tab="strategy">신호/계획</button>
+                <button type="button" class="dashboard-tab" data-dashboard-tab="schedule">스케쥴</button>
                 <button type="button" class="dashboard-tab" data-dashboard-tab="orders">주문승인</button>
                 <button type="button" class="dashboard-tab" data-dashboard-tab="ai">AI/최적화</button>
                 <button type="button" class="dashboard-tab" data-dashboard-tab="performance">성과</button>
@@ -328,6 +329,158 @@
                             </thead>
                             <tbody></tbody>
                         </table>
+                    </div>
+                </section>
+            </section>
+
+            <section class="dashboard-section" id="dashboard-tab-schedule">
+                <!-- Schedule Controls & Overview -->
+                <div class="dashboard-two-column">
+                    <!-- Config & Settings Card -->
+                    <section class="card glass panel-schedule-config">
+                        <h2>스케쥴 환경설정 및 상태</h2>
+                        <p class="section-help">스케쥴러 실행 시 적용되는 환경설정 값과 구동 시간대입니다.</p>
+                        
+                        <div class="settings-grid" id="schedule-config-grid">
+                            <div class="setting-item">
+                                <span class="label">동작 시간 표준 (CRON_TZ)</span>
+                                <strong id="sched-cron-tz">-</strong>
+                            </div>
+                            <div class="setting-item">
+                                <span class="label">자동 실행 재시도 횟수</span>
+                                <strong id="sched-daily-retries">-</strong>
+                            </div>
+                            <div class="setting-item">
+                                <span class="label">재시도 간 대기 시간 (초)</span>
+                                <strong id="sched-retry-delay">-</strong>
+                            </div>
+                            <div class="setting-item">
+                                <span class="label">Slack 알림 연동</span>
+                                <strong id="sched-slack-enabled">-</strong>
+                            </div>
+                            <div class="setting-item">
+                                <span class="label">주문 완료 후 잔고 동기화</span>
+                                <strong id="sched-sync-enabled">-</strong>
+                            </div>
+                            <div class="setting-item">
+                                <span class="label">거래 환경</span>
+                                <strong id="sched-trading-env">-</strong>
+                            </div>
+                        </div>
+                    </section>
+
+                    <!-- Instant Execution Trigger Card -->
+                    <section class="card glass panel-schedule-trigger">
+                        <h2>스케쥴 즉시 실행</h2>
+                        <p class="section-help">지정한 모드로 스케쥴러를 즉시 기동하여 신호를 추출하거나 주문을 실행합니다.</p>
+                        
+                        <div class="trigger-controls">
+                            <div class="trigger-item">
+                                <h3>1. AI 자동 매매 모드 (daily_auto)</h3>
+                                <p class="control-help">강화학습/계획 수립 및 자동 승인/주문 전송까지 한 번에 완료합니다.</p>
+                                <button type="button" class="button-primary w-100" id="btn-run-daily-auto" style="width: 100%; margin-top: 0.5rem; min-height: 40px;">daily_auto 즉시 실행</button>
+                            </div>
+                            
+                            <div class="trigger-item" style="margin-top: 1.5rem;">
+                                <h3>2. 분석 전용 모드 (analysis_only)</h3>
+                                <p class="control-help">신호를 도출하고 매매 계획을 수립하되, 주문 전송을 보류합니다.</p>
+                                <button type="button" class="button-ghost w-100" id="btn-run-analysis-only" style="width: 100%; margin-top: 0.5rem; min-height: 40px;">analysis_only 즉시 실행</button>
+                            </div>
+
+                            <div class="trigger-item" style="margin-top: 1.5rem;">
+                                <h3>3. 즉시 실행 모드 (execute)</h3>
+                                <p class="control-help">수립된 매매 계획을 즉시 전송합니다.</p>
+                                <button type="button" class="button-ghost w-100" id="btn-run-execute" style="width: 100%; margin-top: 0.5rem; min-height: 40px;">execute 즉시 실행</button>
+                            </div>
+                        </div>
+                    </section>
+                </div>
+
+                <!-- Running Overlay / Progress State -->
+                <div id="scheduler-running-panel" class="card glass panel-schedule-running" style="display: none; margin-top: 1.5rem; border-color: rgba(59, 130, 246, 0.45);">
+                    <div class="running-header" style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem;">
+                        <span class="dot live pulsing" style="background-color: var(--warning); width: 10px; height: 10px; border-radius: 50%;"></span>
+                        <h2 style="margin: 0; font-size: 1.25rem;">스케쥴러 동작 중...</h2>
+                    </div>
+                    <p class="section-help">스케쥴러가 실시간으로 매매 분석 및 KIS API 통신을 수행하고 있습니다. 잠시만 기다려 주세요.</p>
+                    <div class="running-log-box" id="scheduler-running-log" style="background: rgba(0,0,0,0.4); padding: 1rem; border-radius: 6px; font-family: monospace; font-size: 0.85rem; max-height: 200px; overflow-y: auto; white-space: pre-wrap; border: 1px solid rgba(255,255,255,0.08); margin-top: 0.5rem; color: #34d399;">
+                        [System] 스케쥴 실행 요청을 처리 중입니다...
+                    </div>
+                </div>
+
+                <!-- Last Execution Result Card -->
+                <section class="card glass panel-schedule-result" style="margin-top: 1.5rem;">
+                    <div class="panel-header split-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+                        <div>
+                            <h2>최근 스케쥴 실행 결과</h2>
+                            <p class="section-help">최종 자동매매 스케쥴러 실행 시 도출된 판단 및 주문 내역입니다.</p>
+                        </div>
+                        <span class="time-muted" id="sched-last-run-time">-</span>
+                    </div>
+
+                    <div class="result-summary-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 1rem; margin-bottom: 1.5rem;">
+                        <div class="card glass" style="padding: 1rem; text-align: center;">
+                            <span class="label" style="font-size: 0.8rem; display: block; margin-bottom: 0.25rem;">최종 상태</span>
+                            <strong id="sched-result-status" style="font-size: 1.1rem;">-</strong>
+                        </div>
+                        <div class="card glass" style="padding: 1rem; text-align: center;">
+                            <span class="label" style="font-size: 0.8rem; display: block; margin-bottom: 0.25rem;">총 계획 건수</span>
+                            <strong id="sched-result-plan-cnt" style="font-size: 1.25rem;">-</strong>
+                        </div>
+                        <div class="card glass" style="padding: 1rem; text-align: center;">
+                            <span class="label" style="font-size: 0.8rem; display: block; margin-bottom: 0.25rem;">승인 대기 건수</span>
+                            <strong id="sched-result-queue-cnt" style="font-size: 1.25rem;">-</strong>
+                        </div>
+                        <div class="card glass" style="padding: 1rem; text-align: center;">
+                            <span class="label" style="font-size: 0.8rem; display: block; margin-bottom: 0.25rem;">자동 승인 완료</span>
+                            <strong id="sched-result-approved-cnt" style="font-size: 1.25rem;">-</strong>
+                        </div>
+                        <div class="card glass" style="padding: 1rem; text-align: center;">
+                            <span class="label" style="font-size: 0.8rem; display: block; margin-bottom: 0.25rem;">실패 건수</span>
+                            <strong id="sched-result-failed-cnt" style="font-size: 1.25rem; color: var(--danger);">-</strong>
+                        </div>
+                    </div>
+
+                    <div class="schedule-tables" style="margin-top: 1.5rem;">
+                        <h3 style="margin-bottom: 0.75rem; font-size: 1.15rem;">생성된 매매 계획 및 판단</h3>
+                        <div class="table-responsive">
+                            <table id="table-schedule-plans">
+                                <thead>
+                                    <tr>
+                                        <th>종목코드</th>
+                                        <th>종목명</th>
+                                        <th>분류</th>
+                                        <th>결정</th>
+                                        <th>수량</th>
+                                        <th>가격</th>
+                                        <th>근거</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr><td colspan="7" class="text-center">로딩 중이거나 내역이 없습니다.</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <h3 style="margin-top: 2rem; margin-bottom: 0.75rem; font-size: 1.15rem;">자동 승인 및 주문 전송 내역</h3>
+                        <div class="table-responsive">
+                            <table id="table-schedule-orders">
+                                <thead>
+                                    <tr>
+                                        <th>주문ID</th>
+                                        <th>종목코드</th>
+                                        <th>구분</th>
+                                        <th>수량</th>
+                                        <th>가격</th>
+                                        <th>상태</th>
+                                        <th>응답 메세지</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr><td colspan="7" class="text-center">로딩 중이거나 내역이 없습니다.</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
                     </div>
                 </section>
             </section>
@@ -720,12 +873,27 @@
                     if (target === 'watchlist' && typeof renderWatchlist === 'function') {
                         renderWatchlist();
                     }
+                    if (target === 'schedule' && typeof renderScheduleInfo === 'function') {
+                        renderScheduleInfo();
+                    }
                 });
             });
         });
     </script>
     <script src="/static/js/environment_badge.js?v=1"></script>
     <script src="/static/js/app.js?v=30"></script>
+
+    <!-- Antigravity AI Quota Status Bar -->
+    <div id="ai-quota-statusbar" class="statusbar">
+        <div class="statusbar-left">
+            <span class="dot pulse"></span>
+            <span class="statusbar-label">Antigravity AI:</span>
+            <span id="statusbar-quota-text" class="statusbar-text">상태 수집 중...</span>
+        </div>
+        <div class="statusbar-right">
+            <span id="statusbar-email" class="statusbar-email">연동 확인 중</span>
+        </div>
+    </div>
 </body>
 
 </html>
