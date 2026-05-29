@@ -1176,6 +1176,9 @@ async function renderWatchlist() {
     try {
         const data = await fetchJson('/api/watchlist');
         watchlistCache = data.symbols || [];
+        watchlistCache.forEach((s, idx) => {
+            s.index = idx + 1;
+        });
         
         if (autoChk) {
             autoChk.checked = data.ai_auto_add;
