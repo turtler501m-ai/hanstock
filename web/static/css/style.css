@@ -827,9 +827,7 @@ tbody tr:hover {
     position: relative;
     height: 300px;
     width: 100%;
-    display: flex;
-    justify-content: center;
-    align-items: center;
+    display: block; /* Chart.js responsive compatibility */
 }
 
 .performance-validation {
