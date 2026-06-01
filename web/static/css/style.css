@@ -1,15 +1,44 @@
 /* Korean operational dashboard UI */
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&family=Noto+Sans+KR:wght@400;500;700&display=swap');
+
 :root {
-    --bg-color: #101827;
+    /* Base Backgrounds with Deep Space Concept */
+    --space-black: #030712;
+    --space-dark: #0b0f19;
+    --space-navy: #0e1726;
+    
+    /* Curated Glowing Accent Colors */
+    --electric-blue: #3b82f6;
+    --electric-cyan: #06b6d4;
+    --emerald-glow: #10b981;
+    --neon-rose: #f43f5e;
+    --amber-sunset: #f59e0b;
+    
+    /* Glassmorphism Configuration */
+    --glass-bg: rgba(14, 23, 38, 0.75);
+    --glass-bg-hover: rgba(20, 32, 54, 0.85);
+    --glass-border: rgba(255, 255, 255, 0.06);
+    --glass-border-hover: rgba(59, 130, 246, 0.25);
+    --glass-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.35);
+
+    /* Original theme fallbacks for compatibility */
+    --bg-color: var(--space-black);
     --text-color: #f8fafc;
     --text-muted: #a8b3c7;
-    --card-bg: rgba(24, 34, 52, 0.82);
-    --card-border: rgba(255, 255, 255, 0.12);
-    --primary: #2563eb;
-    --success: #10b981;
-    --danger: #ef4444;
-    --warning: #f59e0b;
+    --card-bg: var(--glass-bg);
+    --card-border: var(--glass-border);
+    --primary: var(--electric-blue);
+    --success: var(--emerald-glow);
+    --danger: var(--neon-rose);
+    --warning: var(--amber-sunset);
+    --font-heading: 'Outfit', 'Inter', 'Noto Sans KR', sans-serif;
     --font-family: 'Noto Sans KR', 'Inter', sans-serif;
+    --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+    
+    /* Mobile App safe area tokens */
+    --app-safe-top: env(safe-area-inset-top, 0px);
+    --app-safe-bottom: env(safe-area-inset-bottom, 0px);
+    --bottom-nav-height: calc(64px + var(--app-safe-bottom));
 }
 
 * {
@@ -19,15 +48,20 @@
 }
 
 body {
-    background:
-        radial-gradient(circle at 18% 0%, rgba(37, 99, 235, 0.18), transparent 28rem),
-        linear-gradient(180deg, #0f172a 0%, var(--bg-color) 42%, #0b1220 100%);
+    background: 
+        radial-gradient(circle at 10% 20%, rgba(59, 130, 246, 0.08), transparent 40rem),
+        radial-gradient(circle at 90% 80%, rgba(6, 182, 212, 0.06), transparent 35rem),
+        radial-gradient(circle at 50% 50%, rgba(16, 185, 129, 0.04), transparent 45rem),
+        var(--space-black);
     color: var(--text-color);
     font-family: var(--font-family);
     min-height: 100vh;
     padding: 2rem;
     line-height: 1.6;
+    -webkit-user-select: none;
+    user-select: none;
 }
+
 
 .dashboard-container {
     max-width: 1400px;
@@ -394,36 +428,50 @@ h1 .highlight {
 
 .card {
     padding: 1.5rem;
-    border-radius: 8px;
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
-    background: var(--card-bg);
-    border: 1px solid var(--card-border);
-    box-shadow: 0 10px 30px -18px rgba(0, 0, 0, 0.65);
-    transition: transform 0.2s, box-shadow 0.2s;
+    border-radius: 12px;
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    background: var(--glass-bg);
+    border: 1px solid var(--glass-border);
+    box-shadow: var(--glass-shadow);
+    transition: all 0.35s cubic-bezier(0.25, 0.8, 0.25, 1);
 }
 
 .card:hover {
-    transform: translateY(-1px);
-    box-shadow: 0 16px 34px -22px rgba(0, 0, 0, 0.75);
+    transform: translateY(-4px);
+    border-color: var(--glass-border-hover);
+    box-shadow: 0 12px 40px 0 rgba(59, 130, 246, 0.15);
+    background: var(--glass-bg-hover);
 }
 
 .card h3 {
+    font-family: var(--font-heading);
     font-size: 0.875rem;
-    letter-spacing: 0;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
     color: var(--text-muted);
     margin-bottom: 0.5rem;
 }
 
 .card h2 {
+    font-family: var(--font-heading);
     font-size: 1.25rem;
+    font-weight: 600;
     margin-bottom: 1rem;
     color: var(--text-color);
 }
 
 .card .value {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
     font-size: 2rem;
     font-weight: 700;
+    letter-spacing: -0.02em;
+}
+
+.tabular-number {
+    font-family: var(--font-mono) !important;
+    font-variant-numeric: tabular-nums !important;
 }
 
 .compact-value {
@@ -1382,3 +1430,137 @@ body {
     color: #38bdf8;
     font-weight: 500;
 }
+
+/* ==========================================
+   Mobile-First App Upgrade & Premium UI Patches
+   ========================================== */
+
+/* Touch Device Native Feedback */
+@media (hover: none) and (pointer: coarse) {
+    .card:hover,
+    .card.glass:hover {
+        transform: none !important;
+        box-shadow: var(--glass-shadow) !important;
+        border-color: var(--glass-border) !important;
+    }
+    
+    .card:active,
+    .card.glass:active,
+    .nav-button:active,
+    .dashboard-tab:active,
+    button:active {
+        transform: scale(0.97) !important;
+        background: var(--glass-bg-hover) !important;
+        transition: transform 0.1s cubic-bezier(0.25, 0.8, 0.25, 1) !important;
+    }
+}
+
+/* Safe Area Layout Boundaries */
+.dashboard-container {
+    padding-top: calc(1rem + var(--app-safe-top));
+    padding-bottom: calc(2rem + var(--app-safe-bottom));
+}
+
+/* Responsive Table Container & Sticky First Column */
+.table-container {
+    width: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    border-radius: 8px;
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    background: rgba(3, 7, 18, 0.3);
+}
+
+.table-container table {
+    min-width: 650px;
+    border-collapse: collapse;
+}
+
+/* First columns become sticky on mobile scroll */
+@media (max-width: 768px) {
+    /* Sticky columns in dynamic grids */
+    .table-container td:first-child,
+    .table-container th:first-child {
+        position: sticky;
+        left: 0;
+        z-index: 5;
+        background: var(--space-navy) !important;
+        box-shadow: 2px 0 8px rgba(0, 0, 0, 0.4);
+    }
+    
+    /* Bottom Navigation Tab Bar for mobile layout */
+    .dashboard-tabs {
+        position: fixed !important;
+        bottom: 0 !important;
+        left: 0 !important;
+        right: 0 !important;
+        z-index: 9999;
+        height: var(--bottom-nav-height) !important;
+        padding-bottom: var(--app-safe-bottom) !important;
+        background: rgba(11, 15, 25, 0.96) !important;
+        backdrop-filter: blur(25px) !important;
+        -webkit-backdrop-filter: blur(25px) !important;
+        border-top: 1px solid rgba(255, 255, 255, 0.08) !important;
+        display: flex !important;
+        justify-content: space-around !important;
+        align-items: center !important;
+        box-shadow: 0 -8px 32px rgba(0, 0, 0, 0.4) !important;
+        margin: 0 !important;
+        border-radius: 0 !important;
+    }
+    
+    .dashboard-tab {
+        flex: 1 !important;
+        height: 100% !important;
+        display: flex !important;
+        flex-direction: column !important;
+        justify-content: center !important;
+        align-items: center !important;
+        font-size: 11px !important;
+        padding: 0 !important;
+        border: none !important;
+        background: transparent !important;
+        border-radius: 0 !important;
+    }
+    
+    .dashboard-tab::after {
+        content: '';
+        position: absolute;
+        bottom: 4px;
+        left: 50%;
+        width: 0;
+        height: 3px;
+        background: var(--electric-cyan);
+        border-radius: 2px;
+        transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+        transform: translateX(-50%);
+    }
+    
+    .dashboard-tab.active::after {
+        width: 40% !important;
+    }
+    
+    /* Give main layout room at the bottom for navigation */
+    body {
+        padding-bottom: calc(var(--bottom-nav-height) + 1rem) !important;
+        padding-left: 1rem !important;
+        padding-right: 1rem !important;
+    }
+    
+    /* Layout grid optimization */
+    .summary-grid {
+        grid-template-columns: repeat(2, 1fr) !important;
+        gap: 0.75rem !important;
+    }
+    
+    .runtime-grid, .risk-grid {
+        grid-template-columns: 1fr !important;
+        gap: 0.75rem !important;
+    }
+    
+    .dashboard-two-column {
+        grid-template-columns: 1fr !important;
+        gap: 1rem !important;
+    }
+}
+
