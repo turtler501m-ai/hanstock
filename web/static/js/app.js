@@ -2686,6 +2686,7 @@ async function renderScheduleInfo() {
                                             <tr style="background: rgba(255,255,255,0.02); border-bottom: 1px solid var(--border);">
                                                 <th style="padding: 0.6rem 0.75rem; text-align: left; font-size: 0.85rem; font-weight: 500; color: var(--text-muted); width: 150px;">주문ID</th>
                                                 <th style="padding: 0.6rem 0.75rem; text-align: left; font-size: 0.85rem; font-weight: 500; color: var(--text-muted); width: 100px;">종목코드</th>
+                                                <th style="padding: 0.6rem 0.75rem; text-align: left; font-size: 0.85rem; font-weight: 500; color: var(--text-muted); width: 120px;">종목명</th>
                                                 <th style="padding: 0.6rem 0.75rem; text-align: left; font-size: 0.85rem; font-weight: 500; color: var(--text-muted); width: 80px;">구분</th>
                                                 <th style="padding: 0.6rem 0.75rem; text-align: right; font-size: 0.85rem; font-weight: 500; color: var(--text-muted); width: 80px;">수량</th>
                                                 <th style="padding: 0.6rem 0.75rem; text-align: right; font-size: 0.85rem; font-weight: 500; color: var(--text-muted); width: 120px;">가격</th>
@@ -2762,7 +2763,7 @@ async function renderScheduleInfo() {
                         const ordersTbody = card.querySelector('.table-orders tbody');
                         if (ordersTbody) {
                             if (roundData.approved.length === 0 && roundData.approvalErrors.length === 0) {
-                                ordersTbody.innerHTML = '<tr><td colspan="7" class="text-center" style="padding: 1.5rem; font-size: 0.9rem; color: var(--text-muted);">승인 대기 주문이 없거나 자동 승인이 생략되었습니다.</td></tr>';
+                                ordersTbody.innerHTML = '<tr><td colspan="8" class="text-center" style="padding: 1.5rem; font-size: 0.9rem; color: var(--text-muted);">승인 대기 주문이 없거나 자동 승인이 생략되었습니다.</td></tr>';
                             } else {
                                 // 1. Render approvalErrors first so they appear at the very top
                                 roundData.approvalErrors.forEach(err => {
@@ -2779,6 +2780,7 @@ async function renderScheduleInfo() {
                                     // Lookup stock info from generated plans matching the approval_id
                                     const matchingPlan = roundData.results.find(r => r.approval_id && String(r.approval_id) === String(err.approval_id));
                                     const symbolVal = matchingPlan ? matchingPlan.symbol : '-';
+                                    const nameVal = matchingPlan ? matchingPlan.name : '-';
                                     const actionVal = matchingPlan ? matchingPlan.action : '-';
                                     const qtyVal = matchingPlan ? (matchingPlan.qty || matchingPlan.signal_qty) : '-';
                                     const priceVal = matchingPlan ? (matchingPlan.price || matchingPlan.signal_price) : '-';
@@ -2786,6 +2788,7 @@ async function renderScheduleInfo() {
                                     tr.innerHTML = `
                                         <td style="padding: 0.6rem 0.75rem; font-size: 0.85rem;">${escapeHtml(err.approval_id || '-')}</td>
                                         <td style="padding: 0.6rem 0.75rem; font-size: 0.85rem;">${escapeHtml(symbolVal)}</td>
+                                        <td style="padding: 0.6rem 0.75rem; font-size: 0.85rem;"><div class="symbol-name" style="font-weight: 500;">${escapeHtml(nameVal)}</div></td>
                                         <td style="padding: 0.6rem 0.75rem; font-size: 0.85rem;">${actionVal !== '-' ? pill(toKorAction(actionVal), actionVal === 'sell' ? 'sell' : 'buy') : '-'}</td>
                                         <td style="padding: 0.6rem 0.75rem; font-size: 0.85rem; text-align: right;">${qtyVal !== '-' ? formatNumber(qtyVal) : '-'}</td>
                                         <td style="padding: 0.6rem 0.75rem; font-size: 0.85rem; text-align: right; font-weight: 500;">${priceVal !== '-' ? formatNumber(priceVal) + ' 원' : '-'}</td>
@@ -2812,6 +2815,7 @@ async function renderScheduleInfo() {
                                     // Lookup stock info from generated plans matching the approval_id
                                     const matchingPlan = roundData.results.find(r => r.approval_id && String(r.approval_id) === String(ordId));
                                     const symbolVal = ord.symbol || (matchingPlan ? matchingPlan.symbol : '-');
+                                    const nameVal = ord.name || (matchingPlan ? matchingPlan.name : '-');
                                     const actionVal = ord.action || (matchingPlan ? matchingPlan.action : 'buy');
                                     const qtyVal = ord.qty !== undefined && ord.qty !== null ? ord.qty : (matchingPlan ? (matchingPlan.qty || matchingPlan.signal_qty) : '-');
                                     const priceVal = ord.price !== undefined && ord.price !== null ? ord.price : (matchingPlan ? (matchingPlan.price || matchingPlan.signal_price) : '-');
@@ -2819,6 +2823,7 @@ async function renderScheduleInfo() {
                                     tr.innerHTML = `
                                         <td style="padding: 0.6rem 0.75rem; font-size: 0.85rem;">${escapeHtml(ordId || '-')}</td>
                                         <td style="padding: 0.6rem 0.75rem; font-size: 0.85rem;">${escapeHtml(symbolVal)}</td>
+                                        <td style="padding: 0.6rem 0.75rem; font-size: 0.85rem;"><div class="symbol-name" style="font-weight: 500;">${escapeHtml(nameVal)}</div></td>
                                         <td style="padding: 0.6rem 0.75rem; font-size: 0.85rem;">${actionVal !== '-' ? pill(toKorAction(actionVal), actionVal === 'sell' ? 'sell' : 'buy') : '-'}</td>
                                         <td style="padding: 0.6rem 0.75rem; font-size: 0.85rem; text-align: right;">${qtyVal !== '-' ? formatNumber(qtyVal) : '-'}</td>
                                         <td style="padding: 0.6rem 0.75rem; font-size: 0.85rem; text-align: right; font-weight: 500;">${priceVal !== '-' ? formatNumber(priceVal) + ' 원' : '-'}</td>
