@@ -24,3 +24,9 @@ bybit_test_full.py
 # Temporary side-by-side source snapshots kept while consolidating loc/vm.
 hanstock_loc/
 hanstock_vm/
+
+# Android build and local settings exclusions
+android/.gradle/
+android/app/build/
+android/.idea/
+android/local.properties

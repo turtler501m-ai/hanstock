@@ -1,0 +1,10 @@
+<resources>
+    <string name="app_name">한스톡</string>
+    <string name="exit_title">앱 종료</string>
+    <string name="exit_message">한스톡 자동매매 대시보드 앱을 종료하시겠습니까?</string>
+    <string name="exit_confirm">종료</string>
+    <string name="exit_cancel">취소</string>
+    <string name="biometric_title">한스톡 생체 인증</string>
+    <string name="biometric_subtitle">안전한 거래 인증을 위해 생체 인증을 진행해 주세요.</string>
+    <string name="biometric_cancel">취소</string>
+</resources>

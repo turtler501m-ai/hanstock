@@ -1786,7 +1786,10 @@ async function renderApprovals() {
     }
 }
 
-async function handleApprovalAction(button, action) {
+let pendingApprovalButton = null;
+let pendingApprovalAction = null;
+
+async function executeApprovalAction(button, action) {
     button.disabled = true;
     try {
         const result = await postJson(`/api/approvals/${button.dataset.id}/${action}`, {});
@@ -1797,6 +1800,53 @@ async function handleApprovalAction(button, action) {
         button.disabled = false;
     }
 }
+
+async function handleApprovalAction(button, action) {
+    // 안드로이드 하이브리드 앱 내부이며 승인(approve)을 시도할 경우, 네이티브 생체 인식 요구
+    if (typeof window.androidApp !== 'undefined' && action === 'approve') {
+        button.disabled = true;
+        pendingApprovalButton = button;
+        pendingApprovalAction = action;
+        setStatus("주문 실행을 위해 기기의 지문 또는 Face ID 생체 인증을 진행해 주세요.");
+        window.androidApp.authenticateBiometric();
+    } else {
+        await executeApprovalAction(button, action);
+    }
+}
+
+// 안드로이드 네이티브 생체 인증 완료 시 호출되는 전역 콜백
+window.onBiometricResult = function(success) {
+    if (success) {
+        if (pendingApprovalButton && pendingApprovalAction) {
+            setStatus("생체 인증 완료. 주문 처리를 요청합니다...", true);
+            executeApprovalAction(pendingApprovalButton, pendingApprovalAction);
+            pendingApprovalButton = null;
+            pendingApprovalAction = null;
+        }
+    } else {
+        if (pendingApprovalButton) {
+            pendingApprovalButton.disabled = false;
+            setStatus("생체 인증이 실패했거나 취소되어 주문 전송이 중단되었습니다.");
+            pendingApprovalButton = null;
+            pendingApprovalAction = null;
+        }
+    }
+};
+
+// FCM 알림 클릭 시 특정 대시보드 탭으로 즉시 라우팅하는 전역 콜백
+window.routeToTab = function(tabName) {
+    console.log("routeToTab received tab:", tabName);
+    let target = tabName;
+    if (tabName === 'approval' || tabName === 'approvals') {
+        target = 'orders';
+    }
+    const tabEl = document.querySelector(`[data-dashboard-tab="${target}"]`);
+    if (tabEl) {
+        tabEl.click();
+        setStatus(`FCM 알림 딥링크 라우팅: [${tabEl.textContent}] 탭으로 전환되었습니다.`, true);
+    }
+};
+
 
 async function renderTrades() {
     try {
