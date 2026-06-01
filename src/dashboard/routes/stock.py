@@ -3,6 +3,7 @@ from fastapi import Body, HTTPException, Request
 from fastapi.responses import FileResponse
 import src.dashboard.core as _core
 from src.dashboard.core import *
+from src.utils.logger import logger
 globals().update({k: v for k, v in _core.__dict__.items() if not k.startswith('__')})
 
 @app.get("/api/ai-strategies")
