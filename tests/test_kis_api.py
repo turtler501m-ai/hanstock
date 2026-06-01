@@ -86,6 +86,41 @@ class KIStockAPITests(unittest.TestCase):
         finally:
             kis_api._KIS_MIN_INTERVAL = original_interval
 
+    def test_trade_history_follows_continuation_pages(self):
+        api = KIStockAPI.__new__(KIStockAPI)
+        api.base_url = "https://example.test"
+        api.access_token = "token"
+
+        first = Mock()
+        first.status_code = 200
+        first.headers = {"tr_cont": "M"}
+        first.json.return_value = {
+            "rt_cd": "0",
+            "output1": [{"odno": "D12345"}],
+            "ctx_area_fk100": "next-fk",
+            "ctx_area_nk100": "next-nk",
+        }
+        second = Mock()
+        second.status_code = 200
+        second.headers = {}
+        second.json.return_value = {"rt_cd": "0", "output1": [{"odno": "D67890"}]}
+
+        original_interval = kis_api._KIS_MIN_INTERVAL
+        try:
+            kis_api._KIS_MIN_INTERVAL = 0
+            with patch.object(kis_api.config, "kistock_account", "1234567801"), \
+                    patch.object(kis_api.config, "trading_env", "demo"), \
+                    patch.object(kis_api.HTTP, "get", side_effect=[first, second]) as get:
+                rows = api.get_trade_history("20260501", "20260524")
+
+            self.assertEqual(rows, [{"odno": "D12345"}, {"odno": "D67890"}])
+            self.assertEqual(get.call_count, 2)
+            second_params = get.call_args_list[1].kwargs["params"]
+            self.assertEqual(second_params["CTX_AREA_FK100"], "next-fk")
+            self.assertEqual(second_params["CTX_AREA_NK100"], "next-nk")
+        finally:
+            kis_api._KIS_MIN_INTERVAL = original_interval
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -480,6 +480,54 @@ class DashboardCoreTests(unittest.TestCase):
             dashboard.trader.DRY_RUN = original_dry_run
             dashboard._get_balance_data = original_get_balance_data
 
+    def test_filled_trade_history_sync_imports_lookback_rows(self):
+        original_db_path = dashboard.trader.config.trade_db_path
+        original_fetch_cloud_trades = dashboard.fetch_cloud_trades
+
+        class _FakeAPI:
+            def __init__(self):
+                self.window = None
+
+            def get_trade_history(self, start_date, end_date):
+                self.window = (start_date, end_date)
+                return [
+                    {
+                        "odno": "H12345",
+                        "pdno": "005930",
+                        "prdt_name": "Samsung",
+                        "sll_buy_dvsn_cd": "02",
+                        "ord_dt": "20260520",
+                        "ord_tmd": "093015",
+                        "tot_ccld_qty": "3",
+                        "avg_prvs": "70100",
+                    }
+                ]
+
+        try:
+            with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+                db_path = f"{tmpdir}/trades.sqlite"
+                dashboard.trader.config.trade_db_path = db_path
+                dashboard.fetch_cloud_trades = lambda: []
+                api = _FakeAPI()
+
+                result = dashboard._sync_filled_trades_from_history(api, days=30)
+
+                self.assertEqual(result["history_count"], 1)
+                self.assertEqual(result["imported_count"], 1)
+                self.assertNotEqual(api.window[0], api.window[1])
+                with sqlite3.connect(db_path) as conn:
+                    conn.row_factory = sqlite3.Row
+                    row = conn.execute("SELECT * FROM trades").fetchone()
+                self.assertEqual(row["ts"], "2026-05-20 09:30:15")
+                self.assertEqual(row["symbol"], "005930")
+                self.assertEqual(row["action"], "buy")
+                self.assertEqual(row["qty"], 3)
+                self.assertEqual(row["price"], 70100)
+                self.assertEqual(row["order_status"], "filled")
+        finally:
+            dashboard.trader.config.trade_db_path = original_db_path
+            dashboard.fetch_cloud_trades = original_fetch_cloud_trades
+
     def test_sell_all_holdings_queues_market_sell_for_each_current_holding(self):
         original_db_path = dashboard.trader.config.trade_db_path
         original_get_api = dashboard._get_api

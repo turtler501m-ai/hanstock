@@ -2500,6 +2500,179 @@ def _history_fill_qty(row: dict) -> int:
     return _history_int(row, "tot_ccld_qty", "ccld_qty", "cnqn", "ord_qty")
 
 
+def _history_text(row: dict, *keys: str) -> str:
+    for key in keys:
+        value = row.get(key)
+        if value is not None and str(value).strip():
+            return str(value).strip()
+    return ""
+
+
+def _history_symbol(row: dict) -> str:
+    return _history_text(row, "pdno", "PDNO", "isu_no", "mksc_shrn_iscd", "symbol")
+
+
+def _history_name(row: dict) -> str:
+    return _history_text(row, "prdt_name", "PRDT_NAME", "itm_name", "item_name") or _history_symbol(row)
+
+
+def _history_action(row: dict) -> str:
+    code = _history_text(row, "sll_buy_dvsn_cd", "SLL_BUY_DVSN_CD", "trad_dvsn_cd")
+    if code == "01":
+        return "sell"
+    if code == "02":
+        return "buy"
+
+    label = _history_text(row, "sll_buy_dvsn_name", "trad_dvsn_name", "buy_sell_name").lower()
+    if "sell" in label or "매도" in label:
+        return "sell"
+    if "buy" in label or "매수" in label:
+        return "buy"
+    return ""
+
+
+def _history_timestamp(row: dict) -> str:
+    raw_date = _history_text(row, "ord_dt", "ORD_DT", "ccld_dt", "CCLD_DT", "trad_dt")
+    raw_time = _history_text(row, "ord_tmd", "ORD_TMD", "ccld_tmd", "CCLD_TMD", "trad_tmd")
+    digits_date = "".join(char for char in raw_date if char.isdigit())
+    digits_time = "".join(char for char in raw_time if char.isdigit())
+    if len(digits_date) >= 8:
+        date_text = f"{digits_date[:4]}-{digits_date[4:6]}-{digits_date[6:8]}"
+    else:
+        date_text = trader.datetime.now(trader.KST).strftime("%Y-%m-%d")
+    if len(digits_time) >= 6:
+        time_text = f"{digits_time[:2]}:{digits_time[2:4]}:{digits_time[4:6]}"
+    else:
+        time_text = "00:00:00"
+    return f"{date_text} {time_text}"
+
+
+def _history_trade_key(trade: dict) -> tuple:
+    order_id = str(trade.get("broker_order_id") or "").strip()
+    if order_id:
+        return ("order", order_id)
+    return (
+        "trade",
+        str(trade.get("ts") or trade.get("timestamp") or ""),
+        str(trade.get("symbol") or ""),
+        str(trade.get("action") or ""),
+        _to_int(trade.get("qty")),
+        _to_int(trade.get("price")),
+    )
+
+
+def _history_row_to_trade(row: dict) -> dict:
+    symbol = _history_symbol(row)
+    action = _history_action(row)
+    qty = _history_fill_qty(row)
+    price = _history_fill_price(row)
+    if not symbol or action not in {"buy", "sell"} or qty <= 0:
+        return {}
+    return {
+        "ts": _history_timestamp(row),
+        "symbol": symbol,
+        "name": _history_name(row),
+        "action": action,
+        "qty": qty,
+        "price": price,
+        "reason": "broker history import",
+        "ok": 1,
+        "env": trader.TRADING_ENV,
+        "dry_run": 0,
+        "broker_order_id": _broker_order_id_from_history(row),
+        "order_status": "filled",
+        "filled_qty": qty,
+        "filled_price": price,
+        "response_msg": "KIS trade history import",
+        "broker_result": json.dumps(row, ensure_ascii=False),
+    }
+
+
+def _sync_filled_trades_from_history(api, *, days: int = 90) -> dict:
+    start_date, end_date = _order_history_window(days)
+    history = api.get_trade_history(start_date, end_date)
+    trader.init_db()
+
+    existing = {_history_trade_key(item) for item in _load_merged_trades()}
+    imported_count = 0
+    skipped_count = 0
+    updated_count = 0
+
+    with trader.connect_db() as conn:
+        for row in history:
+            trade = _history_row_to_trade(row)
+            if not trade:
+                skipped_count += 1
+                continue
+
+            key = _history_trade_key(trade)
+            if key in existing:
+                if trade["broker_order_id"]:
+                    cursor = conn.execute(
+                        """
+                        UPDATE trades
+                        SET order_status = ?,
+                            filled_qty = ?,
+                            filled_price = ?,
+                            response_msg = ?,
+                            broker_result = ?
+                        WHERE broker_order_id = ?
+                        """,
+                        (
+                            "filled",
+                            trade["filled_qty"],
+                            trade["filled_price"],
+                            trade["response_msg"],
+                            trade["broker_result"],
+                            trade["broker_order_id"],
+                        ),
+                    )
+                    updated_count += int(cursor.rowcount)
+                skipped_count += 1
+                continue
+
+            conn.execute(
+                """
+                INSERT INTO trades (
+                    ts, symbol, name, action, qty, price, reason, ok, env, dry_run,
+                    broker_order_id, order_status, filled_qty, filled_price, pre_order_qty, response_msg, broker_result
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    trade["ts"],
+                    trade["symbol"],
+                    trade["name"],
+                    trade["action"],
+                    trade["qty"],
+                    trade["price"],
+                    trade["reason"],
+                    trade["ok"],
+                    trade["env"],
+                    trade["dry_run"],
+                    trade["broker_order_id"],
+                    trade["order_status"],
+                    trade["filled_qty"],
+                    trade["filled_price"],
+                    0,
+                    trade["response_msg"],
+                    trade["broker_result"],
+                ),
+            )
+            existing.add(key)
+            imported_count += 1
+
+    return {
+        "ok": True,
+        "start_date": start_date,
+        "end_date": end_date,
+        "history_count": len(history),
+        "imported_count": imported_count,
+        "updated_count": updated_count,
+        "skipped_count": skipped_count,
+    }
+
+
 def _order_history_window(days: int = 7) -> tuple[str, str]:
     end = trader.datetime.now(trader.KST)
     start = end - trader.timedelta(days=max(1, days))
@@ -2863,5 +3036,3 @@ def _bg_run_scheduled_cycle(mode: str, include_ai_rebalance: bool, auto_approve:
             _scheduler_run_state["completed_at"] = trader.datetime.now(trader.KST).isoformat()
             _scheduler_run_state["result"] = None
             _scheduler_run_state["error"] = str(e)
-
-

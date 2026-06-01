@@ -319,12 +319,30 @@ class KIStockAPI:
             last_error: Exception | None = None
             for tr_id in tr_ids:
                 try:
-                    r = HTTP.get(url, headers=self._headers(tr_id), params=params, timeout=15)
-                    data = self._response_json(r, "Trade history")
-                    if data.get("rt_cd") != "0":
-                        raise self._kis_error(data, "unknown KIS trade history error")
+                    rows = []
+                    page_params = dict(params)
+                    tr_cont = ""
+                    while True:
+                        headers = self._headers(tr_id)
+                        if tr_cont:
+                            headers["tr_cont"] = tr_cont
+                        r = HTTP.get(url, headers=headers, params=page_params, timeout=15)
+                        data = self._response_json(r, "Trade history")
+                        if data.get("rt_cd") != "0":
+                            raise self._kis_error(data, "unknown KIS trade history error")
+                        rows.extend(data.get("output1", []) or [])
+
+                        next_fk = str(data.get("ctx_area_fk100") or data.get("CTX_AREA_FK100") or "").strip()
+                        next_nk = str(data.get("ctx_area_nk100") or data.get("CTX_AREA_NK100") or "").strip()
+                        response_headers = getattr(r, "headers", {}) or {}
+                        tr_cont = str(response_headers.get("tr_cont") or response_headers.get("tr-cont") or "").strip()
+                        if tr_cont not in {"M", "F"} or (not next_fk and not next_nk):
+                            break
+                        page_params["CTX_AREA_FK100"] = next_fk
+                        page_params["CTX_AREA_NK100"] = next_nk
+                        _kis_throttle()
                     self._success()
-                    return data.get("output1", [])
+                    return rows
                 except Exception as exc:
                     last_error = exc
             if last_error:

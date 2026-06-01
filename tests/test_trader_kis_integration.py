@@ -10,10 +10,11 @@ from src import trader
 
 
 class _FakeResponse:
-    def __init__(self, payload=None, status_code=200, raise_error=None):
+    def __init__(self, payload=None, status_code=200, raise_error=None, headers=None):
         self._payload = payload or {}
         self.status_code = status_code
         self._raise_error = raise_error
+        self.headers = headers or {}
 
     def json(self):
         return self._payload
@@ -347,6 +348,36 @@ class TraderKISIntegrationTests(unittest.TestCase):
         params = http_get.call_args.kwargs["params"]
         self.assertEqual(params["CCLD_DVSN"], "00")
         self.assertEqual(params["EXCG_ID_DVSN_CD"], "KRX")
+
+    def test_trade_history_follows_continuation_pages(self):
+        responses = [
+            _FakeResponse(
+                {
+                    "output1": [{"odno": "D12345"}],
+                    "ctx_area_fk100": "next-fk",
+                    "ctx_area_nk100": "next-nk",
+                },
+                headers={"tr_cont": "M"},
+            ),
+            _FakeResponse({"output1": [{"odno": "D67890"}]}, headers={"tr_cont": ""}),
+        ]
+        with (
+            patch.object(trader, "TRADING_ENV", "demo"),
+            patch.object(trader, "BASE_URL", "https://example.test"),
+            patch.object(trader, "KISTOCK_ACCOUNT", "1234567801"),
+            patch.object(trader.KIStockAPI, "_load_or_fetch_token", return_value="token-abc"),
+            patch.object(trader.KIStockAPI, "_headers", return_value={"tr_id": "VTTC0081R"}),
+            patch.object(trader, "_kis_order_throttle"),
+            patch.object(trader.HTTP, "get", side_effect=responses) as http_get,
+        ):
+            api = trader.KIStockAPI(notify_errors=False)
+            rows = api.get_trade_history("20260501", "20260524")
+
+        self.assertEqual(rows, [{"odno": "D12345"}, {"odno": "D67890"}])
+        self.assertEqual(http_get.call_count, 2)
+        second_params = http_get.call_args_list[1].kwargs["params"]
+        self.assertEqual(second_params["CTX_AREA_FK100"], "next-fk")
+        self.assertEqual(second_params["CTX_AREA_NK100"], "next-nk")
 
     def test_build_runtime_plan_works_with_api_public_methods_only(self):
         api = Mock()

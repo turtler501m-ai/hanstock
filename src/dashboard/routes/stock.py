@@ -451,11 +451,18 @@ def sync_trade_order_status(days: int = 7):
 
 
 @app.post("/api/trades/sync")
-def sync_trades():
+def sync_trades(days: int = 90):
     if trader.DRY_RUN:
         raise HTTPException(status_code=400, detail="紐⑥쓽 ?ㅽ뻾(DRY_RUN) 紐⑤뱶?먯꽌??利앷텒??怨꾩쥖 ?숆린?붾? ?ъ슜?????놁뒿?덈떎.")
     try:
         api = _get_api()
+        history_sync = None
+        history_error = None
+        try:
+            history_sync = _sync_filled_trades_from_history(api, days=days)
+        except Exception as exc:
+            history_error = str(exc)
+
         balance_data = _get_balance_data(api, allow_cache=False)
         parsed_balance = _parse_balance(balance_data)
         current_holdings = {h['symbol']: h for h in parsed_balance['holdings']}
@@ -550,7 +557,17 @@ def sync_trades():
                 )
                 synced_count += 1
                 
-        return {"ok": True, "synced_count": synced_count}
+        imported_count = _to_int(history_sync.get("imported_count")) if history_sync else 0
+        updated_count = _to_int(history_sync.get("updated_count")) if history_sync else 0
+        return {
+            "ok": True,
+            "synced_count": synced_count + imported_count,
+            "balance_synced_count": synced_count,
+            "history_imported_count": imported_count,
+            "history_updated_count": updated_count,
+            "history_sync": history_sync,
+            "history_error": history_error,
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -957,5 +974,3 @@ def trigger_scheduler_run(payload: dict = Body(...)):
     )
     t.start()
     return {"status": "started", "mode": mode}
-
-
