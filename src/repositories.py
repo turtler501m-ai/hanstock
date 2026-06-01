@@ -5,6 +5,13 @@ import sqlite3
 from typing import Callable
 
 
+def _ensure_column(conn: sqlite3.Connection, table: str, column: str, column_type: str) -> None:
+    rows = conn.execute(f"PRAGMA table_info({table})").fetchall()
+    existing = {row[1] for row in rows}
+    if column not in existing:
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {column_type}")
+
+
 @dataclass(frozen=True)
 class ApprovalRecord:
     id: int
@@ -19,6 +26,10 @@ class ApprovalRecord:
     source: str
     status: str
     response_msg: str
+    strategy_id: str = ""
+    strategy_version: int | None = None
+    profile_hash: str = ""
+    source_candidate_id: int | None = None
 
 
 def _approval_record_from_row(row: sqlite3.Row) -> ApprovalRecord:
@@ -35,6 +46,10 @@ def _approval_record_from_row(row: sqlite3.Row) -> ApprovalRecord:
         source=str(row["source"] or ""),
         status=str(row["status"]),
         response_msg=str(row["response_msg"] or ""),
+        strategy_id=str(row["strategy_id"] or "") if "strategy_id" in row.keys() else "",
+        strategy_version=int(row["strategy_version"]) if "strategy_version" in row.keys() and row["strategy_version"] is not None else None,
+        profile_hash=str(row["profile_hash"] or "") if "profile_hash" in row.keys() else "",
+        source_candidate_id=int(row["source_candidate_id"]) if "source_candidate_id" in row.keys() and row["source_candidate_id"] is not None else None,
     )
 
 
@@ -64,6 +79,10 @@ class ApprovalRepository:
                     )
                     """
                 )
+                _ensure_column(conn, "approvals", "strategy_id", "TEXT")
+                _ensure_column(conn, "approvals", "strategy_version", "INTEGER")
+                _ensure_column(conn, "approvals", "profile_hash", "TEXT")
+                _ensure_column(conn, "approvals", "source_candidate_id", "INTEGER")
         finally:
             conn.close()
 
@@ -81,6 +100,10 @@ class ApprovalRepository:
         source: str,
         status: str = "pending",
         response_msg: str = "",
+        strategy_id: str = "",
+        strategy_version: int | None = None,
+        profile_hash: str = "",
+        source_candidate_id: int | None = None,
     ) -> int:
         conn = self._connect_fn()
         try:
@@ -88,8 +111,11 @@ class ApprovalRepository:
                 cursor = conn.execute(
                     """
                     INSERT INTO approvals
-                    (created_at, updated_at, symbol, name, action, qty, price, reason, source, status, response_msg)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    (
+                        created_at, updated_at, symbol, name, action, qty, price, reason, source,
+                        status, response_msg, strategy_id, strategy_version, profile_hash, source_candidate_id
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         created_at,
@@ -103,6 +129,10 @@ class ApprovalRepository:
                         source,
                         status,
                         response_msg,
+                        strategy_id,
+                        strategy_version,
+                        profile_hash,
+                        source_candidate_id,
                     ),
                 )
                 return int(cursor.lastrowid)
@@ -157,4 +187,3 @@ class ApprovalRepository:
                 return cursor.rowcount > 0
         finally:
             conn.close()
-

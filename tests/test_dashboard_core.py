@@ -1,6 +1,8 @@
 import tempfile
 import unittest
 import sqlite3
+from datetime import datetime
+from unittest.mock import patch
 
 import src.dashboard as dashboard
 from src.dashboard import _parse_balance, _portfolio_totals
@@ -262,6 +264,31 @@ class DashboardCoreTests(unittest.TestCase):
         finally:
             dashboard.AUTO_APPROVAL_STATE = original_state
 
+    def test_candidate_cache_invalidates_when_strategy_profile_changes(self):
+        original_cache = dashboard.CANDIDATE_CACHE
+        try:
+            dashboard.CANDIDATE_CACHE = MemoryCachePath()
+            strategy_v1 = {
+                "id": "strategy_a",
+                "strategy_version": 1,
+                "profile_hash": "hash-a",
+            }
+            strategy_v2 = {
+                "id": "strategy_a",
+                "strategy_version": 2,
+                "profile_hash": "hash-b",
+            }
+
+            with patch("src.db.repository.load_ai_strategies", return_value=[strategy_v1]):
+                dashboard._save_candidate_cache(2, [{"ticker": "005930"}], [], 1, "strategy_a", "opt")
+                cached = dashboard._load_candidate_cache(2, "strategy_a", "opt")
+                self.assertIsNotNone(cached)
+
+            with patch("src.db.repository.load_ai_strategies", return_value=[strategy_v2]):
+                self.assertIsNone(dashboard._load_candidate_cache(2, "strategy_a", "opt"))
+        finally:
+            dashboard.CANDIDATE_CACHE = original_cache
+
     def test_enabling_auto_approval_processes_pending_orders(self):
         original_state = dashboard.AUTO_APPROVAL_STATE
         original_db_path = dashboard.trader.config.trade_db_path
@@ -421,6 +448,13 @@ class DashboardCoreTests(unittest.TestCase):
         finally:
             dashboard.trader.config.trade_db_path = original_db_path
             dashboard.trader.DRY_RUN = original_dry_run
+
+    def test_order_history_window_enforces_minimum_month_lookback(self):
+        start_date, end_date = dashboard._order_history_window(1)
+        start = datetime.strptime(start_date, "%Y%m%d")
+        end = datetime.strptime(end_date, "%Y%m%d")
+
+        self.assertGreaterEqual((end - start).days, 30)
 
     def test_order_status_sync_falls_back_to_balance_when_history_fails(self):
         original_db_path = dashboard.trader.config.trade_db_path

@@ -244,7 +244,7 @@ def _print_text(report: dict[str, Any]) -> None:
 def main() -> int:
     parser = argparse.ArgumentParser(description="KIS demo auto-trading rehearsal checks")
     parser.add_argument("--with-kis", action="store_true", help="run read-only KIS balance/order-history checks")
-    parser.add_argument("--days", type=int, default=7, help="order-history lookback window for --with-kis")
+    parser.add_argument("--days", type=int, default=30, help="order-history lookback window for --with-kis")
     parser.add_argument("--no-db", action="store_true", help="skip local trade DB schema checks")
     parser.add_argument("--demo-order", action="store_true", help="prepare a tiny KIS demo order rehearsal")
     parser.add_argument("--confirm-demo-order", action="store_true", help="actually submit --demo-order to KIS demo")

@@ -115,7 +115,7 @@ def _sync_order_status_after_cycle(result: dict) -> dict:
     try:
         from src.dashboard import _get_api, _sync_order_status_from_history
 
-        days = _env_int("HANSTOCK_ORDER_STATUS_SYNC_DAYS", 7)
+        days = _env_int("HANSTOCK_ORDER_STATUS_SYNC_DAYS", 30)
         sync_result = _sync_order_status_from_history(_get_api(), days=days)
         return {**result, "order_status_sync": sync_result}
     except Exception as exc:

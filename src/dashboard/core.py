@@ -6,6 +6,7 @@ import re
 import socket
 import sqlite3
 import subprocess
+import sys
 import threading
 import time
 from pathlib import Path
@@ -51,6 +52,7 @@ CANDIDATE_CACHE_TTL_SECONDS = int(os.environ.get("CANDIDATE_CACHE_TTL_SECONDS", 
 BALANCE_CACHE_TTL_SECONDS = int(os.environ.get("BALANCE_CACHE_TTL_SECONDS", "30"))
 BALANCE_FETCH_TIMEOUT_SECONDS = float(os.environ.get("BALANCE_FETCH_TIMEOUT_SECONDS", "25"))
 GIT_FETCH_TIMEOUT_SECONDS = float(os.environ.get("GIT_FETCH_TIMEOUT_SECONDS", "3"))
+MIN_ORDER_HISTORY_SYNC_DAYS = 30
 _balance_fetch_lock = threading.Lock()
 ENV_FIELDS = [
     {"key": "KISTOCK_APP_KEY", "label": "KIS App Key", "type": "secret"},
@@ -156,7 +158,27 @@ app.mount("/static", StaticFiles(directory=WEB_DIR / "static"), name="static")
 app.mount("/templates", StaticFiles(directory=WEB_DIR / "templates"), name="templates")
 
 
+def _public_override(name: str, current):
+    module = sys.modules.get("src.dashboard")
+    if module is None:
+        return None
+    value = getattr(module, name, None)
+    if value is not None and value is not current:
+        return value
+    return None
+
+
+def _public_value(name: str, default):
+    module = sys.modules.get("src.dashboard")
+    if module is None:
+        return default
+    return getattr(module, name, default)
+
+
 def _required_env_missing() -> list[str]:
+    override = _public_override("_required_env_missing", _required_env_missing)
+    if override is not None:
+        return override()
     required = ["KISTOCK_APP_KEY", "KISTOCK_APP_SECRET", "KISTOCK_ACCOUNT"]
     missing = [name for name in required if not os.environ.get(name)]
     if _account_format_warning(trader.config.kistock_account):
@@ -224,6 +246,9 @@ def _portfolio_totals(cash: int, summary_total: int, holdings: list[dict]) -> di
 
 
 def _parse_balance(balance_data: dict) -> dict:
+    override = _public_override("_parse_balance", _parse_balance)
+    if override is not None:
+        return override(balance_data)
     if balance_data.get("_error"):
         raise RuntimeError(balance_data["_error"])
 
@@ -270,6 +295,9 @@ def _parse_balance(balance_data: dict) -> dict:
 
 
 def _get_api() -> KIStockAPI:
+    override = _public_override("_get_api", _get_api)
+    if override is not None:
+        return override()
     return KIStockAPI(notify_errors=False)
 
 
@@ -336,6 +364,12 @@ def _run_with_timeout(func, timeout_seconds: float):
 
 
 def _get_balance_data(api: KIStockAPI, allow_cache: bool = True) -> dict:
+    override = _public_override("_get_balance_data", _get_balance_data)
+    if override is not None:
+        try:
+            return override(api, allow_cache=allow_cache)
+        except TypeError:
+            return override(api)
     cached = _load_balance_cache() if allow_cache else None
     if allow_cache:
         if cached is not None:
@@ -380,11 +414,32 @@ def _get_balance_data(api: KIStockAPI, allow_cache: bool = True) -> dict:
         return balance_data
 
 
+def _candidate_strategy_cache_signature(ranker: str) -> dict | None:
+    try:
+        from src.db.repository import load_ai_strategies
+
+        strategy = next((item for item in load_ai_strategies() if item.get("id") == ranker), None)
+    except Exception:
+        strategy = None
+    if not strategy:
+        return None
+    return {
+        "strategy_id": strategy.get("id"),
+        "strategy_version": int(strategy.get("strategy_version") or 1),
+        "profile_hash": strategy.get("profile_hash") or "",
+    }
+
+
 def _load_candidate_cache(
     min_score: int,
     ranker: str = "gpt_5_mini",
     optimizer: str = "score_tilted_inverse_vol",
 ) -> dict | None:
+    override = _public_override("_load_candidate_cache", _load_candidate_cache)
+    if override is not None:
+        if ranker == "gpt_5_mini" and optimizer == "score_tilted_inverse_vol":
+            return override(min_score)
+        return override(min_score, ranker, optimizer)
     if not CANDIDATE_CACHE.exists():
         return None
     try:
@@ -396,6 +451,7 @@ def _load_candidate_cache(
         "model": getattr(trader.config, "openai_model", "gpt-5-mini"),
         "candidate_limit": int(getattr(trader.config, "ai_candidate_limit", 5) or 5),
         "api_configured": bool(str(getattr(trader.config, "openai_api_key", "") or "").strip()),
+        "strategy": _candidate_strategy_cache_signature(ranker),
     }
     if (
         cached.get("trading_env") != trader.TRADING_ENV
@@ -434,6 +490,11 @@ def _save_candidate_cache(
     ranker: str = "gpt_5_mini",
     optimizer: str = "score_tilted_inverse_vol",
 ) -> None:
+    override = _public_override("_save_candidate_cache", _save_candidate_cache)
+    if override is not None:
+        if ranker == "gpt_5_mini" and optimizer == "score_tilted_inverse_vol":
+            return override(min_score, rows, scan_summary, scanned)
+        return override(min_score, rows, scan_summary, scanned, ranker, optimizer)
     CANDIDATE_CACHE.parent.mkdir(parents=True, exist_ok=True)
     CANDIDATE_CACHE.write_text(
         json.dumps({
@@ -447,6 +508,7 @@ def _save_candidate_cache(
                 "model": getattr(trader.config, "openai_model", "gpt-5-mini"),
                 "candidate_limit": int(getattr(trader.config, "ai_candidate_limit", 5) or 5),
                 "api_configured": bool(str(getattr(trader.config, "openai_api_key", "") or "").strip()),
+                "strategy": _candidate_strategy_cache_signature(ranker),
             },
             "rows": rows,
             "scan_summary": scan_summary,
@@ -639,6 +701,15 @@ def _init_approval_db() -> None:
             )
             """
         )
+        try:
+            from src.db.repository import _ensure_column
+
+            _ensure_column(conn, "approvals", "strategy_id", "TEXT")
+            _ensure_column(conn, "approvals", "strategy_version", "INTEGER")
+            _ensure_column(conn, "approvals", "profile_hash", "TEXT")
+            _ensure_column(conn, "approvals", "source_candidate_id", "INTEGER")
+        except Exception:
+            pass
 
 
 def _approval_row(row) -> dict:
@@ -948,10 +1019,16 @@ def _is_poll_running() -> bool:
 
 def _get_futures_signal_service() -> FuturesSignalService:
     global _FUTURES_SIGNAL_SERVICE
+    public_service = _public_value("_FUTURES_SIGNAL_SERVICE", _FUTURES_SIGNAL_SERVICE)
+    if public_service is not _FUTURES_SIGNAL_SERVICE:
+        _FUTURES_SIGNAL_SERVICE = public_service
     if _FUTURES_SIGNAL_SERVICE is None:
         service = FuturesSignalService()
         _seed_futures_signal_service(service)
         _FUTURES_SIGNAL_SERVICE = service
+        module = sys.modules.get("src.dashboard")
+        if module is not None:
+            setattr(module, "_FUTURES_SIGNAL_SERVICE", service)
     return _FUTURES_SIGNAL_SERVICE
 
 
@@ -1308,6 +1385,9 @@ def _quantconnect_portfolio_state(payload: dict) -> dict:
 
 
 def _quantconnect_cloud_snapshot(credentials: QuantConnectCredentials, *, force_refresh: bool = False) -> dict:
+    override = _public_override("_quantconnect_cloud_snapshot", _quantconnect_cloud_snapshot)
+    if override is not None:
+        return override(credentials, force_refresh=force_refresh)
     if not credentials.configured or not credentials.project_configured:
         return {
             "enabled": False,
@@ -1538,7 +1618,10 @@ def _quantconnect_mnq_status() -> dict:
 
 
 def _quantconnect_credentials() -> QuantConnectCredentials:
-    load_dotenv(dotenv_path=ENV_PATH, override=True)
+    override = _public_override("_quantconnect_credentials", _quantconnect_credentials)
+    if override is not None:
+        return override()
+    load_dotenv(dotenv_path=_public_value("ENV_PATH", ENV_PATH), override=True)
     return QuantConnectCredentials(
         user_id=os.environ.get("QUANTCONNECT_USER_ID") or os.environ.get("QC_USER_ID") or "",
         api_token=os.environ.get("QUANTCONNECT_API_TOKEN") or os.environ.get("QC_API_TOKEN") or "",
@@ -1555,8 +1638,9 @@ def _quantconnect_mnq_deploy(payload: dict | None = None) -> dict:
         raise HTTPException(status_code=400, detail="QUANTCONNECT_PROJECT_ID is required")
 
     api = QuantConnectAPI(credentials)
+    payload_node_id = str(payload.get("node_id") or "").strip()
     requested_node_id = (
-        str(payload.get("node_id") or "").strip()
+        payload_node_id
         or os.environ.get("QUANTCONNECT_LIVE_NODE_ID", "").strip()
         or os.environ.get("QC_LIVE_NODE_ID", "").strip()
     )
@@ -1565,7 +1649,12 @@ def _quantconnect_mnq_deploy(payload: dict | None = None) -> dict:
     if not nodes_payload.get("success", False):
         errors = nodes_payload.get("errors") or [nodes_payload.get("error") or "QuantConnect live node lookup failed"]
         raise HTTPException(status_code=502, detail="; ".join(str(error) for error in errors if error))
-    node = _select_quantconnect_live_node(nodes_payload, requested_node_id)
+    try:
+        node = _select_quantconnect_live_node(nodes_payload, requested_node_id)
+    except HTTPException:
+        if payload_node_id:
+            raise
+        node = _select_quantconnect_live_node(nodes_payload, "")
 
     compile_payload = api.create_compile(credentials.project_id, timeout=10.0)
     if not compile_payload.get("success", False):
@@ -2007,6 +2096,7 @@ async def get_candidates(
     min_score: int = 2,
     ranker: str = "gpt_5_mini",
     optimizer: str = "score_tilted_inverse_vol",
+    strategy_id: str | None = None,
 ):
     if min_score < 1:
         raise HTTPException(status_code=400, detail="min_score must be greater than 0")
@@ -2015,10 +2105,11 @@ async def get_candidates(
     if missing:
         raise HTTPException(status_code=503, detail=f"Missing environment variables: {', '.join(missing)}")
 
-    if ranker == "gpt_5_mini" and optimizer == "score_tilted_inverse_vol":
+    cache_ranker = strategy_id or ranker
+    if cache_ranker == "gpt_5_mini" and optimizer == "score_tilted_inverse_vol":
         cached = _load_candidate_cache(min_score)
     else:
-        cached = _load_candidate_cache(min_score, ranker, optimizer)
+        cached = _load_candidate_cache(min_score, cache_ranker, optimizer)
         
     if cached is not None:
         return cached
@@ -2029,34 +2120,40 @@ async def get_candidates(
         
         from src.db.repository import load_ai_strategies
         strats = load_ai_strategies()
-        selected_strat = next((s for s in strats if s["id"] == ranker), None)
+        selected_strat = next((s for s in strats if s["id"] == cache_ranker), None)
         
         if selected_strat:
-            ranker_model = selected_strat["model"]
-            ranker_weight = selected_strat["weight"]
+            profile = selected_strat.get("profile") or {}
+            ranker_model = profile.get("model") or selected_strat["model"]
+            ranker_weight = float(profile.get("ai_weight", selected_strat["weight"]) or 0.0)
             if selected_strat["provider"] == "none":
                 ranker_model = "none"
         else:
-            ranker_model = ranker
+            ranker_model = cache_ranker
             ranker_weight = 0.4
             
         payload = build_dashboard_candidates(
             api, parsed, min_score=min_score, ranker=ranker_model, ranker_weight=ranker_weight, optimizer=optimizer
         )
+        if selected_strat:
+            for cand in payload.get("candidates", []):
+                cand["strategy_id"] = selected_strat.get("id")
+                cand["strategy_version"] = selected_strat.get("strategy_version")
+                cand["profile_hash"] = selected_strat.get("profile_hash")
         
         if payload["scanned"] > 0:
-            if ranker == "gpt_5_mini" and optimizer == "score_tilted_inverse_vol":
+            if cache_ranker == "gpt_5_mini" and optimizer == "score_tilted_inverse_vol":
                 _save_candidate_cache(
                     min_score, payload["candidates"], payload["scan_summary"], payload["scanned"]
                 )
             else:
                 _save_candidate_cache(
-                    min_score, payload["candidates"], payload["scan_summary"], payload["scanned"], ranker, optimizer
+                    min_score, payload["candidates"], payload["scan_summary"], payload["scanned"], cache_ranker, optimizer
                 )
             # Automatically save scan results to DB for history tracking
             from src.db.repository import save_scanned_candidate
             for cand in payload["candidates"]:
-                save_scanned_candidate(
+                saved_candidate_id = save_scanned_candidate(
                     symbol=cand["ticker"],
                     name=cand["name"],
                     score=cand["score"],
@@ -2069,7 +2166,39 @@ async def get_candidates(
                         "macd_hist": cand.get("macd_hist"),
                         "sma20": cand.get("sma20"),
                         "sma60": cand.get("sma60"),
-                    }
+                    },
+                    strategy=selected_strat,
+                    ranker_model=ranker_model,
+                    optimizer=optimizer,
+                    scoring={
+                        "rule_score": cand.get("rule_score"),
+                        "ml_score": cand.get("ml_score"),
+                        "final_score": cand.get("final_score"),
+                        "ai_model_status": cand.get("ai_model_status"),
+                        "ai_fallback_reason": cand.get("ai_fallback_reason"),
+                        "top_features": cand.get("top_features"),
+                    },
+                )
+                if saved_candidate_id and selected_strat:
+                    cand["id"] = saved_candidate_id
+            if selected_strat:
+                from src.db.repository import record_ai_strategy_event, save_ai_strategies
+                now = trader.datetime.now(trader.KST).strftime("%Y-%m-%d %H:%M:%S")
+                for s in strats:
+                    if s.get("id") == selected_strat.get("id"):
+                        s["last_used_at"] = now
+                        break
+                save_ai_strategies(strats)
+                record_ai_strategy_event(
+                    selected_strat["id"],
+                    "used_for_candidates",
+                    {
+                        "optimizer": optimizer,
+                        "ranker_model": ranker_model,
+                        "scanned": payload.get("scanned", 0),
+                        "candidates": len(payload.get("candidates", [])),
+                    },
+                    selected_strat.get("strategy_version"),
                 )
             
             # AI 자동 추가적용 로직
@@ -2104,6 +2233,16 @@ async def get_candidates_history(limit: int = 100, days: int = 30):
         from src.db.repository import get_scanned_candidates_history
         history = get_scanned_candidates_history(limit=limit, days=days)
         return {"history": history}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/candidates/forward-returns/refresh")
+async def refresh_candidate_forward_returns(limit: int = 500):
+    try:
+        from src.db.repository import refresh_scanned_candidate_forward_returns
+
+        return refresh_scanned_candidate_forward_returns(limit=limit)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -2255,6 +2394,10 @@ def _approve_pending_approval(approval_id: int, approval_label: str = "수동승
             filled_qty=0 if ok and trader.ORDER_SUBMISSION_ENABLED else item["qty"] if ok else 0,
             filled_price=0 if ok and trader.ORDER_SUBMISSION_ENABLED else item["price"] if ok else 0,
             pre_order_qty=pre_order_qty,
+            strategy_id=item.get("strategy_id"),
+            strategy_version=_to_int(item.get("strategy_version")) or None,
+            profile_hash=item.get("profile_hash"),
+            source_approval_id=approval_id,
         )
     except Exception as e:
         status = "failed"
@@ -2673,9 +2816,9 @@ def _sync_filled_trades_from_history(api, *, days: int = 90) -> dict:
     }
 
 
-def _order_history_window(days: int = 7) -> tuple[str, str]:
+def _order_history_window(days: int = MIN_ORDER_HISTORY_SYNC_DAYS) -> tuple[str, str]:
     end = trader.datetime.now(trader.KST)
-    start = end - trader.timedelta(days=max(1, days))
+    start = end - trader.timedelta(days=max(MIN_ORDER_HISTORY_SYNC_DAYS, days))
     return start.strftime("%Y%m%d"), end.strftime("%Y%m%d")
 
 
@@ -2696,7 +2839,7 @@ def _load_trackable_order_trades() -> list[dict]:
     return [dict(row) for row in rows]
 
 
-def _sync_order_status_from_history(api, *, days: int = 7) -> dict:
+def _sync_order_status_from_history(api, *, days: int = MIN_ORDER_HISTORY_SYNC_DAYS) -> dict:
     tracked = _load_trackable_order_trades()
     if not tracked:
         return {"ok": True, "checked_count": 0, "updated_count": 0, "orders": []}

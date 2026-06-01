@@ -369,6 +369,15 @@ def init_approval_db() -> None:
             )
             """
         )
+        try:
+            from src.db.repository import _ensure_column
+
+            _ensure_column(conn, "approvals", "strategy_id", "TEXT")
+            _ensure_column(conn, "approvals", "strategy_version", "INTEGER")
+            _ensure_column(conn, "approvals", "profile_hash", "TEXT")
+            _ensure_column(conn, "approvals", "source_candidate_id", "INTEGER")
+        except Exception:
+            pass
 
 
 def daily_loss_halt_triggered(pnl: int) -> bool:
@@ -393,6 +402,10 @@ def queue_approval(
     price: int,
     reason: str = "",
     source: str = "trader",
+    strategy_id: str | None = None,
+    strategy_version: int | None = None,
+    profile_hash: str | None = None,
+    source_candidate_id: int | None = None,
 ) -> int:
     init_approval_db()
     now = datetime.now(KST).strftime("%Y-%m-%d %H:%M:%S")
@@ -400,10 +413,16 @@ def queue_approval(
         cursor = conn.execute(
             """
             INSERT INTO approvals
-            (created_at, updated_at, symbol, name, action, qty, price, reason, source, status, response_msg)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', '')
+            (
+                created_at, updated_at, symbol, name, action, qty, price, reason, source,
+                status, response_msg, strategy_id, strategy_version, profile_hash, source_candidate_id
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', '', ?, ?, ?, ?)
             """,
-            (now, now, symbol, name, action, qty, price, reason, source),
+            (
+                now, now, symbol, name, action, qty, price, reason, source,
+                strategy_id, strategy_version, profile_hash, source_candidate_id,
+            ),
         )
         return cursor.lastrowid
 

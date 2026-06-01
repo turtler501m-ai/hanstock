@@ -43,7 +43,8 @@ def get_config():
 
 @app.get("/api/env")
 def get_env_settings():
-    values = _read_env_values()
+    env_path = _public_value("ENV_PATH", ENV_PATH)
+    values = _read_env_values(env_path)
     fields = []
     for field in ENV_FIELDS:
         key = field["key"]
@@ -62,8 +63,8 @@ def get_env_settings():
         }
         fields.append(item)
     return {
-        "path": str(ENV_PATH),
-        "exists": ENV_PATH.exists(),
+        "path": str(env_path),
+        "exists": env_path.exists(),
         "requires_restart": True,
         "fields": fields,
     }
@@ -88,7 +89,7 @@ def update_env_settings(payload: dict = Body(...)):
 
     if updates:
         updates = _expand_virtual_env_updates(updates)
-        _write_env_values(updates, ENV_PATH)
+        _write_env_values(updates, _public_value("ENV_PATH", ENV_PATH))
         _apply_runtime_env_updates(updates)
         _apply_strategy_env_updates(updates)
     return {
@@ -123,7 +124,7 @@ def set_runtime_order_mode(payload: dict = Body(...)):
     key = str(payload.get("key", "")).strip()
     enabled = bool(payload.get("enabled"))
     updates = _runtime_order_mode_updates(key, enabled)
-    _write_env_values(updates, ENV_PATH)
+    _write_env_values(updates, _public_value("ENV_PATH", ENV_PATH))
     _apply_runtime_env_updates(updates)
     return {
         "ok": True,
@@ -135,6 +136,5 @@ def set_runtime_order_mode(payload: dict = Body(...)):
         "real_orders_enabled": trader.REAL_ORDERS_ENABLED,
         "requires_restart": False,
     }
-
 
 

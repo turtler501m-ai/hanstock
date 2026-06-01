@@ -89,7 +89,10 @@ $ssh = Get-SshPath
 $target = if ($User) { "$User@$HostName" } else { $HostName }
 
 if (-not $SkipPush) {
-    $status = git status --porcelain
+    $status = git status --porcelain | Where-Object {
+        $_ -notmatch '^\?\? doc/.*\.md$' -and
+        $_ -notmatch '^\?\? doc\\.*\.md$'
+    }
     if ($status) {
         throw "Working tree is not clean. Commit or stash changes before deploy, or use -SkipPush to deploy the current remote state."
     }

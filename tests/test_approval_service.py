@@ -37,6 +37,10 @@ class ApprovalServiceTests(unittest.TestCase):
                 price=70000,
                 reason="rebalance",
                 source="dashboard",
+                strategy_id="strategy_a",
+                strategy_version=2,
+                profile_hash="hash-a",
+                source_candidate_id=7,
             )
         )
 
@@ -46,6 +50,10 @@ class ApprovalServiceTests(unittest.TestCase):
         self.assertEqual(approval.created_at, self.now_value)
         self.assertEqual(approval.updated_at, self.now_value)
         self.assertEqual(approval.symbol, "005930")
+        self.assertEqual(approval.strategy_id, "strategy_a")
+        self.assertEqual(approval.strategy_version, 2)
+        self.assertEqual(approval.profile_hash, "hash-a")
+        self.assertEqual(approval.source_candidate_id, 7)
 
     def test_queue_approval_uses_scheduler_default_source(self):
         approval_id = self.service.queue_approval("000660", "SK", "sell", 1, 120000, "trim")

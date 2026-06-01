@@ -685,22 +685,72 @@
                             <button type="button" id="btn-apply-selected-strategies" style="background: #10b981; color: white; border: none; padding: 8px 20px; border-radius: 6px; font-size: 0.85rem; font-weight: 500; cursor: pointer; transition: background 0.2s;" onmouseover="this.style.background='#059669'" onmouseout="this.style.background='#10b981'">선택 전략 적용 및 찾기</button>
                         </div>
                     </div>
+                    <div class="ai-strategy-summary" id="strategy-context-summary">
+                        <div>
+                            <span>Active</span>
+                            <strong id="strategy-context-name">-</strong>
+                            <small id="strategy-context-detail">-</small>
+                        </div>
+                        <div>
+                            <span>Status</span>
+                            <strong id="strategy-context-status">-</strong>
+                            <small id="strategy-context-version">-</small>
+                        </div>
+                        <div>
+                            <span>Safety</span>
+                            <strong id="strategy-context-safety">-</strong>
+                            <small id="strategy-context-approval">-</small>
+                        </div>
+                        <div>
+                            <span>Validation</span>
+                            <strong id="strategy-context-verified">-</strong>
+                            <small id="strategy-context-used">-</small>
+                        </div>
+                    </div>
                     <div class="table-responsive">
                         <table id="table-ai-strategies" style="width: 100%; border-collapse: collapse;">
                             <thead>
                                 <tr>
                                     <th style="width: 60px; text-align: center;">선택</th>
                                     <th>전략명</th>
+                                    <th>상태</th>
                                     <th>모델명</th>
                                     <th>가중치</th>
-                                    <th>설명</th>
-                                    <th style="width: 250px; text-align: center;">동작 검증</th>
+                                    <th style="width: 420px; text-align: center;">검증/운영</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 <!-- JS에서 동적 로드 -->
                             </tbody>
                         </table>
+                    </div>
+                    <div class="panel-sub" id="strategy-audit-panel" style="margin-top: 1.5rem;">
+                        <div class="panel-header split-header">
+                            <div>
+                                <h3>전략 운영 감사</h3>
+                                <p class="section-help" id="strategy-audit-title">전략을 선택하면 최근 성과와 이벤트가 표시됩니다.</p>
+                            </div>
+                            <button type="button" id="btn-refresh-strategy-audit" class="button-ghost compact-button">감사 새로고침</button>
+                        </div>
+                        <div class="ai-strategy-summary">
+                            <div><span>후보 수</span><strong id="strategy-audit-candidates">-</strong><small>최근 30일</small></div>
+                            <div><span>평균 점수</span><strong id="strategy-audit-score">-</strong><small>final/rule/AI</small></div>
+                            <div><span>모델 상태</span><strong id="strategy-audit-status">-</strong><small id="strategy-audit-optimizer">-</small></div>
+                            <div><span>5일 성과</span><strong id="strategy-audit-review">-</strong><small id="strategy-audit-warning">-</small></div>
+                        </div>
+                        <div class="table-responsive">
+                            <table id="table-strategy-events" style="width: 100%; border-collapse: collapse;">
+                                <thead>
+                                    <tr>
+                                        <th>시간</th>
+                                        <th>이벤트</th>
+                                        <th>버전</th>
+                                        <th>요약</th>
+                                    </tr>
+                                </thead>
+                                <tbody></tbody>
+                            </table>
+                        </div>
                     </div>
                 </section>
 

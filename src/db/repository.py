@@ -1,6 +1,7 @@
 import sqlite3
 import os
 import json
+import hashlib
 from pathlib import Path
 from datetime import datetime, timedelta, timezone
 from src.config import config
@@ -9,16 +10,21 @@ from src.utils.logger import logger
 KST = timezone(timedelta(hours=9))
 
 class DBWrapper:
-    def __init__(self, conn, is_pg=False):
+    def __init__(self, conn, is_pg=False, close_on_exit=False):
         self.conn = conn
         self.is_pg = is_pg
+        self.close_on_exit = close_on_exit
 
     def __enter__(self):
         self.conn.__enter__()
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
-        self.conn.__exit__(exc_type, exc_val, exc_tb)
+        try:
+            return self.conn.__exit__(exc_type, exc_val, exc_tb)
+        finally:
+            if self.close_on_exit:
+                self.conn.close()
 
     def execute(self, sql, params=()):
         if self.is_pg:
@@ -60,13 +66,13 @@ def connect_db():
                 "Postgres DATABASE_URL requires psycopg2-binary to be installed"
             ) from exc
         conn = psycopg2.connect(db_url)
-        return DBWrapper(conn, is_pg=True)
+        return DBWrapper(conn, is_pg=True, close_on_exit=True)
     else:
         db_path = Path(config.trade_db_path)
         db_path.parent.mkdir(parents=True, exist_ok=True)
         conn = sqlite3.connect(db_path)
         conn.execute("PRAGMA journal_mode=MEMORY")
-        return DBWrapper(conn, is_pg=False)
+        return DBWrapper(conn, is_pg=False, close_on_exit=True)
 
 def init_db() -> None:
     with connect_db() as conn:
@@ -94,6 +100,10 @@ def init_db() -> None:
         _ensure_column(conn, "trades", "pre_order_qty", "INTEGER DEFAULT 0")
         _ensure_column(conn, "trades", "response_msg", "TEXT")
         _ensure_column(conn, "trades", "broker_result", "TEXT")
+        _ensure_column(conn, "trades", "strategy_id", "TEXT")
+        _ensure_column(conn, "trades", "strategy_version", "INTEGER")
+        _ensure_column(conn, "trades", "profile_hash", "TEXT")
+        _ensure_column(conn, "trades", "source_approval_id", "INTEGER")
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS decision_logs (
@@ -160,6 +170,43 @@ def init_db() -> None:
             )
             """
         )
+        _ensure_column(conn, "ai_strategies", "status", "TEXT DEFAULT 'draft'")
+        _ensure_column(conn, "ai_strategies", "profile_json", "TEXT")
+        _ensure_column(conn, "ai_strategies", "strategy_version", "INTEGER DEFAULT 1")
+        _ensure_column(conn, "ai_strategies", "profile_hash", "TEXT")
+        _ensure_column(conn, "ai_strategies", "last_verified_at", "TEXT")
+        _ensure_column(conn, "ai_strategies", "last_backtested_at", "TEXT")
+        _ensure_column(conn, "ai_strategies", "last_paper_started_at", "TEXT")
+        _ensure_column(conn, "ai_strategies", "last_paper_completed_at", "TEXT")
+        _ensure_column(conn, "ai_strategies", "last_used_at", "TEXT")
+        _ensure_column(conn, "ai_strategies", "last_validation_result", "TEXT")
+        _ensure_column(conn, "scanned_candidates", "strategy_id", "TEXT")
+        _ensure_column(conn, "scanned_candidates", "strategy_version", "INTEGER")
+        _ensure_column(conn, "scanned_candidates", "profile_hash", "TEXT")
+        _ensure_column(conn, "scanned_candidates", "ranker_model", "TEXT")
+        _ensure_column(conn, "scanned_candidates", "optimizer", "TEXT")
+        _ensure_column(conn, "scanned_candidates", "rule_score", "REAL")
+        _ensure_column(conn, "scanned_candidates", "ml_score", "REAL")
+        _ensure_column(conn, "scanned_candidates", "final_score", "REAL")
+        _ensure_column(conn, "scanned_candidates", "ai_model_status", "TEXT")
+        _ensure_column(conn, "scanned_candidates", "ai_fallback_reason", "TEXT")
+        _ensure_column(conn, "scanned_candidates", "top_features_json", "TEXT")
+        _ensure_column(conn, "scanned_candidates", "forward_return_1d", "REAL")
+        _ensure_column(conn, "scanned_candidates", "forward_return_5d", "REAL")
+        _ensure_column(conn, "scanned_candidates", "forward_return_20d", "REAL")
+        _ensure_column(conn, "scanned_candidates", "return_updated_at", "TEXT")
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS ai_strategy_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                ts TEXT NOT NULL,
+                strategy_id TEXT NOT NULL,
+                strategy_version INTEGER,
+                event_type TEXT NOT NULL,
+                payload TEXT
+            )
+            """
+        )
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS token_usage (
@@ -179,6 +226,28 @@ def init_db() -> None:
             )
             """
         )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS approvals (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                symbol TEXT NOT NULL,
+                name TEXT NOT NULL,
+                action TEXT NOT NULL,
+                qty INTEGER NOT NULL,
+                price INTEGER NOT NULL,
+                reason TEXT,
+                source TEXT,
+                status TEXT NOT NULL,
+                response_msg TEXT
+            )
+            """
+        )
+        _ensure_column(conn, "approvals", "strategy_id", "TEXT")
+        _ensure_column(conn, "approvals", "strategy_version", "INTEGER")
+        _ensure_column(conn, "approvals", "profile_hash", "TEXT")
+        _ensure_column(conn, "approvals", "source_candidate_id", "INTEGER")
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS scheduler_results (
@@ -269,6 +338,10 @@ def save_trade(
     filled_qty: int | None = None,
     filled_price: int | None = None,
     pre_order_qty: int | None = None,
+    strategy_id: str | None = None,
+    strategy_version: int | None = None,
+    profile_hash: str | None = None,
+    source_approval_id: int | None = None,
 ) -> None:
     ts = datetime.now(KST).strftime("%Y-%m-%d %H:%M:%S")
     broker_order_id = broker_order_id if broker_order_id is not None else _extract_broker_order_id(broker_result)
@@ -287,9 +360,10 @@ def save_trade(
                 """
                 INSERT INTO trades (
                     ts, symbol, name, action, qty, price, reason, ok, env, dry_run,
-                    broker_order_id, order_status, filled_qty, filled_price, pre_order_qty, response_msg, broker_result
+                    broker_order_id, order_status, filled_qty, filled_price, pre_order_qty, response_msg, broker_result,
+                    strategy_id, strategy_version, profile_hash, source_approval_id
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     ts,
@@ -309,6 +383,10 @@ def save_trade(
                     pre_order_qty,
                     response_msg,
                     broker_result_json,
+                    strategy_id,
+                    strategy_version,
+                    profile_hash,
+                    source_approval_id,
                 ),
             )
             
@@ -317,7 +395,8 @@ def save_trade(
             rows = conn.execute(
                 """
                 SELECT ts, symbol, name, action, qty, price, reason, ok, env, dry_run,
-                       broker_order_id, order_status, filled_qty, filled_price, pre_order_qty, response_msg, broker_result
+                       broker_order_id, order_status, filled_qty, filled_price, pre_order_qty, response_msg, broker_result,
+                       strategy_id, strategy_version, profile_hash, source_approval_id
                 FROM trades ORDER BY ts ASC
                 """
             ).fetchall()
@@ -390,8 +469,12 @@ def save_scanned_candidate(
     reasons: list | str,
     price: int,
     env: str,
-    indicators: dict | None = None
-) -> None:
+    indicators: dict | None = None,
+    strategy: dict | None = None,
+    ranker_model: str | None = None,
+    optimizer: str | None = None,
+    scoring: dict | None = None,
+) -> int | None:
     ts = datetime.now(KST).strftime("%Y-%m-%d %H:%M:%S")
     reasons_str = ",".join(reasons) if isinstance(reasons, list) else str(reasons)
     indicators = indicators or {}
@@ -401,25 +484,49 @@ def save_scanned_candidate(
     macd_hist = indicators.get("macd_hist")
     sma20 = indicators.get("sma20")
     sma60 = indicators.get("sma60")
+    strategy = strategy or {}
+    scoring = scoring or {}
+    top_features = scoring.get("top_features")
+    top_features_json = (
+        json.dumps(top_features, ensure_ascii=False)
+        if isinstance(top_features, (list, dict))
+        else None
+    )
     
     try:
         init_db()
         with connect_db() as conn:
-            conn.execute(
+            cursor = conn.execute(
                 """
                 INSERT INTO scanned_candidates (
                     scanned_at, symbol, name, score, reasons, price, env,
-                    rsi, rsi2, macd_hist, sma20, sma60
+                    rsi, rsi2, macd_hist, sma20, sma60,
+                    strategy_id, strategy_version, profile_hash, ranker_model, optimizer,
+                    rule_score, ml_score, final_score, ai_model_status,
+                    ai_fallback_reason, top_features_json
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     ts, symbol, name, score, reasons_str, price, env,
-                    rsi, rsi2, macd_hist, sma20, sma60
+                    rsi, rsi2, macd_hist, sma20, sma60,
+                    strategy.get("id"),
+                    strategy.get("strategy_version"),
+                    strategy.get("profile_hash"),
+                    ranker_model,
+                    optimizer,
+                    scoring.get("rule_score"),
+                    scoring.get("ml_score"),
+                    scoring.get("final_score"),
+                    scoring.get("ai_model_status"),
+                    scoring.get("ai_fallback_reason"),
+                    top_features_json,
                 )
             )
+            return int(cursor.lastrowid)
     except Exception as e:
         logger.warning(f"Failed to save scanned candidate: {e}")
+    return None
 
 
 def get_scanned_candidates_history(limit: int = 100, days: int = 30) -> list[dict]:
@@ -455,6 +562,110 @@ def delete_scanned_candidate(candidate_id: int) -> int:
     except Exception as e:
         logger.warning(f"Failed to delete scanned candidate: {e}")
         return 0
+
+
+def _candidate_date(scanned_at: str) -> str:
+    return str(scanned_at or "")[:10]
+
+
+def _chart_close_on_or_after(conn: DBWrapper, symbol: str, date_text: str) -> tuple[str, float] | None:
+    row = conn.execute(
+        """
+        SELECT date, close
+        FROM daily_charts
+        WHERE symbol = ?
+          AND date >= ?
+          AND close > 0
+        ORDER BY date ASC
+        LIMIT 1
+        """,
+        (symbol, date_text),
+    ).fetchone()
+    if not row:
+        return None
+    return str(row[0]), float(row[1])
+
+
+def _target_date(date_text: str, days: int) -> str:
+    return (datetime.fromisoformat(date_text) + timedelta(days=days)).strftime("%Y-%m-%d")
+
+
+def refresh_scanned_candidate_forward_returns(
+    *,
+    days: tuple[int, ...] = (1, 5, 20),
+    limit: int = 500,
+) -> dict:
+    init_db()
+    supported_days = tuple(day for day in days if day in {1, 5, 20})
+    if not supported_days:
+        return {"ok": True, "checked_count": 0, "updated_count": 0, "days": []}
+
+    null_checks = " OR ".join(f"forward_return_{day}d IS NULL" for day in supported_days)
+    with connect_db() as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            f"""
+            SELECT id, scanned_at, symbol, price
+            FROM scanned_candidates
+            WHERE ({null_checks})
+            ORDER BY scanned_at ASC
+            LIMIT ?
+            """,
+            (max(1, min(int(limit or 500), 5000)),),
+        ).fetchall()
+
+        updated_count = 0
+        skipped_count = 0
+        now = datetime.now(KST).strftime("%Y-%m-%d %H:%M:%S")
+        for row in rows:
+            item = dict(row)
+            scanned_date = _candidate_date(item.get("scanned_at", ""))
+            symbol = str(item.get("symbol") or "")
+            if not scanned_date or not symbol:
+                skipped_count += 1
+                continue
+
+            base = _chart_close_on_or_after(conn, symbol, scanned_date)
+            if base is None:
+                skipped_count += 1
+                continue
+            _, base_close = base
+            if base_close <= 0:
+                skipped_count += 1
+                continue
+
+            values: dict[str, float] = {}
+            for day in supported_days:
+                target = _chart_close_on_or_after(conn, symbol, _target_date(scanned_date, day))
+                if target is None:
+                    continue
+                _, target_close = target
+                values[f"forward_return_{day}d"] = round(((target_close - base_close) / base_close) * 100, 4)
+
+            if not values:
+                skipped_count += 1
+                continue
+
+            assignments = ", ".join(f"{key} = ?" for key in values)
+            params = [*values.values(), now, int(item["id"])]
+            cursor = conn.execute(
+                f"""
+                UPDATE scanned_candidates
+                SET {assignments},
+                    return_updated_at = ?
+                WHERE id = ?
+                """,
+                tuple(params),
+            )
+            updated_count += int(cursor.rowcount)
+
+    return {
+        "ok": True,
+        "checked_count": len(rows),
+        "updated_count": updated_count,
+        "skipped_count": skipped_count,
+        "days": list(supported_days),
+    }
 
 
 TOKEN_USAGE_FILE = Path(".runtime/token_usage.json")
@@ -550,6 +761,87 @@ def update_token_usage(prompt: int, completion: int, total: int | None = None) -
 
 AI_STRATEGIES_FILE = Path(".runtime/ai_strategies.json")
 
+def _default_strategy_profile(strategy: dict) -> dict:
+    provider = strategy.get("provider") or ("openai" if strategy.get("model") != "none" else "rule")
+    model = strategy.get("model", "none")
+    weight = max(0.0, min(1.0, float(strategy.get("weight", 0.0) or 0.0)))
+    if provider == "none":
+        provider = "rule" if model == "none" else str(model).split("_", 1)[0]
+    return {
+        "strategy_type": strategy.get("strategy_type", "rebound"),
+        "risk_level": strategy.get("risk_level", "balanced"),
+        "provider": provider,
+        "model": model,
+        "ai_weight": weight,
+        "min_rule_score_for_ai": 1.5,
+        "min_ai_confidence": 0.6,
+        "allow_candidate_promotion": False,
+        "focus": ["rsi2_oversold", "bollinger_lower_band", "volume_recovery"],
+        "avoid": ["high_volatility_breakdown", "overheated_rsi", "weak_liquidity"],
+        "market_regime_filter": ["neutral", "bull", "low_volatility"],
+        "backtest": {
+            "min_warmup_periods": 60,
+            "commission_bps": 15,
+            "slippage_bps": 5,
+            "market_impact_bps": 5,
+        },
+        "risk": {
+            "max_ai_weight": weight,
+            "max_risk_per_trade_pct": 1.0,
+            "max_daily_ai_orders": 3,
+            "paper_trading_required_days": 20,
+        },
+    }
+
+
+def _parse_strategy_profile(strategy: dict) -> dict:
+    raw_profile = strategy.get("profile")
+    if not raw_profile:
+        raw_profile = strategy.get("profile_json")
+    if isinstance(raw_profile, str) and raw_profile.strip():
+        try:
+            raw_profile = json.loads(raw_profile)
+        except Exception:
+            raw_profile = {}
+    if not isinstance(raw_profile, dict):
+        raw_profile = {}
+    profile = _default_strategy_profile(strategy)
+    profile.update(raw_profile)
+    profile["model"] = str(profile.get("model") or strategy.get("model") or "none")
+    profile["ai_weight"] = max(0.0, min(1.0, float(profile.get("ai_weight", strategy.get("weight", 0.0)) or 0.0)))
+    return profile
+
+
+def strategy_profile_hash(profile: dict) -> str:
+    payload = json.dumps(profile or {}, ensure_ascii=True, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def normalize_ai_strategy(strategy: dict) -> dict:
+    item = dict(strategy)
+    item["provider"] = str(item.get("provider") or ("openai" if item.get("model") != "none" else "none"))
+    item["model"] = str(item.get("model") or "none")
+    item["weight"] = max(0.0, min(1.0, float(item.get("weight", 0.0) or 0.0)))
+    item["selected"] = bool(item.get("selected", False))
+    item["strategy_version"] = int(item.get("strategy_version") or 1)
+    item["status"] = str(item.get("status") or ("approved" if item.get("selected") else "verified"))
+    profile = _parse_strategy_profile(item)
+    item["profile"] = profile
+    item["profile_json"] = json.dumps(profile, ensure_ascii=False, sort_keys=True)
+    item["profile_hash"] = strategy_profile_hash(profile)
+    item["description"] = str(item.get("description") or "")
+    for key in (
+        "last_verified_at",
+        "last_backtested_at",
+        "last_paper_started_at",
+        "last_paper_completed_at",
+        "last_used_at",
+        "last_validation_result",
+    ):
+        item[key] = item.get(key)
+    return item
+
+
 def load_ai_strategies() -> list[dict]:
     default_strategies = [
         {
@@ -608,15 +900,25 @@ def load_ai_strategies() -> list[dict]:
             if len(rows) > 0:
                 strategies = []
                 for row in rows:
-                    strategies.append({
+                    strategies.append(normalize_ai_strategy({
                         "id": row["id"],
                         "name": row["name"],
                         "provider": row["provider"],
                         "model": row["model"],
                         "weight": float(row["weight"]),
                         "description": row["description"],
-                        "selected": row["selected"] == 1
-                    })
+                        "selected": row["selected"] == 1,
+                        "status": row["status"] if "status" in row.keys() else None,
+                        "profile_json": row["profile_json"] if "profile_json" in row.keys() else None,
+                        "strategy_version": row["strategy_version"] if "strategy_version" in row.keys() else 1,
+                        "profile_hash": row["profile_hash"] if "profile_hash" in row.keys() else None,
+                        "last_verified_at": row["last_verified_at"] if "last_verified_at" in row.keys() else None,
+                        "last_backtested_at": row["last_backtested_at"] if "last_backtested_at" in row.keys() else None,
+                        "last_paper_started_at": row["last_paper_started_at"] if "last_paper_started_at" in row.keys() else None,
+                        "last_paper_completed_at": row["last_paper_completed_at"] if "last_paper_completed_at" in row.keys() else None,
+                        "last_used_at": row["last_used_at"] if "last_used_at" in row.keys() else None,
+                        "last_validation_result": row["last_validation_result"] if "last_validation_result" in row.keys() else None,
+                    }))
                 return strategies
     except Exception as e:
         logger.warning(f"Failed to load AI strategies from DB: {e}")
@@ -634,13 +936,14 @@ def load_ai_strategies() -> list[dict]:
         save_ai_strategies(strategies)
     except Exception:
         pass
-    return strategies
+    return [normalize_ai_strategy(s) for s in strategies]
 
 
 def save_ai_strategies(strategies: list[dict]) -> None:
     # Save to JSON as backup
     try:
         AI_STRATEGIES_FILE.parent.mkdir(parents=True, exist_ok=True)
+        strategies = [normalize_ai_strategy(s) for s in strategies]
         AI_STRATEGIES_FILE.write_text(json.dumps(strategies, ensure_ascii=False, indent=2), encoding="utf-8")
     except Exception as e:
         logger.warning(f"Failed to save AI strategies to JSON: {e}")
@@ -654,8 +957,13 @@ def save_ai_strategies(strategies: list[dict]) -> None:
             for s in strategies:
                 conn.execute(
                     """
-                    INSERT OR REPLACE INTO ai_strategies (id, name, provider, model, weight, description, selected)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    INSERT OR REPLACE INTO ai_strategies (
+                        id, name, provider, model, weight, description, selected,
+                        status, profile_json, strategy_version, profile_hash,
+                        last_verified_at, last_backtested_at, last_paper_started_at,
+                        last_paper_completed_at, last_used_at, last_validation_result
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         s["id"],
@@ -664,12 +972,290 @@ def save_ai_strategies(strategies: list[dict]) -> None:
                         s["model"],
                         float(s["weight"]),
                         s.get("description", ""),
-                        1 if s.get("selected", False) else 0
+                        1 if s.get("selected", False) else 0,
+                        s.get("status", "draft"),
+                        s.get("profile_json"),
+                        int(s.get("strategy_version") or 1),
+                        s.get("profile_hash"),
+                        s.get("last_verified_at"),
+                        s.get("last_backtested_at"),
+                        s.get("last_paper_started_at"),
+                        s.get("last_paper_completed_at"),
+                        s.get("last_used_at"),
+                        s.get("last_validation_result"),
                     )
                 )
             conn.commit()
     except Exception as e:
         logger.warning(f"Failed to save AI strategies to DB: {e}")
+
+
+def record_ai_strategy_event(
+    strategy_id: str,
+    event_type: str,
+    payload: dict | None = None,
+    strategy_version: int | None = None,
+) -> None:
+    ts = datetime.now(KST).strftime("%Y-%m-%d %H:%M:%S")
+    try:
+        init_db()
+        with connect_db() as conn:
+            conn.execute(
+                """
+                INSERT INTO ai_strategy_events (ts, strategy_id, strategy_version, event_type, payload)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (
+                    ts,
+                    strategy_id,
+                    strategy_version,
+                    event_type,
+                    json.dumps(payload or {}, ensure_ascii=False),
+                ),
+            )
+            conn.commit()
+    except Exception as e:
+        logger.warning(f"Failed to record AI strategy event: {e}")
+
+
+def get_ai_strategy_events(strategy_id: str, limit: int = 100) -> list[dict]:
+    try:
+        init_db()
+        with connect_db() as conn:
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute(
+                """
+                SELECT * FROM ai_strategy_events
+                WHERE strategy_id = ?
+                ORDER BY id DESC
+                LIMIT ?
+                """,
+                (strategy_id, limit),
+            ).fetchall()
+            return [dict(row) for row in rows]
+    except Exception as e:
+        logger.warning(f"Failed to fetch AI strategy events: {e}")
+        return []
+
+
+def get_ai_strategy_performance(strategy_id: str, days: int = 30) -> dict:
+    init_db()
+    since_date = (datetime.now(KST) - timedelta(days=max(1, int(days or 30)))).strftime("%Y-%m-%d %H:%M:%S")
+    try:
+        with connect_db() as conn:
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute(
+                """
+                SELECT *
+                FROM scanned_candidates
+                WHERE strategy_id = ?
+                  AND scanned_at >= ?
+                ORDER BY scanned_at DESC
+                """,
+                (strategy_id, since_date),
+            ).fetchall()
+            candidates = [dict(row) for row in rows]
+    except Exception as e:
+        logger.warning(f"Failed to fetch AI strategy performance rows: {e}")
+        candidates = []
+
+    final_scores = [
+        float(item.get("final_score"))
+        for item in candidates
+        if item.get("final_score") is not None
+    ]
+    rule_scores = [
+        float(item.get("rule_score"))
+        for item in candidates
+        if item.get("rule_score") is not None
+    ]
+    ml_scores = [
+        float(item.get("ml_score"))
+        for item in candidates
+        if item.get("ml_score") is not None
+    ]
+    return_1d = [
+        float(item.get("forward_return_1d"))
+        for item in candidates
+        if item.get("forward_return_1d") is not None
+    ]
+    return_5d = [
+        float(item.get("forward_return_5d"))
+        for item in candidates
+        if item.get("forward_return_5d") is not None
+    ]
+    return_20d = [
+        float(item.get("forward_return_20d"))
+        for item in candidates
+        if item.get("forward_return_20d") is not None
+    ]
+    status_counts: dict[str, int] = {}
+    optimizer_counts: dict[str, int] = {}
+    for item in candidates:
+        status = str(item.get("ai_model_status") or "unknown")
+        optimizer = str(item.get("optimizer") or "unknown")
+        status_counts[status] = status_counts.get(status, 0) + 1
+        optimizer_counts[optimizer] = optimizer_counts.get(optimizer, 0) + 1
+
+    def avg(values: list[float]) -> float | None:
+        return round(sum(values) / len(values), 4) if values else None
+
+    def win_rate(values: list[float]) -> float | None:
+        return round((sum(1 for value in values if value > 0) / len(values)) * 100, 2) if values else None
+
+    trade_summary = {
+        "trade_count": 0,
+        "order_count": 0,
+        "approval_count": 0,
+        "filled_count": 0,
+        "fill_rate": None,
+        "order_status_counts": {},
+        "approval_status_counts": {},
+    }
+    try:
+        with connect_db() as conn:
+            conn.row_factory = sqlite3.Row
+            approval_rows = conn.execute(
+                """
+                SELECT *
+                FROM approvals
+                WHERE strategy_id = ?
+                  AND created_at >= ?
+                ORDER BY created_at DESC
+                """,
+                (strategy_id, since_date),
+            ).fetchall()
+            approvals = [dict(row) for row in approval_rows]
+            approval_status_counts: dict[str, int] = {}
+            for approval in approvals:
+                status = str(approval.get("status") or "unknown")
+                approval_status_counts[status] = approval_status_counts.get(status, 0) + 1
+
+            trade_rows = conn.execute(
+                """
+                SELECT *
+                FROM trades
+                WHERE strategy_id = ?
+                  AND ts >= ?
+                ORDER BY ts DESC
+                """,
+                (strategy_id, since_date),
+            ).fetchall()
+            trades = [dict(row) for row in trade_rows]
+            status_counts_trade: dict[str, int] = {}
+            for trade in trades:
+                status = str(trade.get("order_status") or "unknown")
+                status_counts_trade[status] = status_counts_trade.get(status, 0) + 1
+            filled_count = sum(
+                1
+                for trade in trades
+                if str(trade.get("order_status") or "") in {"filled", "simulated"}
+                or int(trade.get("filled_qty") or 0) > 0
+            )
+            approval_count = len(approvals)
+            order_count = approval_count if approval_count else len(trades)
+            trade_summary = {
+                "trade_count": len(trades),
+                "approval_count": approval_count,
+                "order_count": order_count,
+                "filled_count": filled_count,
+                "fill_rate": round((filled_count / order_count) * 100, 2) if order_count else None,
+                "order_status_counts": status_counts_trade,
+                "approval_status_counts": approval_status_counts,
+                "recent_approvals": approvals[:20],
+                "recent_trades": trades[:20],
+            }
+    except Exception as e:
+        logger.warning(f"Failed to fetch AI strategy trade performance: {e}")
+
+    return {
+        "strategy_id": strategy_id,
+        "days": days,
+        "candidate_count": len(candidates),
+        "avg_final_score": avg(final_scores),
+        "avg_rule_score": avg(rule_scores),
+        "avg_ml_score": avg(ml_scores),
+        "avg_return_1d": avg(return_1d),
+        "avg_return_5d": avg(return_5d),
+        "avg_return_20d": avg(return_20d),
+        "win_rate_1d": win_rate(return_1d),
+        "win_rate_5d": win_rate(return_5d),
+        "win_rate_20d": win_rate(return_20d),
+        "return_sample_count_1d": len(return_1d),
+        "return_sample_count_5d": len(return_5d),
+        "return_sample_count_20d": len(return_20d),
+        "trade_summary": trade_summary,
+        "ai_model_status_counts": status_counts,
+        "optimizer_counts": optimizer_counts,
+        "recent_candidates": candidates[:20],
+    }
+
+
+def review_ai_strategy_performance(strategy_id: str, days: int = 30) -> dict:
+    strategies = load_ai_strategies()
+    target = next((item for item in strategies if item.get("id") == strategy_id), None)
+    if target is None:
+        return {"ok": False, "reason": "strategy_not_found", "strategy_id": strategy_id}
+
+    performance = get_ai_strategy_performance(strategy_id, days=days)
+    candidate_count = int(performance.get("candidate_count") or 0)
+    status_counts = performance.get("ai_model_status_counts") or {}
+    fallback_count = int(status_counts.get("fallback", 0)) + int(status_counts.get("disabled", 0))
+    fallback_rate = (fallback_count / candidate_count) if candidate_count else 0.0
+    avg_final_score = performance.get("avg_final_score")
+    avg_return_5d = performance.get("avg_return_5d")
+    fill_rate = (performance.get("trade_summary") or {}).get("fill_rate")
+    warnings = []
+
+    if candidate_count == 0:
+        warnings.append("no candidates in review window")
+    if candidate_count >= 5 and avg_final_score is not None and float(avg_final_score) < 2.5:
+        warnings.append("low average final score")
+    if candidate_count >= 5 and fallback_rate >= 0.5:
+        warnings.append("high AI fallback rate")
+    if candidate_count >= 5 and avg_return_5d is not None and float(avg_return_5d) < 0:
+        warnings.append("negative 5-day candidate return")
+    if fill_rate is not None and float(fill_rate) < 50:
+        warnings.append("low order fill rate")
+
+    previous_status = str(target.get("status") or "draft")
+    new_status = previous_status
+    if (
+        candidate_count >= 10
+        and avg_final_score is not None
+        and float(avg_final_score) < 1.5
+        and fallback_rate >= 0.8
+    ):
+        new_status = "retired"
+    elif candidate_count >= 10 and avg_return_5d is not None and float(avg_return_5d) <= -5:
+        new_status = "retired"
+    elif warnings and previous_status in {"approved", "paper_passed", "backtested", "verified"}:
+        new_status = "review_required"
+
+    changed = new_status != previous_status
+    if changed:
+        for item in strategies:
+            if item.get("id") == strategy_id:
+                item["status"] = new_status
+                if new_status == "retired":
+                    item["selected"] = False
+                target = item
+                break
+        save_ai_strategies(strategies)
+
+    result = {
+        "ok": True,
+        "strategy_id": strategy_id,
+        "days": days,
+        "previous_status": previous_status,
+        "new_status": new_status,
+        "changed": changed,
+        "warnings": warnings,
+        "fallback_rate": round(fallback_rate, 4),
+        "performance": performance,
+    }
+    record_ai_strategy_event(strategy_id, "performance_review", result, target.get("strategy_version"))
+    return result
 
 
 def save_scheduler_result(mode: str, recorded_at: str, result: dict) -> None:
@@ -1299,6 +1885,3 @@ def get_watchlist_extra_info(symbol: str) -> dict:
     except Exception as e:
         logger.warning(f"Failed to get watchlist extra info for {symbol}: {e}")
     return res
-
-
-

@@ -28,6 +28,10 @@ class ApprovalCreateRequest:
     price: int
     reason: str = ""
     source: str = ""
+    strategy_id: str = ""
+    strategy_version: int | None = None
+    profile_hash: str = ""
+    source_candidate_id: int | None = None
 
 
 def _default_now() -> str:
@@ -60,6 +64,10 @@ class ApprovalService:
             price=request.price,
             reason=request.reason,
             source=request.source,
+            strategy_id=request.strategy_id,
+            strategy_version=request.strategy_version,
+            profile_hash=request.profile_hash,
+            source_candidate_id=request.source_candidate_id,
         )
 
     def queue_approval(
@@ -71,6 +79,10 @@ class ApprovalService:
         price: int,
         reason: str,
         source: str = "scheduler",
+        strategy_id: str = "",
+        strategy_version: int | None = None,
+        profile_hash: str = "",
+        source_candidate_id: int | None = None,
     ) -> int:
         return self.create_approval(
             ApprovalCreateRequest(
@@ -81,6 +93,10 @@ class ApprovalService:
                 price=price,
                 reason=reason,
                 source=source,
+                strategy_id=strategy_id,
+                strategy_version=strategy_version,
+                profile_hash=profile_hash,
+                source_candidate_id=source_candidate_id,
             )
         )
 
