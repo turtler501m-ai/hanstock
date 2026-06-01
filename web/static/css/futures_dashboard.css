@@ -1096,3 +1096,187 @@ button:hover {
         width: 100%;
     }
 }
+
+/* Compact phone layout for the futures and AI dashboard frame. */
+@media (max-width: 780px) {
+    body {
+        padding: 0.75rem !important;
+        line-height: 1.45;
+    }
+
+    .dashboard-container,
+    .app-shell {
+        max-width: 100%;
+    }
+
+    .app-header,
+    .top-header.topbar,
+    .dashboard-header {
+        display: flex;
+        align-items: center !important;
+        flex-direction: row !important;
+        gap: 0.65rem;
+        min-height: 52px;
+        margin-bottom: 0.9rem;
+        padding: 0.45rem 0 !important;
+    }
+
+    .app-header > div:first-child,
+    .top-header.topbar > div:first-child,
+    .dashboard-header > div:first-child {
+        flex: 1 1 auto;
+        min-width: 5.75rem;
+    }
+
+    .app-header .eyebrow {
+        margin-bottom: 0.05rem;
+        font-size: 0.66rem;
+        line-height: 1.15;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .app-header h1,
+    .dashboard-header h1,
+    .top-header h1,
+    h1 {
+        font-size: 1.12rem !important;
+        line-height: 1.15;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .header-actions,
+    .topbar-actions {
+        flex: 1 1 0;
+        width: auto !important;
+        max-width: 68vw;
+        min-width: 0;
+        align-items: center !important;
+        flex-direction: row !important;
+        flex-wrap: nowrap !important;
+        justify-content: flex-start;
+        gap: 0.35rem;
+        overflow-x: auto;
+        overscroll-behavior-x: contain;
+        -webkit-overflow-scrolling: touch;
+        scrollbar-width: none;
+    }
+
+    .header-actions::-webkit-scrollbar,
+    .topbar-actions::-webkit-scrollbar {
+        display: none;
+    }
+
+    .nav-button,
+    .app-header .nav-button,
+    .app-header button.nav-button,
+    .status-indicator,
+    .app-header .status-indicator {
+        flex: 0 0 auto;
+        width: auto !important;
+        min-height: 32px;
+        padding: 0.32rem 0.52rem;
+        border-radius: 7px;
+        font-size: 0.76rem;
+        line-height: 1;
+        white-space: nowrap;
+    }
+
+    .status-indicator,
+    .app-header .status-indicator {
+        gap: 0.35rem;
+        padding-inline: 0.5rem;
+    }
+
+    .workspace,
+    .futures-workspace {
+        gap: 0.75rem;
+        padding: 0;
+    }
+
+    .side-nav,
+    .workspace,
+    .futures-grid,
+    .lower-grid,
+    .control-grid,
+    .wide-grid,
+    .bottom-grid {
+        gap: 0.75rem;
+    }
+
+    .panel,
+    .status-item,
+    .metric-tile {
+        padding: 0.78rem;
+        border-radius: 8px;
+    }
+
+    .panel-title,
+    .panel-title.split,
+    .ai-page-banner {
+        align-items: flex-start;
+        flex-direction: column;
+        gap: 0.55rem;
+    }
+
+    .dashboard-tabs,
+    .side-nav nav {
+        display: flex !important;
+        flex-wrap: nowrap !important;
+        overflow-x: auto;
+        overscroll-behavior-x: contain;
+        -webkit-overflow-scrolling: touch;
+        gap: 0.35rem;
+        scrollbar-width: none;
+    }
+
+    .dashboard-tabs::-webkit-scrollbar,
+    .side-nav nav::-webkit-scrollbar {
+        display: none;
+    }
+
+    .dashboard-tab,
+    .side-nav a {
+        flex: 0 0 auto;
+        width: auto !important;
+        min-width: 4.25rem;
+        min-height: 34px;
+        padding: 0.35rem 0.55rem;
+        font-size: 0.76rem;
+        line-height: 1.15;
+        white-space: nowrap;
+    }
+}
+
+@media (max-width: 560px) {
+    .app-header,
+    .top-header.topbar,
+    .dashboard-header {
+        align-items: stretch !important;
+        flex-direction: column !important;
+        gap: 0.35rem;
+    }
+
+    .app-header > div:first-child,
+    .top-header.topbar > div:first-child,
+    .dashboard-header > div:first-child {
+        min-width: 0;
+    }
+
+    .header-actions,
+    .topbar-actions {
+        flex: 0 0 auto;
+        max-width: 100%;
+        width: 100% !important;
+    }
+
+    .status-indicator,
+    .app-header .status-indicator {
+        max-width: 7.5rem;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+}

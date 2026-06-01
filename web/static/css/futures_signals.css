@@ -812,3 +812,56 @@ input:checked + .slider:before { transform: translateX(24px); }
         grid-template-columns: 1fr;
     }
 }
+
+/* Phone refinements for futures signal content. */
+@media (max-width: 780px) {
+    .dashboard-card,
+    .futures-tab-card {
+        border-radius: 8px;
+    }
+
+    .futures-tab-card {
+        padding: 0.78rem;
+    }
+
+    .tab-content {
+        min-height: auto;
+    }
+
+    .dashboard-tabs {
+        display: flex !important;
+        flex-wrap: nowrap !important;
+        overflow-x: auto;
+        overscroll-behavior-x: contain;
+        -webkit-overflow-scrolling: touch;
+        gap: 0.35rem;
+        scrollbar-width: none;
+    }
+
+    .dashboard-tabs::-webkit-scrollbar {
+        display: none;
+    }
+
+    .dashboard-tab {
+        flex: 0 0 auto;
+        width: auto !important;
+        min-width: 4.25rem;
+        min-height: 34px;
+        padding: 0.35rem 0.55rem;
+        font-size: 0.76rem;
+        line-height: 1.15;
+        white-space: nowrap;
+    }
+
+    .signal-table-wrap {
+        margin-inline: -0.78rem;
+        padding-inline: 0.78rem;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    .signal-table th,
+    .signal-table td {
+        padding: 8px 6px;
+        font-size: 12px;
+    }
+}

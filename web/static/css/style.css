@@ -1355,7 +1355,7 @@ tbody tr:hover {
     }
 }
 
-@media (max-width: 420px) {
+@media (max-width: 560px) {
     .summary-grid {
         grid-template-columns: 1fr;
     }
@@ -1565,3 +1565,189 @@ body {
     }
 }
 
+/* Compact phone layout for Samsung Internet and other mobile browsers. */
+@media (max-width: 768px) {
+    body {
+        padding: 0.75rem !important;
+        padding-bottom: calc(var(--bottom-nav-height) + 0.75rem) !important;
+        line-height: 1.45;
+    }
+
+    .dashboard-container {
+        padding-top: calc(0.25rem + var(--app-safe-top));
+        padding-bottom: calc(1rem + var(--app-safe-bottom));
+    }
+
+    header,
+    .app-header {
+        display: flex;
+        align-items: center !important;
+        flex-direction: row !important;
+        gap: 0.65rem;
+        min-height: 52px;
+        margin-bottom: 0.9rem;
+        padding: 0.45rem 0 !important;
+    }
+
+    .app-header > div:first-child {
+        flex: 1 1 auto;
+        min-width: 5.75rem;
+    }
+
+    .app-header .eyebrow {
+        margin-bottom: 0.05rem;
+        font-size: 0.66rem;
+        line-height: 1.15;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .app-header h1,
+    h1 {
+        font-size: 1.12rem !important;
+        line-height: 1.15;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .header-actions {
+        flex: 1 1 0;
+        width: auto !important;
+        max-width: 68vw;
+        min-width: 0;
+        align-items: center !important;
+        flex-direction: row !important;
+        flex-wrap: nowrap !important;
+        justify-content: flex-start;
+        gap: 0.35rem;
+        overflow-x: auto;
+        overscroll-behavior-x: contain;
+        -webkit-overflow-scrolling: touch;
+        scrollbar-width: none;
+    }
+
+    .header-actions::-webkit-scrollbar {
+        display: none;
+    }
+
+    .nav-button,
+    .app-header .nav-button,
+    .app-header button.nav-button,
+    .status-indicator,
+    .app-header .status-indicator {
+        flex: 0 0 auto;
+        width: auto !important;
+        min-height: 32px;
+        padding: 0.32rem 0.52rem;
+        border-radius: 7px;
+        font-size: 0.76rem;
+        line-height: 1;
+        white-space: nowrap;
+    }
+
+    .status-indicator,
+    .app-header .status-indicator {
+        gap: 0.35rem;
+        padding-inline: 0.5rem;
+    }
+
+    .dashboard-tabs {
+        overflow-x: auto !important;
+        overscroll-behavior-x: contain;
+        -webkit-overflow-scrolling: touch;
+        justify-content: flex-start !important;
+        gap: 0.25rem !important;
+        padding: 0.2rem 0.35rem calc(0.2rem + var(--app-safe-bottom)) !important;
+        scrollbar-width: none;
+    }
+
+    .dashboard-tabs::-webkit-scrollbar {
+        display: none;
+    }
+
+    .dashboard-tab {
+        flex: 0 0 auto !important;
+        width: auto !important;
+        min-width: 4.25rem;
+        height: auto !important;
+        min-height: 42px;
+        padding: 0.25rem 0.45rem !important;
+        font-size: 0.72rem !important;
+        line-height: 1.15;
+        white-space: nowrap;
+    }
+
+    .summary-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+        gap: 0.55rem !important;
+        margin-bottom: 0.85rem;
+    }
+
+    .card,
+    .summary-grid .card,
+    .risk-card {
+        padding: 0.78rem !important;
+        border-radius: 8px;
+    }
+
+    .card h2 {
+        margin-bottom: 0.65rem;
+        font-size: 1.02rem;
+    }
+
+    .card h3 {
+        margin-bottom: 0.28rem;
+        font-size: 0.72rem;
+        letter-spacing: 0.02em;
+    }
+
+    .card .value,
+    .summary-grid .card .value {
+        font-size: 1.05rem !important;
+        letter-spacing: 0;
+    }
+
+    .control-center,
+    .risk-grid,
+    .dashboard-stack,
+    .main-grid {
+        gap: 0.75rem;
+        margin-bottom: 0.9rem;
+    }
+
+    .split-header,
+    .page-banner,
+    .panel-header {
+        align-items: flex-start;
+        flex-direction: column;
+        gap: 0.55rem;
+    }
+}
+
+@media (max-width: 560px) {
+    header,
+    .app-header {
+        align-items: stretch !important;
+        flex-direction: column !important;
+        gap: 0.35rem;
+    }
+
+    .app-header > div:first-child {
+        min-width: 0;
+    }
+
+    .header-actions {
+        flex: 0 0 auto;
+        max-width: 100%;
+        width: 100% !important;
+    }
+
+    .status-indicator,
+    .app-header .status-indicator {
+        max-width: 7.5rem;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+}
