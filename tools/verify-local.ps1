@@ -36,5 +36,4 @@ node --check web\static\js\app.js
 node --check web\static\js\futures_signals.js
 node --check web\static\js\env_settings.js
 node --check web\static\js\finrl.js
-node --check web\static\js\ai_dashboard.js
 node --check web\static\js\vendors.js

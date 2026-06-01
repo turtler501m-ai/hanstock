@@ -30,7 +30,7 @@ class FuturesSignalsDashboardTests(unittest.TestCase):
         self._tmpdir.cleanup()
 
     def test_dashboard_route_points_to_futures_template(self):
-        route = self._find_route("/ai-dashboard/futures-signals")
+        route = self._find_route("/futures-signals")
 
         response = route.endpoint()
 

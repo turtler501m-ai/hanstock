@@ -26,14 +26,7 @@ def read_vendor_dashboard():
 
 
 
-@app.get("/ai-dashboard", response_class=FileResponse)
-def read_ai_dashboard():
-    return FileResponse(WEB_DIR / "templates" / "ai_dashboard.html")
-
-
-
-
-@app.get("/ai-dashboard/futures-signals", response_class=FileResponse)
+@app.get("/futures-signals", response_class=FileResponse)
 def read_futures_signals_dashboard():
     return FileResponse(WEB_DIR / "templates" / "futures_signals.html")
 
@@ -43,6 +36,4 @@ def read_futures_signals_dashboard():
 @app.get("/env-settings", response_class=FileResponse)
 def read_env_settings():
     return FileResponse(WEB_DIR / "templates" / "env_settings.html")
-
-
 
