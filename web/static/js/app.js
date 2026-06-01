@@ -2776,12 +2776,19 @@ async function renderScheduleInfo() {
                                         }
                                     }
                                     
+                                    // Lookup stock info from generated plans matching the approval_id
+                                    const matchingPlan = roundData.results.find(r => r.approval_id && String(r.approval_id) === String(err.approval_id));
+                                    const symbolVal = matchingPlan ? matchingPlan.symbol : '-';
+                                    const actionVal = matchingPlan ? matchingPlan.action : '-';
+                                    const qtyVal = matchingPlan ? (matchingPlan.qty || matchingPlan.signal_qty) : '-';
+                                    const priceVal = matchingPlan ? (matchingPlan.price || matchingPlan.signal_price) : '-';
+                                    
                                     tr.innerHTML = `
                                         <td style="padding: 0.6rem 0.75rem; font-size: 0.85rem;">${escapeHtml(err.approval_id || '-')}</td>
-                                        <td style="padding: 0.6rem 0.75rem; font-size: 0.85rem;">-</td>
-                                        <td style="padding: 0.6rem 0.75rem; font-size: 0.85rem;">-</td>
-                                        <td style="padding: 0.6rem 0.75rem; font-size: 0.85rem; text-align: right;">-</td>
-                                        <td style="padding: 0.6rem 0.75rem; font-size: 0.85rem; text-align: right; font-weight: 500;">-</td>
+                                        <td style="padding: 0.6rem 0.75rem; font-size: 0.85rem;">${escapeHtml(symbolVal)}</td>
+                                        <td style="padding: 0.6rem 0.75rem; font-size: 0.85rem;">${actionVal !== '-' ? pill(toKorAction(actionVal), actionVal === 'sell' ? 'sell' : 'buy') : '-'}</td>
+                                        <td style="padding: 0.6rem 0.75rem; font-size: 0.85rem; text-align: right;">${qtyVal !== '-' ? formatNumber(qtyVal) : '-'}</td>
+                                        <td style="padding: 0.6rem 0.75rem; font-size: 0.85rem; text-align: right; font-weight: 500;">${priceVal !== '-' ? formatNumber(priceVal) + ' 원' : '-'}</td>
                                         <td style="padding: 0.6rem 0.75rem; font-size: 0.85rem;">${pill('승인오류', 'sell')}</td>
                                         <td style="padding: 0.6rem 0.75rem; font-size: 0.85rem;"><div class="reason-cell text-danger" style="max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${escapeHtml(err.message || '')}">${escapeHtml(cleanMsg)}</div></td>
                                     `;
@@ -2801,12 +2808,20 @@ async function renderScheduleInfo() {
                                         }
                                     }
                                     
+                                    const ordId = ord.id || ord.approval_id;
+                                    // Lookup stock info from generated plans matching the approval_id
+                                    const matchingPlan = roundData.results.find(r => r.approval_id && String(r.approval_id) === String(ordId));
+                                    const symbolVal = ord.symbol || (matchingPlan ? matchingPlan.symbol : '-');
+                                    const actionVal = ord.action || (matchingPlan ? matchingPlan.action : 'buy');
+                                    const qtyVal = ord.qty !== undefined && ord.qty !== null ? ord.qty : (matchingPlan ? (matchingPlan.qty || matchingPlan.signal_qty) : '-');
+                                    const priceVal = ord.price !== undefined && ord.price !== null ? ord.price : (matchingPlan ? (matchingPlan.price || matchingPlan.signal_price) : '-');
+                                    
                                     tr.innerHTML = `
-                                        <td style="padding: 0.6rem 0.75rem; font-size: 0.85rem;">${escapeHtml(ord.id || ord.approval_id || '-')}</td>
-                                        <td style="padding: 0.6rem 0.75rem; font-size: 0.85rem;">${escapeHtml(ord.symbol || '-')}</td>
-                                        <td style="padding: 0.6rem 0.75rem; font-size: 0.85rem;">${pill(toKorAction(ord.action || 'buy'), ord.action === 'sell' ? 'sell' : 'buy')}</td>
-                                        <td style="padding: 0.6rem 0.75rem; font-size: 0.85rem; text-align: right;">${formatNumber(ord.qty)}</td>
-                                        <td style="padding: 0.6rem 0.75rem; font-size: 0.85rem; text-align: right; font-weight: 500;">${formatNumber(ord.price)} 원</td>
+                                        <td style="padding: 0.6rem 0.75rem; font-size: 0.85rem;">${escapeHtml(ordId || '-')}</td>
+                                        <td style="padding: 0.6rem 0.75rem; font-size: 0.85rem;">${escapeHtml(symbolVal)}</td>
+                                        <td style="padding: 0.6rem 0.75rem; font-size: 0.85rem;">${actionVal !== '-' ? pill(toKorAction(actionVal), actionVal === 'sell' ? 'sell' : 'buy') : '-'}</td>
+                                        <td style="padding: 0.6rem 0.75rem; font-size: 0.85rem; text-align: right;">${qtyVal !== '-' ? formatNumber(qtyVal) : '-'}</td>
+                                        <td style="padding: 0.6rem 0.75rem; font-size: 0.85rem; text-align: right; font-weight: 500;">${priceVal !== '-' ? formatNumber(priceVal) + ' 원' : '-'}</td>
                                         <td style="padding: 0.6rem 0.75rem; font-size: 0.85rem;">${pill(isSuccess ? '성공' : '실패', isSuccess ? 'buy' : 'sell')}</td>
                                         <td style="padding: 0.6rem 0.75rem; font-size: 0.85rem;"><div class="reason-cell" style="max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${escapeHtml(ord.response_msg || ord.message || '')}">${escapeHtml(cleanMsg)}</div></td>
                                     `;
