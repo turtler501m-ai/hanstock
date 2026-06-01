@@ -1569,7 +1569,7 @@ body {
 @media (max-width: 768px) {
     body {
         padding: 0.75rem !important;
-        padding-bottom: calc(var(--bottom-nav-height) + 0.75rem) !important;
+        padding-bottom: calc(2rem + var(--app-safe-bottom)) !important;
         line-height: 1.45;
     }
 
@@ -1654,12 +1654,22 @@ body {
     }
 
     .dashboard-tabs {
+        display: flex !important;
+        flex-wrap: nowrap !important;
+        position: static !important;
+        height: auto !important;
+        margin: 0 0 0.85rem !important;
+        border-radius: 8px !important;
+        border: 1px solid rgba(148, 163, 184, 0.16) !important;
+        border-top: 1px solid rgba(148, 163, 184, 0.16) !important;
+        box-shadow: none !important;
         overflow-x: auto !important;
         overscroll-behavior-x: contain;
         -webkit-overflow-scrolling: touch;
         justify-content: flex-start !important;
+        align-items: center !important;
         gap: 0.25rem !important;
-        padding: 0.2rem 0.35rem calc(0.2rem + var(--app-safe-bottom)) !important;
+        padding: 0.3rem !important;
         scrollbar-width: none;
     }
 
@@ -1672,11 +1682,22 @@ body {
         width: auto !important;
         min-width: 4.25rem;
         height: auto !important;
-        min-height: 42px;
-        padding: 0.25rem 0.45rem !important;
+        min-height: 34px;
+        padding: 0.35rem 0.55rem !important;
+        border: 1px solid transparent !important;
+        border-radius: 7px !important;
         font-size: 0.72rem !important;
         line-height: 1.15;
         white-space: nowrap;
+    }
+
+    .dashboard-tab.active {
+        border-color: rgba(59, 130, 246, 0.45) !important;
+        background: rgba(59, 130, 246, 0.22) !important;
+    }
+
+    .dashboard-tab::after {
+        display: none !important;
     }
 
     .summary-grid {
