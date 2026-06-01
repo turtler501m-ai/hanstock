@@ -2677,33 +2677,10 @@ async function renderScheduleInfo() {
                             <!-- Card Body -->
                             <div class="round-body" id="round-body-${round}" style="display: ${isExpanded ? 'block' : 'none'}; padding: 1.25rem; border-top: 1px solid var(--border); background: rgba(0, 0, 0, 0.05);">
                                 <h4 style="margin-bottom: 0.75rem; font-size: 0.95rem; font-weight: 500; display: flex; align-items: center; gap: 0.5rem; color: var(--text);">
-                                    <span style="width: 4px; height: 14px; background: var(--primary); display: inline-block; border-radius: 2px;"></span>
-                                    생성된 매매 계획 및 판단
-                                </h4>
-                                <div class="table-responsive" style="margin-bottom: 1.5rem; border-radius: 6px; border: 1px solid var(--border); overflow: hidden;">
-                                    <table class="table-plans" style="width: 100%; border-collapse: collapse;">
-                                        <thead>
-                                            <tr style="background: rgba(255,255,255,0.02); border-bottom: 1px solid var(--border);">
-                                                <th style="padding: 0.6rem 0.75rem; text-align: left; font-size: 0.85rem; font-weight: 500; color: var(--text-muted); width: 100px;">종목코드</th>
-                                                <th style="padding: 0.6rem 0.75rem; text-align: left; font-size: 0.85rem; font-weight: 500; color: var(--text-muted);">종목명</th>
-                                                <th style="padding: 0.6rem 0.75rem; text-align: left; font-size: 0.85rem; font-weight: 500; color: var(--text-muted); width: 100px;">분류</th>
-                                                <th style="padding: 0.6rem 0.75rem; text-align: left; font-size: 0.85rem; font-weight: 500; color: var(--text-muted); width: 100px;">결정</th>
-                                                <th style="padding: 0.6rem 0.75rem; text-align: right; font-size: 0.85rem; font-weight: 500; color: var(--text-muted); width: 80px;">수량</th>
-                                                <th style="padding: 0.6rem 0.75rem; text-align: right; font-size: 0.85rem; font-weight: 500; color: var(--text-muted); width: 120px;">가격</th>
-                                                <th style="padding: 0.6rem 0.75rem; text-align: left; font-size: 0.85rem; font-weight: 500; color: var(--text-muted);">근거</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                                            <!-- plans rows go here -->
-                                        </tbody>
-                                    </table>
-                                </div>
-                                
-                                <h4 style="margin-bottom: 0.75rem; font-size: 0.95rem; font-weight: 500; display: flex; align-items: center; gap: 0.5rem; color: var(--text);">
                                     <span style="width: 4px; height: 14px; background: var(--success); display: inline-block; border-radius: 2px;"></span>
                                     자동 승인 및 주문 전송 내역
                                 </h4>
-                                <div class="table-responsive" style="border-radius: 6px; border: 1px solid var(--border); overflow: hidden;">
+                                <div class="table-responsive" style="margin-bottom: 1.5rem; border-radius: 6px; border: 1px solid var(--border); overflow: hidden;">
                                     <table class="table-orders" style="width: 100%; border-collapse: collapse;">
                                         <thead>
                                             <tr style="background: rgba(255,255,255,0.02); border-bottom: 1px solid var(--border);">
@@ -2718,6 +2695,29 @@ async function renderScheduleInfo() {
                                         </thead>
                                         <tbody>
                                             <!-- orders rows go here -->
+                                        </tbody>
+                                    </table>
+                                </div>
+
+                                <h4 style="margin-bottom: 0.75rem; font-size: 0.95rem; font-weight: 500; display: flex; align-items: center; gap: 0.5rem; color: var(--text);">
+                                    <span style="width: 4px; height: 14px; background: var(--primary); display: inline-block; border-radius: 2px;"></span>
+                                    생성된 매매 계획 및 판단
+                                </h4>
+                                <div class="table-responsive" style="border-radius: 6px; border: 1px solid var(--border); overflow: hidden;">
+                                    <table class="table-plans" style="width: 100%; border-collapse: collapse;">
+                                        <thead>
+                                            <tr style="background: rgba(255,255,255,0.02); border-bottom: 1px solid var(--border);">
+                                                <th style="padding: 0.6rem 0.75rem; text-align: left; font-size: 0.85rem; font-weight: 500; color: var(--text-muted); width: 100px;">종목코드</th>
+                                                <th style="padding: 0.6rem 0.75rem; text-align: left; font-size: 0.85rem; font-weight: 500; color: var(--text-muted);">종목명</th>
+                                                <th style="padding: 0.6rem 0.75rem; text-align: left; font-size: 0.85rem; font-weight: 500; color: var(--text-muted); width: 100px;">분류</th>
+                                                <th style="padding: 0.6rem 0.75rem; text-align: left; font-size: 0.85rem; font-weight: 500; color: var(--text-muted); width: 100px;">결정</th>
+                                                <th style="padding: 0.6rem 0.75rem; text-align: right; font-size: 0.85rem; font-weight: 500; color: var(--text-muted); width: 80px;">수량</th>
+                                                <th style="padding: 0.6rem 0.75rem; text-align: right; font-size: 0.85rem; font-weight: 500; color: var(--text-muted); width: 120px;">가격</th>
+                                                <th style="padding: 0.6rem 0.75rem; text-align: left; font-size: 0.85rem; font-weight: 500; color: var(--text-muted);">근거</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            <!-- plans rows go here -->
                                         </tbody>
                                     </table>
                                 </div>
