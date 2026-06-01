@@ -2764,6 +2764,31 @@ async function renderScheduleInfo() {
                             if (roundData.approved.length === 0 && roundData.approvalErrors.length === 0) {
                                 ordersTbody.innerHTML = '<tr><td colspan="7" class="text-center" style="padding: 1.5rem; font-size: 0.9rem; color: var(--text-muted);">승인 대기 주문이 없거나 자동 승인이 생략되었습니다.</td></tr>';
                             } else {
+                                // 1. Render approvalErrors first so they appear at the very top
+                                roundData.approvalErrors.forEach(err => {
+                                    const tr = document.createElement('tr');
+                                    tr.style.borderBottom = '1px solid var(--border)';
+                                    let cleanMsg = err.message || '오류 발생';
+                                    if (cleanMsg.startsWith('[')) {
+                                        const closingIdx = cleanMsg.indexOf(']');
+                                        if (closingIdx !== -1) {
+                                            cleanMsg = cleanMsg.substring(closingIdx + 1).trim();
+                                        }
+                                    }
+                                    
+                                    tr.innerHTML = `
+                                        <td style="padding: 0.6rem 0.75rem; font-size: 0.85rem;">${escapeHtml(err.approval_id || '-')}</td>
+                                        <td style="padding: 0.6rem 0.75rem; font-size: 0.85rem;">-</td>
+                                        <td style="padding: 0.6rem 0.75rem; font-size: 0.85rem;">-</td>
+                                        <td style="padding: 0.6rem 0.75rem; font-size: 0.85rem; text-align: right;">-</td>
+                                        <td style="padding: 0.6rem 0.75rem; font-size: 0.85rem; text-align: right; font-weight: 500;">-</td>
+                                        <td style="padding: 0.6rem 0.75rem; font-size: 0.85rem;">${pill('승인오류', 'sell')}</td>
+                                        <td style="padding: 0.6rem 0.75rem; font-size: 0.85rem;"><div class="reason-cell text-danger" style="max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${escapeHtml(err.message || '')}">${escapeHtml(cleanMsg)}</div></td>
+                                    `;
+                                    ordersTbody.appendChild(tr);
+                                });
+
+                                // 2. Then render normal approved executions (both success and fail)
                                 roundData.approved.forEach(ord => {
                                     const tr = document.createElement('tr');
                                     tr.style.borderBottom = '1px solid var(--border)';
@@ -2784,29 +2809,6 @@ async function renderScheduleInfo() {
                                         <td style="padding: 0.6rem 0.75rem; font-size: 0.85rem; text-align: right; font-weight: 500;">${formatNumber(ord.price)} 원</td>
                                         <td style="padding: 0.6rem 0.75rem; font-size: 0.85rem;">${pill(isSuccess ? '성공' : '실패', isSuccess ? 'buy' : 'sell')}</td>
                                         <td style="padding: 0.6rem 0.75rem; font-size: 0.85rem;"><div class="reason-cell" style="max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${escapeHtml(ord.response_msg || ord.message || '')}">${escapeHtml(cleanMsg)}</div></td>
-                                    `;
-                                    ordersTbody.appendChild(tr);
-                                });
-                                
-                                roundData.approvalErrors.forEach(err => {
-                                    const tr = document.createElement('tr');
-                                    tr.style.borderBottom = '1px solid var(--border)';
-                                    let cleanMsg = err.message || '오류 발생';
-                                    if (cleanMsg.startsWith('[')) {
-                                        const closingIdx = cleanMsg.indexOf(']');
-                                        if (closingIdx !== -1) {
-                                            cleanMsg = cleanMsg.substring(closingIdx + 1).trim();
-                                        }
-                                    }
-                                    
-                                    tr.innerHTML = `
-                                        <td style="padding: 0.6rem 0.75rem; font-size: 0.85rem;">${escapeHtml(err.approval_id || '-')}</td>
-                                        <td style="padding: 0.6rem 0.75rem; font-size: 0.85rem;">-</td>
-                                        <td style="padding: 0.6rem 0.75rem; font-size: 0.85rem;">-</td>
-                                        <td style="padding: 0.6rem 0.75rem; font-size: 0.85rem; text-align: right;">-</td>
-                                        <td style="padding: 0.6rem 0.75rem; font-size: 0.85rem; text-align: right; font-weight: 500;">-</td>
-                                        <td style="padding: 0.6rem 0.75rem; font-size: 0.85rem;">${pill('실패', 'sell')}</td>
-                                        <td style="padding: 0.6rem 0.75rem; font-size: 0.85rem;"><div class="reason-cell text-danger" style="max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${escapeHtml(err.message || '')}">${escapeHtml(cleanMsg)}</div></td>
                                     `;
                                     ordersTbody.appendChild(tr);
                                 });
