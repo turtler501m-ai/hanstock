@@ -58,6 +58,12 @@ ENV_FIELDS = [
     {"key": "KISTOCK_APP_KEY", "label": "KIS App Key", "type": "secret"},
     {"key": "KISTOCK_APP_SECRET", "label": "KIS App Secret", "type": "secret"},
     {"key": "KISTOCK_ACCOUNT", "label": "KIS Account", "type": "secret", "hint": "怨꾩쥖踰덊샇 8?먮━ ?먮뒗 怨꾩쥖踰덊샇 8?먮━ + ?곹뭹肄붾뱶 2?먮━, ?? 12345678 ?먮뒗 1234567801"},
+    {"key": "KISTOCK_HTS_ID", "label": "KIS HTS ID", "type": "text", "hint": "실시간 주문체결 통보와 조건검색식 조회에 사용할 HTS ID입니다."},
+    {"key": "KIS_WEBSOCKET_ENABLED", "label": "KIS WebSocket Enabled", "type": "bool", "hint": "true이면 서버에서 KIS 실시간 주문체결 통보 웹소켓을 시작할 수 있습니다."},
+    {"key": "KIS_CONDITION_SEARCH_ENABLED", "label": "KIS Condition Search Enabled", "type": "bool", "hint": "true이면 매수 후보 스캔 유니버스에 KIS 조건검색식 결과를 우선 반영합니다."},
+    {"key": "KIS_CONDITION_USER_ID", "label": "KIS Condition User ID", "type": "text", "hint": "조건검색식 API 조회용 사용자 ID입니다. 비워두면 KISTOCK_HTS_ID를 사용합니다."},
+    {"key": "KIS_CONDITION_SEQ", "label": "KIS Condition Seq", "type": "text", "hint": "HTS에 저장된 조건검색식 일련번호입니다."},
+    {"key": "KIS_CONDITION_NAME", "label": "KIS Condition Name", "type": "text", "hint": "HTS에 저장된 조건검색식 이름입니다."},
     {"key": "TRADING_ENV", "label": "嫄곕옒?섍꼍", "type": "select", "options": ["demo", "real"], "hint": "demo=紐⑥쓽?ъ옄, real=?ㅼ쟾?ъ옄"},
     {"key": "DRY_RUN", "label": "二쇰Ц李⑤떒", "type": "bool", "hint": "true?대㈃ 二쇰Ц李⑤떒 ON ?곹깭濡?KIS 二쇰Ц API ?꾩넚??留됯퀬 湲곕줉留??④퉩?덈떎."},
     {"key": "ENABLE_LIVE_TRADING", "label": "?ㅼ쟾留ㅻℓ 理쒖쥌?덉슜", "type": "bool", "hint": "?ㅼ쟾二쇰Ц???덉슜?섎뒗 理쒖쥌 ?덉쟾 ?ㅼ쐞移섏엯?덈떎."},
@@ -90,6 +96,7 @@ ENV_FIELDS = [
     {"key": "TELEGRAM_API_HASH", "label": "Telegram API Hash", "type": "secret"},
     {"key": "TELEGRAM_SESSION_NAME", "label": "Telegram Session Name", "type": "text", "hint": "Local Telethon session path. Keep it out of git."},
     {"key": "TELEGRAM_TARGET_CHANNELS", "label": "Telegram Target Channels", "type": "text", "hint": "Comma-separated channel usernames, IDs, or invite targets."},
+    {"key": "MISTOCK_EXCHANGE_MAP", "label": "Mistock Exchange Map", "type": "text", "hint": "미국주식 거래소 매핑입니다. 예: BRK.B=NYSE,TSLA=NASD"},
 ]
 ENV_FIELD_MAP = {field["key"]: field for field in ENV_FIELDS}
 VENDOR_PROJECTS = {
@@ -905,6 +912,16 @@ AI_ENV_BINDINGS = {
 }
 
 
+KIS_ENV_BINDINGS = {
+    "KISTOCK_HTS_ID": ("kistock_hts_id", str),
+    "KIS_WEBSOCKET_ENABLED": ("kis_websocket_enabled", lambda value: str(value).lower() in ("1", "true", "yes", "on")),
+    "KIS_CONDITION_SEARCH_ENABLED": ("kis_condition_search_enabled", lambda value: str(value).lower() in ("1", "true", "yes", "on")),
+    "KIS_CONDITION_USER_ID": ("kis_condition_user_id", str),
+    "KIS_CONDITION_SEQ": ("kis_condition_seq", str),
+    "KIS_CONDITION_NAME": ("kis_condition_name", str),
+}
+
+
 def _apply_strategy_env_updates(updates: dict[str, str]) -> None:
     for key, value in updates.items():
         binding = STRATEGY_ENV_BINDINGS.get(key)
@@ -918,6 +935,14 @@ def _apply_strategy_env_updates(updates: dict[str, str]) -> None:
         if ai_binding:
             config_attr, caster = ai_binding
             setattr(trader.config, config_attr, caster(value))
+            continue
+        kis_binding = KIS_ENV_BINDINGS.get(key)
+        if kis_binding:
+            config_attr, caster = kis_binding
+            setattr(trader.config, config_attr, caster(value))
+            continue
+        if key == "MISTOCK_EXCHANGE_MAP":
+            os.environ[key] = value
 
 
 def _ai_analysis_config() -> dict:

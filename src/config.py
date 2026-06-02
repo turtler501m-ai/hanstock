@@ -11,6 +11,11 @@ class Settings(BaseSettings):
     kistock_app_secret: str = ""
     kistock_account: str = ""
     kistock_hts_id: str = ""
+    kis_websocket_enabled: bool = False
+    kis_condition_search_enabled: bool = False
+    kis_condition_user_id: str = ""
+    kis_condition_seq: str = ""
+    kis_condition_name: str = ""
 
     # KIS 해외선물 모의계좌
     kis_futures_demo_app_key: Optional[str] = None

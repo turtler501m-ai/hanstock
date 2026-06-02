@@ -1,6 +1,12 @@
 #!/bin/bash
 set -euo pipefail
 
+FORCE_RUN=0
+if [ $# -gt 0 ] && { [ "$1" = "--force" ] || [ "$1" = "force" ]; }; then
+    FORCE_RUN=1
+    export HANSTOCK_SCHEDULE_FORCE=1
+fi
+
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 cd "$ROOT_DIR"
@@ -30,7 +36,7 @@ LOG_FILE="$LOG_DIR/daily-auto.log"
 LOCK_FILE="$RUNTIME_DIR/daily-auto.lock"
 
 should_run_now() {
-    if [ "${HANSTOCK_SCHEDULE_FORCE:-0}" = "1" ]; then
+    if [ "${HANSTOCK_SCHEDULE_FORCE:-0}" = "1" ] || [ "$FORCE_RUN" = "1" ]; then
         return 0
     fi
 

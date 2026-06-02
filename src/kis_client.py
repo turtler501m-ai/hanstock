@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -407,7 +408,7 @@ class KISClient:
             self.mark_failure()
             return []
 
-    def place_order(self, symbol: str, order_type: str, price: int, qty: int) -> dict[str, Any]:
+    def place_order(self, symbol: str, order_type: str, price: int, qty: int, exchange_id: str = "KRX") -> dict[str, Any]:
         if self.config.is_demo:
             tr_id = "VTTC0802U" if order_type == "buy" else "VTTC0801U"
         else:
@@ -420,6 +421,8 @@ class KISClient:
             "ORD_QTY": str(qty),
             "ORD_UNPR": str(price),
         }
+        if exchange_id:
+            body["EXCG_ID_DVSN_CD"] = exchange_id
         headers = self.headers(tr_id)
         hashkey = self.create_hashkey(body)
         if hashkey:
@@ -428,6 +431,92 @@ class KISClient:
         try:
             response = self.session.post(
                 f"{self.config.base_url}/uapi/domestic-stock/v1/trading/order-cash",
+                headers=headers,
+                json=body,
+                timeout=self.config.request_timeout_seconds,
+            )
+            response.raise_for_status()
+            self.mark_success()
+            return response.json()
+        except Exception as exc:
+            self.mark_failure()
+            return {"rt_cd": "1", "msg1": str(exc)}
+
+    def revise_domestic_order(
+        self,
+        original_order_no: str,
+        *,
+        qty: int,
+        price: int,
+        order_division: str = "00",
+        original_order_branch: str = "",
+        exchange_id: str = "KRX",
+    ) -> dict[str, Any]:
+        return self._revise_or_cancel_domestic_order(
+            original_order_no,
+            revision_type="01",
+            qty=qty,
+            price=price,
+            order_division=order_division,
+            original_order_branch=original_order_branch,
+            exchange_id=exchange_id,
+        )
+
+    def cancel_domestic_order(
+        self,
+        original_order_no: str,
+        *,
+        qty: int = 0,
+        order_division: str = "00",
+        original_order_branch: str = "",
+        exchange_id: str = "KRX",
+        cancel_all: bool = True,
+    ) -> dict[str, Any]:
+        return self._revise_or_cancel_domestic_order(
+            original_order_no,
+            revision_type="02",
+            qty=qty,
+            price=0,
+            order_division=order_division,
+            original_order_branch=original_order_branch,
+            exchange_id=exchange_id,
+            all_order=cancel_all,
+        )
+
+    def _revise_or_cancel_domestic_order(
+        self,
+        original_order_no: str,
+        *,
+        revision_type: str,
+        qty: int,
+        price: int,
+        order_division: str,
+        original_order_branch: str,
+        exchange_id: str,
+        all_order: bool = False,
+    ) -> dict[str, Any]:
+        tr_id = "VTTC0803U" if self.config.is_demo else "TTTC0803U"
+        body = {
+            "CANO": self.config.account_prefix,
+            "ACNT_PRDT_CD": self.config.account_suffix,
+            "KRX_FWDG_ORD_ORGNO": original_order_branch,
+            "ORGN_ODNO": str(original_order_no),
+            "ORD_DVSN": order_division,
+            "RVSE_CNCL_DVSN_CD": revision_type,
+            "ORD_QTY": str(int(qty)),
+            "ORD_UNPR": str(int(price)),
+            "QTY_ALL_ORD_YN": "Y" if all_order else "N",
+        }
+        if exchange_id:
+            body["EXCG_ID_DVSN_CD"] = exchange_id
+        headers = self.headers(tr_id)
+        hashkey = self.create_hashkey(body)
+        if hashkey:
+            headers["hashkey"] = hashkey
+        self.check_circuit()
+        try:
+            response = self.session.post(
+                f"{self.config.base_url}/uapi/domestic-stock/v1/trading/order-rvsecncl",
                 headers=headers,
                 json=body,
                 timeout=self.config.request_timeout_seconds,
@@ -470,12 +559,36 @@ class KISClient:
         self.mark_failure()
         return {"output1": [], "output2": {}, "_error": last_error or "unknown KIS balance error"}
 
+    @staticmethod
+    def _parse_exchange_map(raw: str | None = None) -> dict[str, str]:
+        text = raw if raw is not None else os.environ.get("MISTOCK_EXCHANGE_MAP", "")
+        aliases = {
+            "NAS": "NASD",
+            "NASDAQ": "NASD",
+            "NASD": "NASD",
+            "NYS": "NYSE",
+            "NYSE": "NYSE",
+            "AMS": "AMEX",
+            "AMEX": "AMEX",
+        }
+        mapping: dict[str, str] = {}
+        for chunk in str(text or "").replace(";", ",").split(","):
+            if "=" not in chunk:
+                continue
+            symbol, exchange = chunk.split("=", 1)
+            symbol_key = symbol.strip().upper()
+            exchange_code = aliases.get(exchange.strip().upper())
+            if symbol_key and exchange_code:
+                mapping[symbol_key] = exchange_code
+        return mapping
+
     def _parse_us_symbol(self, symbol: str) -> tuple[str, str, str]:
         """
         Parses symbol and returns (clean_symbol, KIS_excd, KIS_ovrs_excg_cd)
         excd: NAS, NYS, AMS, etc. (for quotations)
         ovrs_excg_cd: NASD, NYSE, AMEX, etc. (for trading)
         """
+        quotation_codes = {"NASD": "NAS", "NYSE": "NYS", "AMEX": "AMS"}
         symbol_upper = symbol.upper().strip()
         if ":" in symbol_upper:
             exch, sym = symbol_upper.split(":", 1)
@@ -488,6 +601,10 @@ class KISClient:
                 return sym, "AMS", "AMEX"
             else:
                 return sym, "NAS", "NASD"
+
+        mapped_exchange = self._parse_exchange_map().get(symbol_upper)
+        if mapped_exchange:
+            return symbol_upper, quotation_codes[mapped_exchange], mapped_exchange
 
         # Check standard NASDAQ_UNIVERSE
         try:
@@ -558,6 +675,52 @@ class KISClient:
             self.mark_failure()
             return {"rt_cd": "1", "msg1": str(exc)}
 
+    def revise_overseas_order(self, symbol: str, original_order_no: str, *, price: float, qty: float) -> dict[str, Any]:
+        return self._revise_or_cancel_overseas_order(symbol, original_order_no, revision_type="01", price=price, qty=qty)
+
+    def cancel_overseas_order(self, symbol: str, original_order_no: str, *, qty: float = 0) -> dict[str, Any]:
+        return self._revise_or_cancel_overseas_order(symbol, original_order_no, revision_type="02", price=0.0, qty=qty)
+
+    def _revise_or_cancel_overseas_order(
+        self,
+        symbol: str,
+        original_order_no: str,
+        *,
+        revision_type: str,
+        price: float,
+        qty: float,
+    ) -> dict[str, Any]:
+        tr_id = "VTTT1004U" if self.config.is_demo else "JTTT1004U"
+        clean_symbol, _, ovrs_excg_cd = self._parse_us_symbol(symbol)
+        body = {
+            "CANO": self.config.account_prefix,
+            "ACNT_PRDT_CD": self.config.account_suffix,
+            "OVRS_EXCG_CD": ovrs_excg_cd,
+            "PDNO": clean_symbol,
+            "ORGN_ODNO": str(original_order_no),
+            "RVSE_CNCL_DVSN_CD": revision_type,
+            "ORD_QTY": str(int(qty)),
+            "OVRS_ORD_UNPR": f"{price:.2f}",
+        }
+        headers = self.headers(tr_id)
+        hashkey = self.create_hashkey(body)
+        if hashkey:
+            headers["hashkey"] = hashkey
+        self.check_circuit()
+        try:
+            response = self.session.post(
+                f"{self.config.base_url}/uapi/overseas-stock/v1/trading/order-rvsecncl",
+                headers=headers,
+                json=body,
+                timeout=self.config.request_timeout_seconds,
+            )
+            response.raise_for_status()
+            self.mark_success()
+            return response.json()
+        except Exception as exc:
+            self.mark_failure()
+            return {"rt_cd": "1", "msg1": str(exc)}
+
     def get_condition_search_list(self, user_id: str) -> list[dict[str, Any]]:
         self.check_circuit()
         params = {
@@ -599,4 +762,3 @@ class KISClient:
         except Exception:
             self.mark_failure()
             return []
-

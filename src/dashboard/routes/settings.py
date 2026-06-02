@@ -5,10 +5,58 @@ import src.dashboard.core as _core
 from src.dashboard.core import *
 globals().update({k: v for k, v in _core.__dict__.items() if not k.startswith('__')})
 
+_kis_websocket_client = None
+_kis_websocket_lock = threading.Lock()
+
+
+def _kis_websocket_status() -> dict:
+    client = _kis_websocket_client
+    running = bool(client and client.running and client.is_alive())
+    return {
+        "enabled": bool(getattr(trader.config, "kis_websocket_enabled", False)),
+        "running": running,
+        "trading_env": trader.TRADING_ENV,
+        "hts_id": getattr(trader.config, "kistock_hts_id", "") or "",
+        "subscriptions": sorted([f"{tr_id}:{tr_key}" for tr_id, tr_key in getattr(client, "active_subscriptions", set())]) if client else [],
+    }
+
+
+def _start_kis_websocket() -> dict:
+    global _kis_websocket_client
+    with _kis_websocket_lock:
+        if _kis_websocket_client and _kis_websocket_client.running and _kis_websocket_client.is_alive():
+            return {"ok": True, **_kis_websocket_status()}
+        from src.api.kis_websocket import KISWebSocketClient
+
+        _kis_websocket_client = KISWebSocketClient()
+        _kis_websocket_client.start()
+        return {"ok": True, **_kis_websocket_status()}
+
+
+def _stop_kis_websocket() -> dict:
+    global _kis_websocket_client
+    with _kis_websocket_lock:
+        if _kis_websocket_client:
+            _kis_websocket_client.stop()
+            _kis_websocket_client = None
+        return {"ok": True, **_kis_websocket_status()}
+
+
+@app.on_event("startup")
+def start_kis_websocket_if_enabled():
+    if bool(getattr(trader.config, "kis_websocket_enabled", False)):
+        _start_kis_websocket()
+
 ENV_FIELD_TEXT = {
     "KISTOCK_APP_KEY": {"label": "KIS App Key", "hint": "국내주식 KIS API 앱 키입니다."},
     "KISTOCK_APP_SECRET": {"label": "KIS App Secret", "hint": "국내주식 KIS API 앱 시크릿입니다."},
     "KISTOCK_ACCOUNT": {"label": "KIS 계좌번호", "hint": "8자리 또는 10자리 계좌번호를 입력합니다."},
+    "KISTOCK_HTS_ID": {"label": "KIS HTS ID", "hint": "실시간 주문체결 통보와 조건검색식 조회에 사용할 HTS ID입니다."},
+    "KIS_WEBSOCKET_ENABLED": {"label": "KIS 웹소켓 사용", "hint": "true이면 KIS 실시간 체결통보 웹소켓을 시작할 수 있습니다."},
+    "KIS_CONDITION_SEARCH_ENABLED": {"label": "KIS 조건검색 사용", "hint": "true이면 매수 후보 스캔에 조건검색식 결과를 우선 반영합니다."},
+    "KIS_CONDITION_USER_ID": {"label": "조건검색 사용자 ID", "hint": "비워두면 KIS HTS ID를 사용합니다."},
+    "KIS_CONDITION_SEQ": {"label": "조건검색식 번호"},
+    "KIS_CONDITION_NAME": {"label": "조건검색식 이름"},
     "TRADING_ENV": {"label": "거래 환경", "hint": "demo=모의투자, real=실전투자 환경입니다."},
     "DRY_RUN": {"label": "주문 차단 모드", "hint": "true이면 실제 KIS 주문 API를 호출하지 않습니다."},
     "ENABLE_LIVE_TRADING": {"label": "실전 주문 허용", "hint": "실전 환경에서 실제 주문을 허용하는 최종 보호 스위치입니다."},
@@ -41,6 +89,7 @@ ENV_FIELD_TEXT = {
     "TELEGRAM_API_HASH": {"label": "Telegram API Hash"},
     "TELEGRAM_SESSION_NAME": {"label": "Telegram Session Name", "hint": "로컬 Telethon 세션 경로입니다. Git에 포함하지 마세요."},
     "TELEGRAM_TARGET_CHANNELS": {"label": "Telegram Target Channels", "hint": "쉼표로 구분한 채널 사용자명, ID, 초대 링크입니다."},
+    "MISTOCK_EXCHANGE_MAP": {"label": "미국주식 거래소 매핑", "hint": "예: BRK.B=NYSE,TSLA=NASD"},
 }
 
 
@@ -79,6 +128,13 @@ def _current_env_field_value(key: str, raw_values: dict[str, str]) -> str:
         "TELEGRAM_API_ID": getattr(trader.config, "telegram_api_id", "") or "",
         "TELEGRAM_API_HASH": getattr(trader.config, "telegram_api_hash", "") or "",
         "TELEGRAM_TARGET_CHANNELS": getattr(trader.config, "telegram_target_channels", "") or "",
+        "KISTOCK_HTS_ID": getattr(trader.config, "kistock_hts_id", "") or "",
+        "KIS_WEBSOCKET_ENABLED": str(bool(getattr(trader.config, "kis_websocket_enabled", False))).lower(),
+        "KIS_CONDITION_SEARCH_ENABLED": str(bool(getattr(trader.config, "kis_condition_search_enabled", False))).lower(),
+        "KIS_CONDITION_USER_ID": getattr(trader.config, "kis_condition_user_id", "") or "",
+        "KIS_CONDITION_SEQ": getattr(trader.config, "kis_condition_seq", "") or "",
+        "KIS_CONDITION_NAME": getattr(trader.config, "kis_condition_name", "") or "",
+        "MISTOCK_EXCHANGE_MAP": os.environ.get("MISTOCK_EXCHANGE_MAP", ""),
     }
     value = runtime_values.get(key, "")
     return "" if value is None else str(value)
@@ -216,3 +272,49 @@ def set_runtime_order_mode(payload: dict = Body(...)):
         "real_orders_enabled": trader.REAL_ORDERS_ENABLED,
         "requires_restart": False,
     }
+
+
+@app.get("/api/kis/condition-search/list")
+def get_kis_condition_search_list(user_id: str | None = None):
+    lookup_user_id = (user_id or getattr(trader.config, "kis_condition_user_id", "") or getattr(trader.config, "kistock_hts_id", "") or "").strip()
+    if not lookup_user_id:
+        raise HTTPException(status_code=400, detail="KIS condition user_id or KISTOCK_HTS_ID is required")
+    api = KIStockAPI()
+    return {"ok": True, "user_id": lookup_user_id, "conditions": api.get_condition_search_list(lookup_user_id)}
+
+
+@app.get("/api/kis/condition-search/result")
+def get_kis_condition_search_result(
+    seq: str | None = None,
+    name: str | None = None,
+    user_id: str | None = None,
+):
+    lookup_user_id = (user_id or getattr(trader.config, "kis_condition_user_id", "") or getattr(trader.config, "kistock_hts_id", "") or "").strip()
+    condition_seq = (seq or getattr(trader.config, "kis_condition_seq", "") or "").strip()
+    condition_name = (name or getattr(trader.config, "kis_condition_name", "") or "").strip()
+    if not lookup_user_id:
+        raise HTTPException(status_code=400, detail="KIS condition user_id or KISTOCK_HTS_ID is required")
+    if not condition_seq or not condition_name:
+        raise HTTPException(status_code=400, detail="KIS condition seq and name are required")
+    api = KIStockAPI()
+    codes = api.get_condition_search_result(lookup_user_id, condition_seq, condition_name)
+    return {"ok": True, "user_id": lookup_user_id, "seq": condition_seq, "name": condition_name, "codes": codes, "count": len(codes)}
+
+
+@app.get("/api/kis/websocket/status")
+def get_kis_websocket_status():
+    return {"ok": True, **_kis_websocket_status()}
+
+
+@app.post("/api/kis/websocket/start")
+def start_kis_websocket():
+    if not bool(getattr(trader.config, "kis_websocket_enabled", False)):
+        raise HTTPException(status_code=409, detail="KIS_WEBSOCKET_ENABLED is false")
+    if not (getattr(trader.config, "kistock_hts_id", "") or trader.config.kistock_account):
+        raise HTTPException(status_code=400, detail="KISTOCK_HTS_ID or KISTOCK_ACCOUNT is required")
+    return _start_kis_websocket()
+
+
+@app.post("/api/kis/websocket/stop")
+def stop_kis_websocket():
+    return _stop_kis_websocket()

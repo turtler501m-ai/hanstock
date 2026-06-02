@@ -121,6 +121,22 @@ class KIStockAPI:
             "Content-Type": "application/json",
         }
 
+    def _hashkey(self, payload: dict) -> str:
+        try:
+            response = HTTP.post(
+                f"{self.base_url}/uapi/hashkey",
+                headers={
+                    "content-type": "application/json",
+                    "appkey": config.kistock_app_key,
+                    "appsecret": config.kistock_app_secret,
+                },
+                json=payload,
+                timeout=10,
+            )
+            return response.json().get("HASH", "")
+        except Exception:
+            return ""
+
     @classmethod
     def circuit_status(cls) -> dict:
         return {
@@ -275,7 +291,11 @@ class KIStockAPI:
         url = f"{self.base_url}/uapi/domestic-stock/v1/trading/order-cash"
         body = {"CANO": config.kistock_account[:8], "ACNT_PRDT_CD": config.kistock_account[8:] if len(config.kistock_account) > 8 else "01", "PDNO": symbol, "ORD_DVSN": "01" if price == 0 else "00", "ORD_QTY": str(qty), "ORD_UNPR": str(price)}
         try:
-            r = HTTP.post(url, headers=self._headers(tr_id), json=body, timeout=15)
+            headers = self._headers(tr_id)
+            hashkey = self._hashkey(body)
+            if hashkey:
+                headers["hashkey"] = hashkey
+            r = HTTP.post(url, headers=headers, json=body, timeout=15)
             data = self._response_json(r, "Order")
             self._record_result(data)
             return data
@@ -392,4 +412,3 @@ class KIStockAPI:
         except Exception:
             self._fail()
             raise
-

@@ -1,4 +1,5 @@
 import unittest
+from unittest.mock import Mock, patch
 
 from src.trader import (
     KOSPI_UNIVERSE,
@@ -33,6 +34,21 @@ class TraderCoreTests(unittest.TestCase):
         )
         self.assertEqual(len(orders), 1)
         self.assertLessEqual(orders[0]["estimated_cost"], 1_000_000)
+
+    def test_build_scan_universe_prefers_configured_condition_search(self):
+        api = Mock()
+        api.get_condition_search_result.return_value = ["005930", "000660", "005930"]
+
+        with patch("src.strategy.seven_split.config.kis_condition_search_enabled", True), \
+                patch("src.strategy.seven_split.config.kis_condition_user_id", "hts-user"), \
+                patch("src.strategy.seven_split.config.kis_condition_seq", "001"), \
+                patch("src.strategy.seven_split.config.kis_condition_name", "breakout"):
+            universe = build_scan_universe(api, {"000660"})
+
+        api.get_condition_search_result.assert_called_once_with("hts-user", "001", "breakout")
+        api.get_volume_rank.assert_not_called()
+        self.assertIn("005930", universe)
+        self.assertNotIn("000660", universe)
 
     def test_generate_signal_stop_loss_sells_all(self):
         signal = generate_signal(

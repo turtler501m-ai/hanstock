@@ -513,20 +513,47 @@ def generate_portfolio_optimizer_plan(holdings: list[dict], total_eval: int) -> 
     return {"method": "score_tilted_inverse_vol", "cash_weight": config.cash_buffer, "positions": positions}
 
 
+def _condition_search_universe(api: "KIStockAPI") -> list[str]:
+    if not bool(getattr(config, "kis_condition_search_enabled", False)):
+        return []
+    user_id = str(
+        getattr(config, "kis_condition_user_id", "")
+        or getattr(config, "kistock_hts_id", "")
+        or ""
+    ).strip()
+    condition_no = str(getattr(config, "kis_condition_seq", "") or "").strip()
+    condition_name = str(getattr(config, "kis_condition_name", "") or "").strip()
+    if not user_id or not condition_no or not condition_name:
+        logger.warning("[SCAN] KIS 조건검색 설정이 부족해 조건검색 유니버스를 건너뜁니다.")
+        return []
+    try:
+        codes = api.get_condition_search_result(user_id, condition_no, condition_name)
+    except Exception as exc:
+        logger.warning(f"[SCAN] KIS 조건검색 조회 실패: {exc}")
+        return []
+    return [code for code in codes if code]
+
+
 def build_scan_universe(api: "KIStockAPI", held_symbols: set[str]) -> list[str]:
     """매수 후보 스캔 대상 종목 코드 목록을 구성한다.
 
-    1순위: KIS 거래량 상위 config.scan_universe_size종목 (장중 동적 발굴)
-    2순위: KOSPI_UNIVERSE 정적 풀 (KIS API 실패 시 폴백)
+    1순위: KIS 조건검색식 결과(설정된 경우)
+    2순위: KIS 거래량 상위 config.scan_universe_size종목 (장중 동적 발굴)
+    3순위: KOSPI_UNIVERSE 정적 풀 (KIS API 실패 시 폴백)
     WATCHLIST는 항상 포함되며, 보유 중인 종목은 제외된다.
     """
-    volume_rank = api.get_volume_rank(top_n=config.scan_universe_size)
-    if volume_rank:
-        logger.info(f"[SCAN] KIS 거래량 상위 {len(volume_rank)}종목 수집 완료")
-        base = volume_rank
+    condition_codes = _condition_search_universe(api)
+    if condition_codes:
+        logger.info(f"[SCAN] KIS 조건검색식 {len(condition_codes)}종목 수집 완료")
+        base = condition_codes
     else:
-        logger.info(f"[SCAN] KIS 거래량 API 실패 → KOSPI_UNIVERSE {len(KOSPI_UNIVERSE)}종목으로 폴백")
-        base = KOSPI_UNIVERSE
+        volume_rank = api.get_volume_rank(top_n=config.scan_universe_size)
+        if volume_rank:
+            logger.info(f"[SCAN] KIS 거래량 상위 {len(volume_rank)}종목 수집 완료")
+            base = volume_rank
+        else:
+            logger.info(f"[SCAN] KIS 거래량 API 실패 → KOSPI_UNIVERSE {len(KOSPI_UNIVERSE)}종목으로 폴백")
+            base = KOSPI_UNIVERSE
 
     # WATCHLIST 항상 포함, 중복 제거, 보유 종목 제외
     merged = list(dict.fromkeys(WATCHLIST + base))

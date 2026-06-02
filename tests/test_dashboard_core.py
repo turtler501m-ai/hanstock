@@ -114,6 +114,51 @@ class DashboardCoreTests(unittest.TestCase):
         self.assertEqual(values["MAX_POSITIONS"], "10")
         self.assertEqual(dashboard._validate_env_value("MAX_POSITIONS", "10 # 최대보유주식종목"), "10")
 
+    def test_kis_ops_routes_are_registered(self):
+        paths = {getattr(route, "path", "") for route in dashboard.app.routes}
+
+        self.assertIn("/api/kis/condition-search/list", paths)
+        self.assertIn("/api/kis/condition-search/result", paths)
+        self.assertIn("/api/kis/websocket/status", paths)
+        self.assertIn("/api/kis/websocket/start", paths)
+        self.assertIn("/api/kis/websocket/stop", paths)
+
+    def test_kis_env_settings_apply_without_restart(self):
+        original_env_path = dashboard.ENV_PATH
+        original_values = {
+            "kistock_hts_id": getattr(dashboard.trader.config, "kistock_hts_id", ""),
+            "kis_websocket_enabled": getattr(dashboard.trader.config, "kis_websocket_enabled", False),
+            "kis_condition_search_enabled": getattr(dashboard.trader.config, "kis_condition_search_enabled", False),
+            "kis_condition_user_id": getattr(dashboard.trader.config, "kis_condition_user_id", ""),
+            "kis_condition_seq": getattr(dashboard.trader.config, "kis_condition_seq", ""),
+            "kis_condition_name": getattr(dashboard.trader.config, "kis_condition_name", ""),
+        }
+        try:
+            dashboard.ENV_PATH = MemoryTextPath("")
+            result = dashboard.update_env_settings({
+                "values": {
+                    "KISTOCK_HTS_ID": "hts-user",
+                    "KIS_WEBSOCKET_ENABLED": "true",
+                    "KIS_CONDITION_SEARCH_ENABLED": "true",
+                    "KIS_CONDITION_USER_ID": "condition-user",
+                    "KIS_CONDITION_SEQ": "001",
+                    "KIS_CONDITION_NAME": "breakout",
+                    "MISTOCK_EXCHANGE_MAP": "BRK.B=NYSE",
+                }
+            })
+
+            self.assertTrue(result["ok"])
+            self.assertEqual(dashboard.trader.config.kistock_hts_id, "hts-user")
+            self.assertTrue(dashboard.trader.config.kis_websocket_enabled)
+            self.assertTrue(dashboard.trader.config.kis_condition_search_enabled)
+            self.assertEqual(dashboard.trader.config.kis_condition_user_id, "condition-user")
+            self.assertEqual(dashboard.trader.config.kis_condition_seq, "001")
+            self.assertEqual(dashboard.trader.config.kis_condition_name, "breakout")
+        finally:
+            dashboard.ENV_PATH = original_env_path
+            for key, value in original_values.items():
+                setattr(dashboard.trader.config, key, value)
+
     def test_runtime_order_mode_updates_apply_without_restart(self):
         original_env_path = dashboard.ENV_PATH
         original_trading_env = dashboard.trader.TRADING_ENV

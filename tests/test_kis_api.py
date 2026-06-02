@@ -121,6 +121,41 @@ class KIStockAPITests(unittest.TestCase):
         finally:
             kis_api._KIS_MIN_INTERVAL = original_interval
 
+    def test_place_order_attaches_hashkey_when_available(self):
+        api = KIStockAPI.__new__(KIStockAPI)
+        api.base_url = "https://example.test"
+        api.access_token = "token"
+
+        response = Mock()
+        response.status_code = 200
+        response.json.return_value = {"rt_cd": "0", "msg1": "ok"}
+
+        original_interval = kis_api._KIS_MIN_INTERVAL
+        try:
+            kis_api._KIS_MIN_INTERVAL = 0
+            with patch.object(kis_api.config, "dry_run", False), \
+                    patch.object(kis_api.config, "trading_env", "demo"), \
+                    patch.object(kis_api.config, "enable_live_trading", False), \
+                    patch.object(kis_api.config, "kistock_account", "1234567801"), \
+                    patch.object(kis_api.config, "kistock_app_key", "key"), \
+                    patch.object(kis_api.config, "kistock_app_secret", "secret"), \
+                    patch.object(api, "_hashkey", return_value="hash-value") as hashkey, \
+                    patch.object(kis_api.HTTP, "post", return_value=response) as post:
+                result = api.place_order("005930", "buy", 0, 3)
+
+            self.assertEqual(result["rt_cd"], "0")
+            hashkey.assert_called_once_with({
+                "CANO": "12345678",
+                "ACNT_PRDT_CD": "01",
+                "PDNO": "005930",
+                "ORD_DVSN": "01",
+                "ORD_QTY": "3",
+                "ORD_UNPR": "0",
+            })
+            self.assertEqual(post.call_args.kwargs["headers"]["hashkey"], "hash-value")
+        finally:
+            kis_api._KIS_MIN_INTERVAL = original_interval
+
 
 if __name__ == "__main__":
     unittest.main()

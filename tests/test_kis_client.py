@@ -2,7 +2,7 @@ import tempfile
 import unittest
 from datetime import datetime, timedelta
 from pathlib import Path
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 from src.kis_client import CircuitBreakerState, KISClient, KISClientConfig
 
@@ -193,6 +193,39 @@ class KISClientTests(unittest.TestCase):
         order_call = session.post.call_args_list[1]
         self.assertEqual(order_call.kwargs["headers"]["tr_id"], "TTTC0801U")
         self.assertEqual(order_call.kwargs["headers"]["hashkey"], "hash-value")
+
+    def test_parse_us_symbol_uses_explicit_exchange_map(self):
+        client = KISClient(
+            self.make_config(),
+            session=Mock(),
+            access_token="token",
+        )
+
+        with patch.dict("os.environ", {"MISTOCK_EXCHANGE_MAP": "BRK.B=NYSE;XYZ=AMEX"}):
+            self.assertEqual(client._parse_us_symbol("BRK.B"), ("BRK.B", "NYS", "NYSE"))
+            self.assertEqual(client._parse_us_symbol("XYZ"), ("XYZ", "AMS", "AMEX"))
+
+    def test_place_overseas_order_uses_mapped_exchange_code(self):
+        session = Mock()
+        session.post.side_effect = [
+            _FakeResponse({"HASH": "hash-value"}),
+            _FakeResponse({"rt_cd": "0", "msg1": "ok"}),
+        ]
+        client = KISClient(
+            self.make_config(),
+            session=session,
+            access_token="token",
+        )
+
+        with patch.dict("os.environ", {"MISTOCK_EXCHANGE_MAP": "BRK.B=NYSE"}):
+            result = client.place_overseas_order("BRK.B", "buy", 420.25, 2)
+
+        self.assertEqual(result["rt_cd"], "0")
+        order_call = session.post.call_args_list[1]
+        self.assertEqual(order_call.kwargs["headers"]["tr_id"], "VTTT1002U")
+        self.assertEqual(order_call.kwargs["headers"]["hashkey"], "hash-value")
+        self.assertEqual(order_call.kwargs["json"]["OVRS_EXCG_CD"], "NYSE")
+        self.assertEqual(order_call.kwargs["json"]["PDNO"], "BRK.B")
 
 
 if __name__ == "__main__":
