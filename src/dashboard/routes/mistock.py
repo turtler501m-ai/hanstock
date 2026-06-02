@@ -709,6 +709,38 @@ def mistock_periodic_performance():
     return {"periods": [], "summary": {"return_pct": 0.0, "max_drawdown_pct": 0.0}}
 
 
+import threading
+from datetime import datetime, timezone, timedelta
+from pathlib import Path
+
+_mistock_scheduler_running_lock = threading.Lock()
+_mistock_scheduler_run_state = {
+    "is_running": False,
+    "mode": None,
+    "started_at": None,
+    "completed_at": None,
+    "result": None,
+    "error": None
+}
+
+def _bg_run_mistock_scheduled_cycle(mode: str):
+    global _mistock_scheduler_run_state
+    try:
+        from src.mistock.scheduler import run_mistock_scheduled_cycle
+        result = run_mistock_scheduled_cycle(mode=mode)
+        with _mistock_scheduler_running_lock:
+            _mistock_scheduler_run_state["is_running"] = False
+            _mistock_scheduler_run_state["completed_at"] = datetime.now(timezone(timedelta(hours=9))).isoformat()
+            _mistock_scheduler_run_state["result"] = result
+            _mistock_scheduler_run_state["error"] = None
+    except Exception as e:
+        with _mistock_scheduler_running_lock:
+            _mistock_scheduler_run_state["is_running"] = False
+            _mistock_scheduler_run_state["completed_at"] = datetime.now(timezone(timedelta(hours=9))).isoformat()
+            _mistock_scheduler_run_state["result"] = None
+            _mistock_scheduler_run_state["error"] = str(e)
+
+
 @app.get("/api/mistock/usage/quota")
 def mistock_usage_quota():
     return {"ok": True, "quota": {"provider": "mistock-local", "used": 0, "limit": 0}, "message": "Mistock uses local rule-based analysis."}
@@ -716,13 +748,57 @@ def mistock_usage_quota():
 
 @app.get("/api/mistock/scheduler/status")
 def mistock_scheduler_status():
-    return {"running": False, "mode": "mistock-paper", "last_result": None, "message": "Mistock scheduler is not enabled yet."}
+    global _mistock_scheduler_run_state
+    
+    last_result = None
+    path = Path(".runtime/mistock/daily_auto_last_result.json")
+    if path.exists():
+        try:
+            last_result = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            pass
+            
+    return {
+        "config": {
+            "trading_env": mistock_config.trading_env,
+            "dry_run": mistock_config.dry_run,
+        },
+        "last_result": last_result,
+        "run_state": _mistock_scheduler_run_state
+    }
 
 
 @app.post("/api/mistock/scheduler/run")
 def mistock_scheduler_run(payload: dict = Body(default={})):
-    scan = mistock_trader.scan_candidates(min_score=2, limit=10)
-    return {"ok": True, "running": False, "mode": payload.get("mode") or "analysis_only", "result": {"scanned": scan["scanned"], "candidates": len(scan["candidates"])}}
+    global _mistock_scheduler_run_state
+    mode = str(payload.get("mode", "execute")).lower()
+    if mode not in {"execute", "analysis_only"}:
+        raise HTTPException(status_code=400, detail="Invalid scheduler mode")
+        
+    with _mistock_scheduler_running_lock:
+        if _mistock_scheduler_run_state["is_running"]:
+            raise HTTPException(status_code=409, detail="스케줄러가 이미 실행 중입니다.")
+            
+        _mistock_scheduler_run_state["is_running"] = True
+        _mistock_scheduler_run_state["mode"] = mode
+        _mistock_scheduler_run_state["started_at"] = datetime.now(timezone(timedelta(hours=9))).isoformat()
+        _mistock_scheduler_run_state["completed_at"] = None
+        _mistock_scheduler_run_state["result"] = None
+        _mistock_scheduler_run_state["error"] = None
+        
+    t = threading.Thread(
+        target=_bg_run_mistock_scheduled_cycle,
+        args=(mode,),
+        daemon=True
+    )
+    t.start()
+    return {
+        "ok": True,
+        "status": "started",
+        "running": True,
+        "mode": mode,
+        "result": {"scanned": 0, "candidates": 0}
+    }
 
 
 @app.post("/api/mistock/circuit-breaker/reset")
