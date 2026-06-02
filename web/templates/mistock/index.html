@@ -7,7 +7,7 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="theme-color" content="#030712">
-    <title>한스톡 대시보드</title>
+    <title>미스톡 대시보드</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&family=Noto+Sans+KR:wght@400;500;700&display=swap" rel="stylesheet">
@@ -18,8 +18,8 @@
     <div class="dashboard-container">
         <header class="app-header">
             <div>
-                <p class="eyebrow">KIS 국내주식 자동매매</p>
-                <h1>한스톡 <span class="highlight">대시보드</span></h1>
+                <p class="eyebrow">NASDAQ Paper Trading</p>
+                <h1>미스톡 <span class="highlight">대시보드</span></h1>
             </div>
             <div class="header-actions">
                 <a class="nav-button" href="/">메인</a>
@@ -159,7 +159,7 @@
                     <div class="panel-header split-header">
                         <div>
                             <h2>보유 종목</h2>
-                            <p class="section-help">KIS 계좌 기준 보유 수량, 현재가, 평가금액, 손익을 표시합니다.</p>
+                            <p class="section-help">미스톡 paper 계좌 기준 보유 수량, 현재가, 평가금액, 손익을 표시합니다.</p>
                         </div>
                         <button type="button" id="btn-sell-all-holdings" class="button-danger">전량 매도 요청</button>
                     </div>
@@ -246,7 +246,7 @@
                         <div>
                             <span>분석 계좌</span>
                             <strong id="ai-summary-account">-</strong>
-                            <small>현재 KIS 계좌 1순위</small>
+                            <small>미스톡 paper 계좌 1순위</small>
                         </div>
                         <div>
                             <span>점수 결합</span>
@@ -413,7 +413,7 @@
                         <span class="dot live pulsing" style="background-color: var(--warning); width: 10px; height: 10px; border-radius: 50%;"></span>
                         <h2 style="margin: 0; font-size: 1.25rem;">스케쥴러 동작 중...</h2>
                     </div>
-                    <p class="section-help">스케쥴러가 실시간으로 매매 분석 및 KIS API 통신을 수행하고 있습니다. 잠시만 기다려 주세요.</p>
+                    <p class="section-help">스케쥴러가 실시간으로 매매 분석 및 NASDAQ paper 분석을 수행하고 있습니다. 잠시만 기다려 주세요.</p>
                     <div class="running-log-box" id="scheduler-running-log" style="background: rgba(0,0,0,0.4); padding: 1rem; border-radius: 6px; font-family: monospace; font-size: 0.85rem; max-height: 200px; overflow-y: auto; white-space: pre-wrap; border: 1px solid rgba(255,255,255,0.08); margin-top: 0.5rem; color: #34d399;">
                         [System] 스케쥴 실행 요청을 처리 중입니다...
                     </div>
@@ -712,7 +712,7 @@
                         <div class="panel-header split-header">
                             <div>
                                 <h3>쉬운 전략 만들기</h3>
-                                <p class="section-help">원하는 성향을 고르면 전략을 만들고 바로 적용합니다. 세부 검증은 자동으로 기본 처리됩니다.</p>
+                                <p class="section-help">원하는 성향을 고르면 미스톡 paper 전략을 만들고 바로 적용합니다.</p>
                             </div>
                         </div>
                         <div class="ai-strategy-summary">
@@ -723,7 +723,7 @@
                                 <strong>균형형</strong><small>룰 + AI 보조 균형</small>
                             </button>
                             <button type="button" class="button-ghost easy-strategy-preset" data-preset="aggressive">
-                                <strong>공격형</strong><small>후보를 더 넓게 탐색</small>
+                                <strong>공격형</strong><small>NASDAQ 후보를 넓게 탐색</small>
                             </button>
                             <button type="button" class="button-ghost" id="btn-toggle-advanced-strategy">
                                 <strong>고급 설정</strong><small>검증/운영 버튼 보기</small>
@@ -954,7 +954,7 @@
         });
     </script>
     <script src="/static/js/environment_badge.js?v=1"></script>
-    <script src="/static/js/app.js?v=35"></script>
+    <script src="/static/js/mistock_app.js?v=1"></script>
 
     <!-- Antigravity AI Quota Status Bar -->
     <div id="ai-quota-statusbar" class="statusbar">

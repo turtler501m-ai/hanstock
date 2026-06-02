@@ -8,9 +8,10 @@ import src.dashboard.routes.futures as futures
 import src.dashboard.routes.quantconnect as quantconnect
 import src.dashboard.routes.settings as settings
 import src.dashboard.routes.stock as stock
+import src.dashboard.routes.mistock as mistock
 
 # Dynamically expose all names from core and all route files for backward compatibility
 import src.dashboard.core as _core
 
-for mod in [_core, pages, account, futures, quantconnect, settings, stock]:
+for mod in [_core, pages, account, futures, quantconnect, settings, stock, mistock]:
     globals().update({k: v for k, v in mod.__dict__.items() if not k.startswith("__")})

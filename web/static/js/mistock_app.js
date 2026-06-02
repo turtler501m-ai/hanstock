@@ -7,8 +7,8 @@ let activeStrategyAuditId = '';
 const formatCurrency = (value) => {
     return new Intl.NumberFormat('ko-KR', {
         style: 'currency',
-        currency: 'KRW',
-        maximumFractionDigits: 0
+        currency: 'USD',
+        maximumFractionDigits: 2
     }).format(Number(value || 0));
 };
 
@@ -530,7 +530,7 @@ function renderAiStrategySummary(config) {
         : (enabled ? 'OPENAI_API_KEY 없음: Seven Split 룰 점수로 분석' : 'Seven Split 룰 점수만 사용');
     const ruleWeight = Number(ai.rule_weight ?? 1) * 100;
     const scoreWeight = Number(ai.score_weight ?? 0) * 100;
-    const accountText = ai.account || config.kistock_account || '-';
+    const accountText = ai.account || config.NASDAQtock_account || '-';
     const flow = ai.auto_approve ? 'AI 제안 후 자동승인 설정 켜짐' : 'AI 제안 후 승인 대기';
 
     setElementText('ai-summary-model', `${modelStatus} · ${ai.model_name || '-'}`);
@@ -542,7 +542,7 @@ function renderAiStrategySummary(config) {
     const flowEl = document.getElementById('ai-flow-list');
     if (flowEl) {
         const items = (ai.flow || []).map((item) => `<span>${escapeHtml(item)}</span>`).join('');
-        flowEl.innerHTML = items || '<span>현재 KIS 계좌와 Seven Split 전략 기준으로 후보를 분석합니다.</span>';
+        flowEl.innerHTML = items || '<span>현재 NASDAQ 계좌와 Seven Split 전략 기준으로 후보를 분석합니다.</span>';
     }
 }
 
@@ -570,7 +570,7 @@ async function saveStrategySettings(event) {
             }
             values[input.name] = String(numeric);
         }
-        const result = await postJson('/api/env', { values });
+        const result = await postJson('/api/mistock/env', { values });
         setStatus(`전략 설정을 저장했습니다. 반영 항목: ${result.updated.join(', ')}`, true);
         await Promise.all([renderConfig(), renderBalance()]);
     } catch (err) {
@@ -619,7 +619,7 @@ function renderPortfolioChart(labels, data, colors) {
 }
 
 async function renderRuntime() {
-    const health = await fetchJson('/api/health');
+    const health = await fetchJson('/api/mistock/health');
     document.getElementById('runtime-env').textContent = health.trading_env === 'real' ? '실전' : '모의';
     document.getElementById('runtime-dry-run').innerHTML = health.dry_run ? pill('차단 ON', 'warn') : pill('차단 OFF', 'buy');
     document.getElementById('runtime-order').innerHTML = health.order_submission_enabled ? pill('가능', 'buy') : pill('차단', 'warn');
@@ -671,7 +671,7 @@ async function toggleRuntimeOrderMode(buttonId, key, label) {
     const nextEnabled = !(button?.dataset.enabled === 'true');
     setButtonBusy(buttonId, true);
     try {
-        const result = await postJson('/api/runtime/order-mode', { key, enabled: nextEnabled });
+        const result = await postJson('/api/mistock/runtime/order-mode', { key, enabled: nextEnabled });
         const stateText = nextEnabled ? '켰습니다' : '껐습니다';
         const details = `주문차단=${result.dry_run ? 'ON' : 'OFF'}, 최종 주문전송=${result.order_submission_enabled ? '가능' : '차단'}, 실전주문=${result.real_orders_enabled ? '가능' : '차단'}`;
         setStatus(`${label}을 ${stateText}. ${details}`, true);
@@ -688,7 +688,7 @@ async function toggleAutoApproval() {
     const nextEnabled = !(button?.dataset.enabled === 'true');
     setButtonBusy('btn-auto-approval', true);
     try {
-        const result = await postJson('/api/auto-approval', { enabled: nextEnabled });
+        const result = await postJson('/api/mistock/auto-approval', { enabled: nextEnabled });
         const processedCount = Number(result.processed_count || 0);
         const suffix = result.enabled && processedCount > 0 ? ` 대기 주문 ${processedCount}건을 처리했습니다.` : '';
         setStatus(`자동승인을 ${result.enabled ? '켰습니다' : '껐습니다'}.${suffix}`, true);
@@ -701,9 +701,9 @@ async function toggleAutoApproval() {
 }
 
 async function renderConfig() {
-    const config = await fetchJson('/api/config');
+    const config = await fetchJson('/api/mistock/config');
     latestConfig = config;
-    setElementText('val-account', config.kistock_account || '-');
+    setElementText('val-account', config.NASDAQtock_account || '-');
     renderAiStrategySummary(config);
     const settingsEl = document.getElementById('settings-grid');
     settingsEl.innerHTML = renderStrategySettingsForm(config);
@@ -742,7 +742,7 @@ function renderRisk(balance) {
 
 async function renderBalance() {
     try {
-        const balance = await fetchJson('/api/balance', 30000);
+        const balance = await fetchJson('/api/mistock/balance', 30000);
         const holdingValue = (balance.holdings || []).reduce((sum, holding) => {
             return sum + Number(holding.value || (Number(holding.qty || 0) * Number(holding.price || 0)));
         }, 0);
@@ -825,7 +825,7 @@ async function renderBalance() {
         renderRisk(balance);
         document.getElementById('last-updated').textContent = `마지막 갱신 ${new Date().toLocaleTimeString('ko-KR')}`;
         if (balance._cache?.stale) {
-            setStatus(`KIS 계좌 API가 일시 실패해 최근 정상 데이터(${balance._cache.cached_at || '저장됨'})를 표시합니다.`);
+            setStatus(`NASDAQ 계좌 API가 일시 실패해 최근 정상 데이터(${balance._cache.cached_at || '저장됨'})를 표시합니다.`);
         } else {
             setStatus('대시보드 연결 완료. 계좌 정보를 불러왔습니다.', true);
         }
@@ -845,7 +845,7 @@ async function renderOptimizer() {
     setButtonBusy('btn-optimizer', true);
     setTableMessage('#table-optimizer tbody', 7, '포트폴리오 최적 비중을 계산하고 있습니다...');
     try {
-        const data = await fetchJson('/api/portfolio-optimizer');
+        const data = await fetchJson('/api/mistock/portfolio-optimizer');
         const tbody = document.querySelector('#table-optimizer tbody');
         if (!tbody) return;
         tbody.innerHTML = '';
@@ -893,11 +893,11 @@ async function renderOptimizer() {
 
 async function syncStrategiesToDropdown() {
     try {
-        const data = await fetchJson('/api/ai-strategies');
+        const data = await fetchJson('/api/mistock/ai-strategies');
         const select = document.getElementById('select-ai-ranker');
         if (!select) return;
 
-        const previous = select.value || localStorage.getItem('hanstock_ai_ranker') || '';
+        const previous = select.value || localStorage.getItem('mistock_ai_ranker') || '';
         select.innerHTML = '';
         const strategies = (data.strategies || []).filter((strategy) => strategy.status !== 'retired');
         if (strategies.length === 0) {
@@ -923,7 +923,7 @@ async function syncStrategiesToDropdown() {
             select.value = select.options[0].value;
         }
         if (select.value) {
-            localStorage.setItem('hanstock_ai_ranker', select.value);
+            localStorage.setItem('mistock_ai_ranker', select.value);
         }
     } catch (err) {
         console.error('Failed to sync strategies to dropdown:', err);
@@ -932,7 +932,7 @@ async function syncStrategiesToDropdown() {
 
 async function renderStrategyContext() {
     try {
-        const data = await fetchJson('/api/strategy-context');
+        const data = await fetchJson('/api/mistock/strategy-context');
         const active = data.active_strategy || {};
         const safety = data.safety || {};
         setElementText('strategy-context-name', active.name || '-');
@@ -981,8 +981,8 @@ async function renderStrategyAudit(strategyId) {
     activeStrategyAuditId = id;
     try {
         const [performance, events] = await Promise.all([
-            fetchJson(`/api/ai-strategies/${encodeURIComponent(id)}/performance?days=30`, 30000),
-            fetchJson(`/api/ai-strategies/${encodeURIComponent(id)}/events?limit=20`, 30000),
+            fetchJson(`/api/mistock/ai-strategies/${encodeURIComponent(id)}/performance?days=30`, 30000),
+            fetchJson(`/api/mistock/ai-strategies/${encodeURIComponent(id)}/events?limit=20`, 30000),
         ]);
         setElementText('strategy-audit-title', `${id} 최근 운영 상태`);
         setElementText('strategy-audit-candidates', formatNumber(performance.candidate_count || 0));
@@ -1029,7 +1029,7 @@ async function renderAiStrategies() {
     const tbody = document.querySelector('#table-ai-strategies tbody');
     if (!tbody) return;
     try {
-        const data = await fetchJson('/api/ai-strategies');
+        const data = await fetchJson('/api/mistock/ai-strategies');
         tbody.innerHTML = '';
         const strategies = data.strategies || [];
         if (!strategies.length) {
@@ -1041,7 +1041,7 @@ async function renderAiStrategies() {
             const tr = document.createElement('tr');
             const model = strategy.model === 'none' ? 'Local Rule' : strategy.model;
             const weight = Number(strategy.profile?.ai_weight ?? strategy.weight ?? 0);
-            const builtIn = ['gpt_5_mini_default', 'rule_only_default'].includes(strategy.id);
+            const builtIn = ['gpt_5_mini_default', 'rule_only_default', 'mistock_nasdaq_rule_v1'].includes(strategy.id);
             tr.innerHTML = `
                 <td style="text-align:center;">
                     <input type="radio" name="active-ai-strategy" class="strategy-select-radio" data-id="${escapeHtml(strategy.id)}" ${strategy.selected ? 'checked' : ''}>
@@ -1082,8 +1082,8 @@ async function renderAiStrategies() {
         tbody.querySelectorAll('.strategy-select-radio').forEach((input) => {
             input.addEventListener('change', async () => {
                 const id = input.getAttribute('data-id');
-                await postJson(`/api/ai-strategies/${id}/select`, { selected: true });
-                localStorage.setItem('hanstock_ai_ranker', id);
+                await postJson(`/api/mistock/ai-strategies/${id}/select`, { selected: true });
+                localStorage.setItem('mistock_ai_ranker', id);
                 await Promise.all([syncStrategiesToDropdown(), renderStrategyContext(), renderAiStrategies()]);
                 await renderStrategyAudit(id);
                 setStatus('Active AI 전략을 변경했습니다.', true);
@@ -1107,41 +1107,37 @@ async function renderAiStrategies() {
             });
         };
         bindStrategyAction('.btn-quick-apply-strategy', async (id) => {
-            await postJson(`/api/ai-strategies/${id}/select`, { selected: true });
-            localStorage.setItem('hanstock_ai_ranker', id);
+            await postJson(`/api/mistock/ai-strategies/${id}/select`, { selected: true });
+            localStorage.setItem('mistock_ai_ranker', id);
             await renderStrategyAudit(id);
             setStatus('전략을 바로 적용했습니다.', true);
         });
         bindStrategyAction('.btn-quick-validate-strategy', async (id) => {
-            await postJson(`/api/ai-strategies/${id}/static-verify`, {});
-            const backtest = await postJson(`/api/ai-strategies/${id}/backtest`, {});
-            try {
-                await postJson(`/api/ai-strategies/${id}/approve`, {});
-            } catch (_) {
-                // Approval may require optional paper/API gates for manually-created advanced strategies.
-            }
-            const status = backtest.result?.status || 'done';
-            setStatus(`자동검증 완료: ${status}`, Boolean(backtest.result?.success));
+            await postJson(`/api/mistock/ai-strategies/${id}/static-verify`, {});
+            const backtest = await postJson(`/api/mistock/ai-strategies/${id}/backtest`, {});
+            await postJson(`/api/mistock/ai-strategies/${id}/approve`, {});
+            const status = backtest.result?.status || backtest.status || 'done';
+            setStatus(`자동검증 완료: ${status}`, Boolean(backtest.result?.success ?? backtest.success));
         });
         bindStrategyAction('.btn-static-verify-strategy', async (id) => {
-            const result = await postJson(`/api/ai-strategies/${id}/static-verify`, {});
+            const result = await postJson(`/api/mistock/ai-strategies/${id}/static-verify`, {});
             setStatus(`정적 검증: ${result.result?.status || 'done'}`, Boolean(result.result?.ok));
         });
         bindStrategyAction('.btn-verify-strategy', async (id) => {
-            const result = await postJson(`/api/ai-strategies/${id}/verify`, {});
+            const result = await postJson(`/api/mistock/ai-strategies/${id}/verify`, {});
             setStatus(result.message || 'API 검증 완료', Boolean(result.success));
         });
         bindStrategyAction('.btn-backtest-strategy', async (id) => {
-            const result = await postJson(`/api/ai-strategies/${id}/backtest`, {});
+            const result = await postJson(`/api/mistock/ai-strategies/${id}/backtest`, {});
             const metrics = result.result?.metrics || {};
             setStatus(`Backtest ${result.result?.status || 'done'} · PF ${metrics.profit_factor || '-'}`, Boolean(result.result?.success));
         });
         bindStrategyAction('.btn-paper-start-strategy', async (id) => {
-            await postJson(`/api/ai-strategies/${id}/paper/start`, {});
+            await postJson(`/api/mistock/ai-strategies/${id}/paper/start`, {});
             setStatus('Paper validation started.', true);
         });
         bindStrategyAction('.btn-paper-complete-strategy', async (id) => {
-            const result = await postJson(`/api/ai-strategies/${id}/paper/complete`, {
+            const result = await postJson(`/api/mistock/ai-strategies/${id}/paper/complete`, {
                 days: 20,
                 observations: 20,
                 return_pct: 0,
@@ -1150,7 +1146,7 @@ async function renderAiStrategies() {
             setStatus(`Paper validation ${result.result?.status || 'done'}`, Boolean(result.result?.success));
         });
         bindStrategyAction('.btn-approve-strategy', async (id) => {
-            await postJson(`/api/ai-strategies/${id}/approve`, {});
+            await postJson(`/api/mistock/ai-strategies/${id}/approve`, {});
             setStatus('전략을 승인했습니다.', true);
         });
         bindStrategyAction('.btn-performance-strategy', async (id) => {
@@ -1158,19 +1154,19 @@ async function renderAiStrategies() {
             setStatus('전략 성과와 이벤트를 불러왔습니다.', true);
         });
         bindStrategyAction('.btn-review-strategy', async (id) => {
-            const result = await postJson(`/api/ai-strategies/${id}/performance/review?days=30`, {});
+            const result = await postJson(`/api/mistock/ai-strategies/${id}/performance/review?days=30`, {});
             setElementText('strategy-audit-review', result.new_status || '-');
             setElementText('strategy-audit-warning', (result.warnings || []).join(', ') || '문제 없음');
             await renderStrategyAudit(id);
             setStatus(`전략 재검토 완료: ${result.previous_status} -> ${result.new_status}`, true);
         });
         bindStrategyAction('.btn-retire-strategy', async (id) => {
-            await postJson(`/api/ai-strategies/${id}/retire`, {});
+            await postJson(`/api/mistock/ai-strategies/${id}/retire`, {});
             setStatus('전략을 폐기 상태로 전환했습니다.', true);
         });
         bindStrategyAction('.btn-delete-strategy', async (id) => {
             if (!window.confirm('이 AI 전략을 삭제하시겠습니까?')) return;
-            await deleteJson(`/api/ai-strategies/${id}`);
+            await deleteJson(`/api/mistock/ai-strategies/${id}`);
             setStatus('전략을 삭제했습니다.', true);
         });
         await renderStrategyAudit(activeStrategyAuditId || strategies.find((strategy) => strategy.selected)?.id || strategies[0]?.id);
@@ -1327,7 +1323,7 @@ function drawWatchlist() {
             const symbol = btn.getAttribute('data-symbol');
             setButtonBusy(btn, true);
             try {
-                await deleteJson(`/api/watchlist/${symbol}`);
+                await deleteJson(`/api/mistock/watchlist/${symbol}`);
                 setStatus(`관심 종목(${symbol})이 삭제되었습니다.`, true);
                 await renderWatchlist();
             } catch (err) {
@@ -1360,7 +1356,7 @@ async function renderWatchlist() {
     }
 
     try {
-        const data = await fetchJson('/api/watchlist');
+        const data = await fetchJson('/api/mistock/watchlist');
         watchlistCache = data.symbols || [];
         watchlistCache.forEach((s, idx) => {
             s.index = idx + 1;
@@ -1385,7 +1381,7 @@ async function renderSignals() {
     setButtonBusy('btn-signals', true);
     setTableMessage('#table-signals tbody', 7, '보유 종목을 진단하고 있습니다...');
     try {
-        const data = await fetchJson('/api/signals');
+        const data = await fetchJson('/api/mistock/signals');
         const tbody = document.querySelector('#table-signals tbody');
         tbody.innerHTML = '';
         if (!data.signals.length) {
@@ -1437,11 +1433,11 @@ async function renderCandidates() {
     setButtonBusy('btn-candidates', true);
     setTableMessage('#table-candidates tbody', 9, '관심종목에서 매수 후보를 찾고 있습니다...');
     try {
-        const strategyId = document.getElementById('select-ai-ranker')?.value || localStorage.getItem('hanstock_ai_ranker') || '';
+        const strategyId = document.getElementById('select-ai-ranker')?.value || localStorage.getItem('mistock_ai_ranker') || '';
         const optimizer = document.getElementById('select-portfolio-optimizer')?.value || 'score_tilted_inverse_vol';
         const query = strategyId
-            ? `/api/candidates?min_score=2&strategy_id=${encodeURIComponent(strategyId)}&optimizer=${encodeURIComponent(optimizer)}`
-            : `/api/candidates?min_score=2&ranker=rule_only&optimizer=${encodeURIComponent(optimizer)}`;
+            ? `/api/mistock/candidates?min_score=2&strategy_id=${encodeURIComponent(strategyId)}&optimizer=${encodeURIComponent(optimizer)}`
+            : `/api/mistock/candidates?min_score=2&ranker=rule_only&optimizer=${encodeURIComponent(optimizer)}`;
         const data = await fetchJson(query, 45000);
         const tbody = document.querySelector('#table-candidates tbody');
         if (!tbody) return;
@@ -1550,7 +1546,7 @@ async function renderCandidates() {
 
 async function renderCandidateHistory() {
     try {
-        const data = await fetchJson('/api/candidates/history?limit=50', 30000);
+        const data = await fetchJson('/api/mistock/candidates/history?limit=50', 30000);
         const tbody = document.querySelector('#table-candidates-history tbody');
         if (!tbody) return;
         
@@ -1601,7 +1597,7 @@ async function renderCandidateHistory() {
                 if (!id) return;
                 if (confirm('이 매수후보 포착 기록을 데이터베이스에서 삭제하시겠습니까?')) {
                     try {
-                        const res = await fetchJson(`/api/candidates/history/${id}`, 10000, { method: 'DELETE' });
+                        const res = await fetchJson(`/api/mistock/candidates/history/${id}`, 10000, { method: 'DELETE' });
                         if (res.ok) {
                             setStatus('매수후보 포착 기록이 성공적으로 삭제되었습니다.', true);
                             await renderCandidateHistory();
@@ -1624,7 +1620,7 @@ async function renderAiAllocation() {
     setButtonBusy('btn-ai-allocation', true);
     setTableMessage('#table-ai-allocation tbody', 8, 'AI 목표 비중을 계산하고 있습니다...');
     try {
-        const data = await fetchJson('/api/ai-allocation', 45000);
+        const data = await fetchJson('/api/mistock/ai-allocation', 45000);
         const tbody = document.querySelector('#table-ai-allocation tbody');
         if (!tbody) return;
         tbody.innerHTML = '';
@@ -1711,7 +1707,7 @@ async function createApprovalFromButton(button) {
     };
     button.disabled = true;
     try {
-        const result = await postJson('/api/approvals', payload);
+        const result = await postJson('/api/mistock/approvals', payload);
         if (result.auto_approved) {
             setStatus(`${toKorAction(payload.action)} ${payload.symbol} 주문을 자동승인 처리했습니다.`, result.status !== 'failed');
             await Promise.all([renderApprovals(), renderTrades(), renderBalance()]);
@@ -1740,7 +1736,7 @@ async function sellAllHoldings() {
         button.disabled = true;
     }
     try {
-        const result = await postJson('/api/holdings/sell-all', {});
+        const result = await postJson('/api/mistock/holdings/sell-all', {});
         if (result.status === 'empty') {
             setStatus('매도할 보유 종목이 없습니다.', true);
             return;
@@ -1759,7 +1755,7 @@ async function sellAllHoldings() {
 
 async function renderApprovals() {
     try {
-        const data = await fetchJson('/api/approvals?limit=50');
+        const data = await fetchJson('/api/mistock/approvals?limit=50');
         const tbody = document.querySelector('#table-approvals tbody');
         if (!tbody) return;
         tbody.innerHTML = '';
@@ -1816,7 +1812,7 @@ let pendingApprovalAction = null;
 async function executeApprovalAction(button, action) {
     button.disabled = true;
     try {
-        const result = await postJson(`/api/approvals/${button.dataset.id}/${action}`, {});
+        const result = await postJson(`/api/mistock/approvals/${button.dataset.id}/${action}`, {});
         setStatus(`승인 처리 결과: ${toKorStatus(result.status)} #${result.id}`, result.status !== 'failed');
         await Promise.all([renderApprovals(), renderTrades(), renderBalance()]);
     } catch (err) {
@@ -1876,7 +1872,7 @@ async function renderTrades() {
     try {
         // 성과 요약 (Performance)
         try {
-            const perf = await fetchJson('/api/performance', 30000);
+            const perf = await fetchJson('/api/mistock/performance', 30000);
             document.getElementById('perf-total-trades').textContent = `${perf.total_trades}회`;
             document.getElementById('perf-success-rate').textContent = `${perf.success_rate}%`;
             
@@ -1955,7 +1951,7 @@ async function renderTrades() {
             console.error('Failed to fetch performance summary', e);
         }
 
-        const trades = await fetchJson('/api/trades?limit=20');
+        const trades = await fetchJson('/api/mistock/trades?limit=20');
         const tbodyTrades = document.querySelector('#table-trades tbody');
         if (!tbodyTrades) return;
         tbodyTrades.innerHTML = '';
@@ -2007,7 +2003,7 @@ async function renderTrades() {
 
 async function renderPeriodicPerformance() {
     try {
-        const periodicData = await fetchJson('/api/performance/periodic', 30000);
+        const periodicData = await fetchJson('/api/mistock/performance/periodic', 30000);
         periodicDataCache = periodicData;
         
         // Attach sub-tab event listeners once
@@ -2212,7 +2208,7 @@ async function renderExecutionPlan() {
     setButtonBusy(btn, true);
     setTableMessage('#table-execution-plan tbody', 8, '실행 계획 불러오는 중...');
     try {
-        const data = await fetchJson('/api/execution-plan');
+        const data = await fetchJson('/api/mistock/execution-plan');
         const plan = data.plan || [];
 
         const summaryEl = document.getElementById('execution-plan-summary');
@@ -2333,10 +2329,10 @@ document.addEventListener('DOMContentLoaded', () => {
             const preset = button.getAttribute('data-preset');
             setButtonBusy(button, true);
             try {
-                const result = await postJson(`/api/ai-strategy-presets/${encodeURIComponent(preset)}/apply`, {});
+                const result = await postJson(`/api/mistock/ai-strategy-presets/${encodeURIComponent(preset)}/apply`, {});
                 const strategyId = result.strategy?.id;
                 if (strategyId) {
-                    localStorage.setItem('hanstock_ai_ranker', strategyId);
+                    localStorage.setItem('mistock_ai_ranker', strategyId);
                     activeStrategyAuditId = strategyId;
                 }
                 await Promise.all([renderAiStrategies(), syncStrategiesToDropdown(), renderStrategyContext()]);
@@ -2383,7 +2379,7 @@ document.addEventListener('DOMContentLoaded', () => {
             };
 
             try {
-                await postJson('/api/ai-strategies', payload);
+                await postJson('/api/mistock/ai-strategies', payload);
                 setStatus('신규 AI 전략이 성공적으로 등록되었습니다.', true);
                 addAiForm.reset();
                 const weightInput = addAiForm.querySelector('input[name="strat_weight"]');
@@ -2407,11 +2403,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 
                 const select = document.getElementById('select-ai-ranker');
                 if (select && select.options.length > 0) {
-                    const data = await fetchJson('/api/ai-strategies');
+                    const data = await fetchJson('/api/mistock/ai-strategies');
                     const activeStrats = data.strategies.filter(s => s.selected);
                     if (activeStrats.length > 0) {
                         select.value = activeStrats[0].id;
-                        localStorage.setItem('hanstock_ai_ranker', select.value);
+                        localStorage.setItem('mistock_ai_ranker', select.value);
                     }
                 }
                 
@@ -2443,7 +2439,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const symbol = rawVal.trim ? rawVal.trim() : rawVal;
             
             try {
-                const res = await postJson('/api/watchlist', { symbol: symbol });
+                const res = await postJson('/api/mistock/watchlist', { symbol: symbol });
                 setStatus(`관심 종목에 성공적으로 추가되었습니다: ${res.name} (${res.symbol})`, true);
                 addWatchlistForm.reset();
                 await renderWatchlist();
@@ -2464,7 +2460,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const checked = chkWatchlistAiAuto.checked;
         const threshold = numWatchlistAiThreshold ? parseFloat(numWatchlistAiThreshold.value) : 3.0;
         try {
-            await postJson('/api/watchlist/toggle-auto', { enabled: checked, threshold: threshold });
+            await postJson('/api/mistock/watchlist/toggle-auto', { enabled: checked, threshold: threshold });
             setStatus(`AI 자동 관심 종목 추가설정(여부: ${checked ? '활성화' : '비활성화'}, 기준: ${threshold}점)이 반영되었습니다.`, true);
         } catch (err) {
             setStatus(`AI 자동 추가설정 동기화 실패: ${err.message}`);
@@ -2486,7 +2482,7 @@ document.addEventListener('DOMContentLoaded', () => {
             setStatus('AI 자동추가 즉시 스캔이 가동되었습니다. 시장 유니버스를 실시간 탐색 중입니다...', true);
             
             try {
-                const res = await postJson('/api/watchlist/scan-trigger');
+                const res = await postJson('/api/mistock/watchlist/scan-trigger');
                 const threshold = numWatchlistAiThreshold ? parseFloat(numWatchlistAiThreshold.value) : 3.0;
                 if (res.added_count > 0) {
                     const names = res.added_symbols.map(s => `${s.name}(${s.symbol})`).join(', ');
@@ -2515,7 +2511,7 @@ document.addEventListener('DOMContentLoaded', () => {
             btnSyncTrades.style.backgroundColor = '#f59e0b'; // warning yellow
             btnSyncTrades.style.color = 'white';
             try {
-                const result = await postJson('/api/trades/sync', {});
+                const result = await postJson('/api/mistock/trades/sync', {});
                 setStatus(`증권사 기록 동기화 완료 (누락된 ${result.synced_count}건 추가됨)`, true);
                 await renderTrades();
                 
@@ -2667,18 +2663,18 @@ window.addEventListener('load', () => {
     const applyBtn = document.getElementById('btn-apply-strategy');
     
     if (rankerSelect) {
-        const savedRanker = localStorage.getItem('hanstock_ai_ranker');
+        const savedRanker = localStorage.getItem('mistock_ai_ranker');
         if (savedRanker) rankerSelect.value = savedRanker;
         rankerSelect.addEventListener('change', () => {
-            localStorage.setItem('hanstock_ai_ranker', rankerSelect.value);
+            localStorage.setItem('mistock_ai_ranker', rankerSelect.value);
         });
     }
     
     if (optimizerSelect) {
-        const savedOptimizer = localStorage.getItem('hanstock_portfolio_optimizer');
+        const savedOptimizer = localStorage.getItem('mistock_portfolio_optimizer');
         if (savedOptimizer) optimizerSelect.value = savedOptimizer;
         optimizerSelect.addEventListener('change', () => {
-            localStorage.setItem('hanstock_portfolio_optimizer', optimizerSelect.value);
+            localStorage.setItem('mistock_portfolio_optimizer', optimizerSelect.value);
         });
     }
     
@@ -2695,7 +2691,7 @@ window.addEventListener('load', () => {
         if (!statusTextEl || !statusEmailEl) return;
 
         try {
-            const res = await fetchJson('/api/usage/quota');
+            const res = await fetchJson('/api/mistock/usage/quota');
             if (res.ok && res.quota && res.quota.length > 0) {
                 const targetModels = {
                     'Claude Opus 4.6 (Thinking)': 'Opus',
@@ -2780,7 +2776,7 @@ window.addEventListener('load', () => {
 
 async function renderScheduleInfo() {
     try {
-        const data = await fetchJson('/api/scheduler/status');
+        const data = await fetchJson('/api/mistock/scheduler/status');
         
         // 1. Config / Settings
         const cronTzEl = document.getElementById('sched-cron-tz');
@@ -3191,11 +3187,11 @@ async function triggerSchedule(mode) {
     
     const logBox = document.getElementById('scheduler-running-log');
     if (logBox) {
-        logBox.textContent = `[${new Date().toLocaleTimeString()}] ${mode} 스케쥴러 구동을 시작합니다. KIS API 호출 및 포트폴리오 분석으로 약 15~40초가 소요됩니다...\n`;
+        logBox.textContent = `[${new Date().toLocaleTimeString()}] ${mode} 스케쥴러 구동을 시작합니다. NASDAQ API 호출 및 포트폴리오 분석으로 약 15~40초가 소요됩니다...\n`;
     }
     
     try {
-        const res = await postJson('/api/scheduler/run', { mode: mode });
+        const res = await postJson('/api/mistock/scheduler/run', { mode: mode });
         if (res.status === 'started') {
             if (logBox) {
                 logBox.textContent += `[${new Date().toLocaleTimeString()}] 스케쥴러 백그라운드 태스크가 성공적으로 등록되었습니다. 실시간 기동 중입니다.\n`;
@@ -3205,7 +3201,7 @@ async function triggerSchedule(mode) {
             let attempts = 0;
             const interval = setInterval(async () => {
                 attempts++;
-                const data = await fetchJson('/api/scheduler/status');
+                const data = await fetchJson('/api/mistock/scheduler/status');
                 const runState = data.run_state;
                 
                 if (!runState.is_running) {

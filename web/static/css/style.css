@@ -584,6 +584,17 @@ button:disabled {
     flex-wrap: wrap;
 }
 
+.strategy-advanced-actions {
+    margin-top: 0.55rem;
+}
+
+.strategy-advanced-actions summary {
+    color: rgba(255, 255, 255, 0.65);
+    cursor: pointer;
+    font-size: 0.82rem;
+    margin-bottom: 0.45rem;
+}
+
 .sell-controls {
     display: grid;
     grid-template-columns: minmax(74px, 96px) auto;

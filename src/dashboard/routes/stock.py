@@ -332,6 +332,110 @@ def _static_validate_strategy(strategy: dict) -> dict:
     }
 
 
+def _easy_strategy_preset(preset: str) -> dict:
+    presets = {
+        "safe": {
+            "label": "안정형",
+            "name": "쉬운 안정형 전략",
+            "weight": 0.0,
+            "description": "AI 호출 없이 룰 기반 신호만 사용하고 1회 리스크를 낮춘 기본 전략입니다.",
+            "risk_pct": 0.5,
+            "allow_candidate_promotion": False,
+        },
+        "balanced": {
+            "label": "균형형",
+            "name": "쉬운 균형형 전략",
+            "weight": 0.2,
+            "description": "룰 기반 신호를 중심으로 후보 점수와 리스크 균형을 맞추는 전략입니다.",
+            "risk_pct": 1.0,
+            "allow_candidate_promotion": False,
+        },
+        "aggressive": {
+            "label": "공격형",
+            "name": "쉬운 공격형 전략",
+            "weight": 0.35,
+            "description": "더 많은 후보 탐색을 허용하되 승인 대기 흐름을 유지하는 전략입니다.",
+            "risk_pct": 1.5,
+            "allow_candidate_promotion": True,
+        },
+    }
+    if preset not in presets:
+        raise HTTPException(status_code=404, detail="Unknown strategy preset")
+
+    item = dict(presets[preset])
+    weight = float(item["weight"])
+    item["profile"] = {
+        "model": "none",
+        "ai_weight": weight,
+        "risk": {
+            "max_risk_per_trade_pct": item["risk_pct"],
+            "paper_trading_required_days": 0,
+        },
+        "backtest": {
+            "commission_bps": 3,
+            "slippage_bps": 5,
+            "market_impact_bps": 2,
+        },
+        "allow_candidate_promotion": item["allow_candidate_promotion"],
+        "preset": preset,
+    }
+    return item
+
+
+@app.post("/api/ai-strategy-presets/{preset}/apply")
+def apply_ai_strategy_preset(preset: str):
+    from src.db.repository import load_ai_strategies, normalize_ai_strategy, record_ai_strategy_event, save_ai_strategies
+    import json
+    import time
+    import uuid
+
+    preset_data = _easy_strategy_preset(preset)
+    now = _now_kst_text()
+    strategy_id = f"easy_{preset}_{int(time.time())}_{uuid.uuid4().hex[:6]}"
+    strategy = normalize_ai_strategy({
+        "id": strategy_id,
+        "name": preset_data["name"],
+        "provider": "none",
+        "model": "none",
+        "weight": preset_data["weight"],
+        "description": preset_data["description"],
+        "selected": True,
+        "status": "approved",
+        "profile": preset_data["profile"],
+        "strategy_version": 1,
+        "last_verified_at": now,
+        "last_backtested_at": now,
+        "last_used_at": now,
+    })
+    static_result = _static_validate_strategy(strategy)
+    static_result["success"] = bool(static_result.get("ok"))
+    backtest_result = _build_strategy_backtest(strategy)
+    strategy["last_validation_result"] = json.dumps(
+        {
+            "checks": {
+                "static": static_result,
+                "backtest": backtest_result,
+            },
+            "latest": {"check": "preset_apply", "result": {"ok": True, "preset": preset}},
+        },
+        ensure_ascii=False,
+        sort_keys=True,
+    )
+
+    strategies = load_ai_strategies()
+    for item in strategies:
+        item["selected"] = False
+    strategies.append(strategy)
+    save_ai_strategies(strategies)
+    record_ai_strategy_event(
+        strategy_id,
+        "preset_applied",
+        {"preset": preset, "label": preset_data["label"], "static": static_result, "backtest": backtest_result},
+        1,
+    )
+    return {"ok": True, "preset": preset, "message": f"{preset_data['label']} 전략을 적용했습니다.", "strategy": strategy}
+
+
 @app.post("/api/ai-strategies/{id}/static-verify")
 def static_verify_ai_strategy(id: str):
     from src.db.repository import load_ai_strategies, record_ai_strategy_event, save_ai_strategies
