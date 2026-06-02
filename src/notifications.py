@@ -109,8 +109,8 @@ def build_order_payload(
     name: str,
     symbol: str,
     action: str,
-    qty: int,
-    price: int,
+    qty: float,
+    price: float,
     reason: str,
     ok: bool,
     indicators: dict[str, Any] | None = None,
@@ -118,16 +118,27 @@ def build_order_payload(
     details = indicators or {}
     action_label = "매수" if action == "buy" else "매도"
     status = "성공" if ok else "실패"
-    price_str = f"{price:,}원" if price else "시장가"
-    amount_str = f"{qty * price:,}원" if price else "-"
+    
+    # US stock symbols typically have letters, while Korean stocks are numeric digits
+    is_us = not symbol.isdigit()
+    
+    if is_us:
+        price_str = f"${price:,.2f}" if price else "시장가"
+        amount_str = f"${qty * price:,.2f}" if price else "-"
+        qty_str = f"{qty}주" if float(qty).is_integer() else f"{qty:.4f}주"
+    else:
+        price_str = f"{int(price):,}원" if price else "시장가"
+        amount_str = f"{int(qty * price):,}원" if price else "-"
+        qty_str = f"{int(qty)}주" if float(qty).is_integer() else f"{qty}주"
+
     rsi_value = details.get("rsi", "-")
     rsi_str = f"{rsi_value:.1f}" if isinstance(rsi_value, float) else str(rsi_value)
     return build_slack_payload(
-        text=f"{action_label} {name} {qty}주 {status}",
+        text=f"{action_label} {name} {qty_str} {status}",
         blocks=[
             {"type": "section", "text": {"type": "mrkdwn", "text": f"*{action_label}* {name} (`{symbol}`) {status}"}},
             {"type": "section", "fields": [
-                {"type": "mrkdwn", "text": f"*수량*\n{qty}주"},
+                {"type": "mrkdwn", "text": f"*수량*\n{qty_str}"},
                 {"type": "mrkdwn", "text": f"*가격*\n{price_str}"},
                 {"type": "mrkdwn", "text": f"*금액*\n{amount_str}"},
                 {"type": "mrkdwn", "text": f"*RSI*\n{rsi_str}"},

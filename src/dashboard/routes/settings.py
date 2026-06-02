@@ -43,6 +43,47 @@ ENV_FIELD_TEXT = {
     "TELEGRAM_TARGET_CHANNELS": {"label": "Telegram Target Channels", "hint": "쉼표로 구분한 채널 사용자명, ID, 초대 링크입니다."},
 }
 
+
+def _current_env_field_value(key: str, raw_values: dict[str, str]) -> str:
+    if key in raw_values:
+        return raw_values.get(key, "")
+    runtime_values = {
+        "TRADING_ENV": getattr(trader.config, "trading_env", trader.TRADING_ENV),
+        "DRY_RUN": str(bool(getattr(trader.config, "dry_run", trader.DRY_RUN))).lower(),
+        "ENABLE_LIVE_TRADING": str(bool(getattr(trader.config, "enable_live_trading", trader.ENABLE_LIVE_TRADING))).lower(),
+        "REQUIRE_APPROVAL": str(bool(getattr(trader.config, "require_approval", trader.REQUIRE_APPROVAL))).lower(),
+        "SPLIT_N": getattr(trader.config, "split_n", trader.SPLIT_N),
+        "STOP_LOSS_PCT": getattr(trader.config, "stop_loss_pct", trader.STOP_LOSS_PCT),
+        "TAKE_PROFIT": getattr(trader.config, "take_profit", trader.TAKE_PROFIT),
+        "RSI_BUY": getattr(trader.config, "rsi_buy", trader.RSI_BUY),
+        "RSI_SELL": getattr(trader.config, "rsi_sell", trader.RSI_SELL),
+        "TOTAL_CAPITAL": getattr(trader.config, "total_capital", trader.TOTAL_CAPITAL),
+        "MAX_POSITIONS": getattr(trader.config, "max_positions", trader.MAX_POSITIONS),
+        "MAX_SINGLE_WEIGHT": getattr(trader.config, "max_single_weight", trader.MAX_SINGLE_WEIGHT),
+        "CASH_BUFFER": getattr(trader.config, "cash_buffer", trader.CASH_BUFFER),
+        "MAX_DAILY_LOSS_PCT": getattr(trader.config, "max_daily_loss_pct", trader.MAX_DAILY_LOSS_PCT),
+        "SCAN_UNIVERSE_SIZE": getattr(trader.config, "scan_universe_size", trader.SCAN_UNIVERSE_SIZE),
+        "KIS_CIRCUIT_COOLDOWN_SECONDS": getattr(trader.config, "kis_circuit_cooldown_seconds", ""),
+        "TRADE_DB_PATH": getattr(trader.config, "trade_db_path", ""),
+        "ACTIVE_MODEL_VERSION": getattr(trader.config, "active_model_version", ""),
+        "AI_STRATEGY_ENABLED": str(bool(getattr(trader.config, "ai_strategy_enabled", False))).lower(),
+        "AI_SCORE_WEIGHT": getattr(trader.config, "ai_score_weight", 0.4),
+        "AI_MIN_MODEL_CONFIDENCE": getattr(trader.config, "ai_min_model_confidence", 0.6),
+        "AI_REQUIRE_BACKTEST_PASS": str(bool(getattr(trader.config, "ai_require_backtest_pass", True))).lower(),
+        "AI_AUTO_APPROVE": str(bool(getattr(trader.config, "ai_auto_approve", False))).lower(),
+        "OPENAI_MODEL": getattr(trader.config, "openai_model", "gpt-5-mini"),
+        "OPENAI_TIMEOUT_SECONDS": getattr(trader.config, "openai_timeout_seconds", 20.0),
+        "AI_CANDIDATE_LIMIT": getattr(trader.config, "ai_candidate_limit", 5),
+        "OPENAI_API_KEY": getattr(trader.config, "openai_api_key", ""),
+        "SLACK_WEBHOOK_URL": getattr(trader.config, "slack_webhook_url", ""),
+        "TELEGRAM_API_ID": getattr(trader.config, "telegram_api_id", "") or "",
+        "TELEGRAM_API_HASH": getattr(trader.config, "telegram_api_hash", "") or "",
+        "TELEGRAM_TARGET_CHANNELS": getattr(trader.config, "telegram_target_channels", "") or "",
+    }
+    value = runtime_values.get(key, "")
+    return "" if value is None else str(value)
+
+
 @app.get("/api/config")
 def get_config():
     return {
@@ -87,7 +128,7 @@ def get_env_settings():
     for field in ENV_FIELDS:
         key = field["key"]
         text = ENV_FIELD_TEXT.get(key, {})
-        value = _virtual_env_value(key, values) if field.get("virtual") else values.get(key, "")
+        value = _virtual_env_value(key, values) if field.get("virtual") else _current_env_field_value(key, values)
         item = {
             "key": key,
             "label": text.get("label", field["label"]),
@@ -175,4 +216,3 @@ def set_runtime_order_mode(payload: dict = Body(...)):
         "real_orders_enabled": trader.REAL_ORDERS_ENABLED,
         "requires_restart": False,
     }
-

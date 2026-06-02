@@ -331,6 +331,23 @@ class KIStockAPI:
             _kis_order_throttle()
         return rows
 
+    def get_condition_search_list(self, user_id: str) -> list:
+        self._sync_circuit_to_client()
+        result = self._client.get_condition_search_list(user_id=user_id)
+        self._sync_circuit_from_client()
+        return result
+
+    def get_condition_search_result(self, user_id: str, condition_no: str, condition_name: str) -> list:
+        self._sync_circuit_to_client()
+        result = self._client.get_condition_search_result(
+            user_id=user_id,
+            condition_no=condition_no,
+            condition_name=condition_name,
+        )
+        self._sync_circuit_from_client()
+        return result
+
+
 
 _CANDIDATE_INDICATOR_KEYS = {"rsi", "rsi2", "sma20", "sma60", "bb_lo", "bb_hi", "macd_hist"}
 

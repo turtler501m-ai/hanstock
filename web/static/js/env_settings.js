@@ -119,6 +119,13 @@ async function saveEnvSettings(event) {
         return;
     }
 
+    const updateList = Object.keys(values).sort().join(', ');
+    const confirmed = window.confirm(`환경설정을 저장하시겠습니까?\n\n변경 항목: ${updateList}`);
+    if (!confirmed) {
+        setStatus('환경설정 저장을 취소했습니다.');
+        return;
+    }
+
     setButtonBusy('btn-env-save', true);
     try {
         const result = await postJson('/api/env', { values });

@@ -10,6 +10,7 @@ class Settings(BaseSettings):
     kistock_app_key: str = ""
     kistock_app_secret: str = ""
     kistock_account: str = ""
+    kistock_hts_id: str = ""
 
     # KIS 해외선물 모의계좌
     kis_futures_demo_app_key: Optional[str] = None

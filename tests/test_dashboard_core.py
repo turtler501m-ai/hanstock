@@ -172,6 +172,29 @@ class DashboardCoreTests(unittest.TestCase):
         finally:
             dashboard.ENV_PATH = original_env_path
 
+    def test_env_settings_use_runtime_defaults_for_missing_ai_values(self):
+        original_env_path = dashboard.ENV_PATH
+        original_ai_enabled = dashboard.trader.config.ai_strategy_enabled
+        original_backtest = dashboard.trader.config.ai_require_backtest_pass
+        original_model = dashboard.trader.config.openai_model
+        try:
+            dashboard.ENV_PATH = MemoryTextPath("TRADING_ENV=demo\n")
+            dashboard.trader.config.ai_strategy_enabled = False
+            dashboard.trader.config.ai_require_backtest_pass = True
+            dashboard.trader.config.openai_model = "gpt-5-mini"
+
+            data = dashboard.get_env_settings()
+            values = {field["key"]: field["value"] for field in data["fields"]}
+
+            self.assertEqual(values["AI_STRATEGY_ENABLED"], "false")
+            self.assertEqual(values["AI_REQUIRE_BACKTEST_PASS"], "true")
+            self.assertEqual(values["OPENAI_MODEL"], "gpt-5-mini")
+        finally:
+            dashboard.ENV_PATH = original_env_path
+            dashboard.trader.config.ai_strategy_enabled = original_ai_enabled
+            dashboard.trader.config.ai_require_backtest_pass = original_backtest
+            dashboard.trader.config.openai_model = original_model
+
     def test_config_response_includes_account(self):
         original_account = dashboard.trader.config.kistock_account
         try:

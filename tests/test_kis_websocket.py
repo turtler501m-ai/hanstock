@@ -1,0 +1,73 @@
+import unittest
+from unittest.mock import MagicMock, patch
+from src.api.kis_websocket import KISWebSocketClient
+
+class TestKISWebSocketClient(unittest.TestCase):
+    def setUp(self):
+        # Create an instance with notify_errors disabled for testing isolation
+        self.client = KISWebSocketClient(notify_errors=False)
+
+    @patch("src.api.kis_websocket.requests.post")
+    def test_get_approval_key_caches_and_fetches(self, mock_post):
+        # Prepare response
+        mock_response = MagicMock()
+        mock_response.json.return_value = {"approval_key": "test_ws_approval_key_123"}
+        mock_post.return_value = mock_response
+
+        # Fetch key
+        key1 = self.client.get_approval_key()
+        self.assertEqual(key1, "test_ws_approval_key_123")
+        
+        # Second call should use cache
+        key2 = self.client.get_approval_key()
+        self.assertEqual(key2, "test_ws_approval_key_123")
+        
+        # Requests should only be posted once due to cache
+        mock_post.assert_called_once()
+
+    @patch("src.api.kis_websocket.slack_order")
+    def test_process_order_execution_parses_and_sends_slack_card(self, mock_slack_order):
+        # Mock payload: 고객ID^계좌번호^주문번호^원주문번호^매도매수구분^주문구분^종목코드^주문수량^주문가격^체결수량^체결단가^체결시간...체결구분
+        # Fields:
+        # 4: 매도매수구분 (02 = buy)
+        # 6: 종목코드 (005930)
+        # 9: 체결수량 (10)
+        # 10: 체결단가 (72000)
+        # 15: 체결구분 (2 = 체결)
+        sample_payload = "USR100^50012345^0001^0000^02^00^005930^10^72000^10^72000^093000^Y^0^0^2^CHK001"
+        
+        self.client._process_order_execution(sample_payload)
+        
+        # Should call slack_order with parsed values
+        mock_slack_order.assert_called_once_with(
+            name="실시간 체결 통보 (005930)",
+            symbol="005930",
+            action="buy",
+            qty=10.0,
+            price=72000.0,
+            reason="KIS WebSocket 실시간 주문 체결 완료",
+            ok=True,
+            indicators={"rsi": 0.0, "sma20": 0.0, "sma60": 0.0, "rt": 0.0}
+        )
+
+    @patch("src.api.kis_websocket.slack_order")
+    def test_process_order_execution_ignores_acceptance_events(self, mock_slack_order):
+        # Execution type is "4" (acceptance, not filled execution)
+        sample_payload = "USR100^50012345^0001^0000^02^00^005930^10^72000^0^0^093000^Y^0^0^4^CHK001"
+        
+        self.client._process_order_execution(sample_payload)
+        
+        # Slack card should NOT be sent for pure acceptance events
+        mock_slack_order.assert_not_called()
+
+    @patch("src.api.kis_websocket.slack_order")
+    def test_process_order_execution_handles_invalid_payloads_gracefully(self, mock_slack_order):
+        # Too short payload
+        short_payload = "USR100^50012345^0001"
+        self.client._process_order_execution(short_payload)
+        mock_slack_order.assert_not_called()
+
+        # Non-numeric quantity/price fields
+        bad_numbers_payload = "USR100^50012345^0001^0000^02^00^005930^abc^xyz^abc^xyz^093000^Y^0^0^2^CHK001"
+        self.client._process_order_execution(bad_numbers_payload)
+        mock_slack_order.assert_not_called()

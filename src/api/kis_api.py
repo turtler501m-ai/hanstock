@@ -351,3 +351,45 @@ class KIStockAPI:
         except Exception:
             self._fail()
             raise
+
+    @retry(
+        retry=retry_if_not_exception_type(NON_RETRYABLE_KIS_ERRORS),
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=2, max=10),
+    )
+    def get_condition_search_list(self, user_id: str) -> list[dict]:
+        try:
+            _kis_throttle()
+            url = f"{self.base_url}/uapi/domestic-stock/v1/quotations/inquire-condition-search"
+            params = {"user_id": user_id, "seq": "0"}
+            r = HTTP.get(url, headers=self._headers("HHKST03900400"), params=params, timeout=15)
+            data = self._response_json(r, "HTS condition list")
+            self._record_result(data)
+            if data.get("rt_cd") != "0":
+                return []
+            return data.get("output", [])
+        except Exception:
+            self._fail()
+            raise
+
+    @retry(
+        retry=retry_if_not_exception_type(NON_RETRYABLE_KIS_ERRORS),
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=2, max=10),
+    )
+    def get_condition_search_result(self, user_id: str, condition_no: str, condition_name: str) -> list[str]:
+        try:
+            _kis_throttle()
+            url = f"{self.base_url}/uapi/domestic-stock/v1/quotations/inquire-condition-search-result"
+            params = {"user_id": user_id, "seq": condition_no, "cond_nm": condition_name}
+            r = HTTP.get(url, headers=self._headers("HHKST03900300"), params=params, timeout=15)
+            data = self._response_json(r, "HTS condition result")
+            self._record_result(data)
+            if data.get("rt_cd") != "0":
+                return []
+            output = data.get("output", [])
+            return [row["code"].strip() for row in output if row.get("code")]
+        except Exception:
+            self._fail()
+            raise
+

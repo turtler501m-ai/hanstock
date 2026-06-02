@@ -8,15 +8,40 @@ from src.mistock import db
 from src.mistock.strategy import NASDAQ_UNIVERSE, fetch_history, normalize_symbol, quote, strategy_profile, symbol_name
 
 
+_kis_client_cache = None
+
+def _get_kis_client():
+    global _kis_client_cache
+    if _kis_client_cache is None:
+        from src.kis_client import KISClient, KISClientConfig
+        from src.config import config as main_config
+        from src.api.kis_api import HTTP
+        from pathlib import Path
+        env = config.trading_env
+        if env not in {"demo", "real"}:
+            env = "demo"
+        base_url = "https://openapi.koreainvestment.com:9443" if env == "real" else "https://openapivts.koreainvestment.com:29443"
+        client_config = KISClientConfig(
+            base_url=base_url,
+            app_key=main_config.kistock_app_key,
+            app_secret=main_config.kistock_app_secret,
+            account_no=main_config.kistock_account,
+            trading_env=env,
+            token_cache_path=Path("data") / "kis_token.json",
+        )
+        _kis_client_cache = KISClient(client_config, session=HTTP)
+    return _kis_client_cache
+
 def runtime_flags() -> dict[str, Any]:
-    order_submission_enabled = (not config.dry_run) and config.trading_env == "paper"
+    real_orders_enabled = (not config.dry_run) and config.trading_env == "real" and config.enable_live_trading
+    order_submission_enabled = (not config.dry_run) and (config.trading_env in {"paper", "demo"} or real_orders_enabled)
     return {
         "trading_env": config.trading_env,
         "dry_run": config.dry_run,
         "enable_live_trading": config.enable_live_trading,
         "require_approval": config.require_approval,
         "order_submission_enabled": order_submission_enabled,
-        "real_orders_enabled": False,
+        "real_orders_enabled": real_orders_enabled,
     }
 
 
@@ -41,45 +66,120 @@ def delete_watchlist(symbol: str) -> None:
 
 
 def get_holdings() -> list[dict[str, Any]]:
-    holdings = []
-    for row in db.rows("SELECT symbol, name, qty, avg_price FROM holdings ORDER BY symbol"):
-        q = quote(row["symbol"])
-        price = float(q["current"] or row["avg_price"] or 0.0)
-        qty = float(row["qty"] or 0.0)
-        avg = float(row["avg_price"] or 0.0)
-        value = qty * price
-        pnl = (price - avg) * qty
-        rt = ((price - avg) / avg * 100.0) if avg > 0 else 0.0
-        holdings.append({
-            "symbol": row["symbol"],
-            "name": row["name"],
-            "qty": qty,
-            "price": price,
-            "avg_price": avg,
-            "value": value,
-            "pnl": pnl,
-            "rt": rt,
-        })
-    return holdings
+    if config.trading_env not in {"demo", "real"}:
+        holdings = []
+        for row in db.rows("SELECT symbol, name, qty, avg_price FROM holdings ORDER BY symbol"):
+            q = quote(row["symbol"])
+            price = float(q["current"] or row["avg_price"] or 0.0)
+            qty = float(row["qty"] or 0.0)
+            avg = float(row["avg_price"] or 0.0)
+            value = qty * price
+            pnl = (price - avg) * qty
+            rt = ((price - avg) / avg * 100.0) if avg > 0 else 0.0
+            holdings.append({
+                "symbol": row["symbol"],
+                "name": row["name"],
+                "qty": qty,
+                "price": price,
+                "avg_price": avg,
+                "value": value,
+                "pnl": pnl,
+                "rt": rt,
+            })
+        return holdings
+    else:
+        try:
+            client = _get_kis_client()
+            balance_data = client.get_overseas_balance()
+            holdings = []
+            for item in balance_data.get("output1", []):
+                symbol = item.get("pdno", "").strip()
+                if not symbol:
+                    continue
+                name = item.get("prdt_name", symbol)
+                qty = float(item.get("cblc_qty13") or item.get("cblc_qty") or 0.0)
+                if qty <= 0:
+                    continue
+                avg = float(item.get("avg_unpr3") or item.get("avg_unpr") or 0.0)
+                price = float(item.get("ovrs_now_pric1") or item.get("ovrs_now_pric") or 0.0)
+                if price <= 0:
+                    price = quote(symbol)["current"]
+                value = float(item.get("frcr_evlu_amt2") or item.get("frcr_evlu_amt") or (qty * price))
+                pnl = float(item.get("evlu_pfls_amt2") or item.get("evlu_pfls_amt") or ((price - avg) * qty))
+                rt = float(item.get("evlu_pfls_rt1") or item.get("evlu_pfls_rt") or (((price - avg) / avg * 100.0) if avg > 0 else 0.0))
+                holdings.append({
+                    "symbol": symbol,
+                    "name": name,
+                    "qty": qty,
+                    "price": price,
+                    "avg_price": avg,
+                    "value": value,
+                    "pnl": pnl,
+                    "rt": rt,
+                })
+            return holdings
+        except Exception as e:
+            from src.utils.logger import logger
+            logger.error(f"Failed to fetch KIS US holdings: {e}")
+            return []
 
 
 def get_balance() -> dict[str, Any]:
-    cash = float(db.get_setting("cash", str(config.total_capital)) or 0.0)
-    holdings = get_holdings()
-    stock_eval = sum(float(item["value"] or 0.0) for item in holdings)
-    pnl = sum(float(item["pnl"] or 0.0) for item in holdings)
-    total_eval = cash + stock_eval
-    return {
-        "cash": cash,
-        "total_eval": total_eval,
-        "broker_total_eval": total_eval,
-        "calculated_total_eval": total_eval,
-        "stock_eval": stock_eval,
-        "cash_ratio": cash / total_eval if total_eval > 0 else 0.0,
-        "stock_ratio": stock_eval / total_eval if total_eval > 0 else 0.0,
-        "pnl": pnl,
-        "holdings": holdings,
-    }
+    if config.trading_env not in {"demo", "real"}:
+        cash = float(db.get_setting("cash", str(config.total_capital)) or 0.0)
+        holdings = get_holdings()
+        stock_eval = sum(float(item["value"] or 0.0) for item in holdings)
+        pnl = sum(float(item["pnl"] or 0.0) for item in holdings)
+        total_eval = cash + stock_eval
+        return {
+            "cash": cash,
+            "total_eval": total_eval,
+            "broker_total_eval": total_eval,
+            "calculated_total_eval": total_eval,
+            "stock_eval": stock_eval,
+            "cash_ratio": cash / total_eval if total_eval > 0 else 0.0,
+            "stock_ratio": stock_eval / total_eval if total_eval > 0 else 0.0,
+            "pnl": pnl,
+            "holdings": holdings,
+        }
+    else:
+        try:
+            client = _get_kis_client()
+            balance_data = client.get_overseas_balance()
+            summary = balance_data.get("output2", {})
+            cash = float(summary.get("frcr_dncl_amt") or summary.get("frcr_dncl_amt_2") or 0.0)
+            if cash <= 0:
+                cash = float(db.get_setting("cash", str(config.total_capital)) or 0.0)
+            holdings = get_holdings()
+            stock_eval = sum(float(item["value"] or 0.0) for item in holdings)
+            pnl = sum(float(item["pnl"] or 0.0) for item in holdings)
+            total_eval = cash + stock_eval
+            return {
+                "cash": cash,
+                "total_eval": total_eval,
+                "broker_total_eval": total_eval,
+                "calculated_total_eval": total_eval,
+                "stock_eval": stock_eval,
+                "cash_ratio": cash / total_eval if total_eval > 0 else 0.0,
+                "stock_ratio": stock_eval / total_eval if total_eval > 0 else 0.0,
+                "pnl": pnl,
+                "holdings": holdings,
+            }
+        except Exception as e:
+            from src.utils.logger import logger
+            logger.error(f"Failed to fetch KIS US balance: {e}")
+            cash = float(db.get_setting("cash", str(config.total_capital)) or 0.0)
+            return {
+                "cash": cash,
+                "total_eval": cash,
+                "broker_total_eval": cash,
+                "calculated_total_eval": cash,
+                "stock_eval": 0.0,
+                "cash_ratio": 1.0,
+                "stock_ratio": 0.0,
+                "pnl": 0.0,
+                "holdings": [],
+            }
 
 
 def scan_candidates(min_score: int = 2, limit: int | None = None) -> dict[str, Any]:
@@ -202,44 +302,118 @@ def execution_plan() -> dict[str, Any]:
     }
 
 
+def notify_slack_order(symbol: str, action: str, qty: float, price: float, reason: str, ok: bool) -> None:
+    try:
+        from src.notifier.slack import slack_order
+        # Gather indicators
+        indicators = {"rsi": 0.0, "sma20": 0.0, "sma60": 0.0, "rt": 0.0}
+        try:
+            hist = fetch_history(symbol)
+            profile = strategy_profile(hist["close"], hist["high"], hist["volume"])
+            indicators["rsi"] = float(profile.get("rsi", 0.0))
+            indicators["sma20"] = float(profile.get("sma20", 0.0))
+            indicators["sma60"] = float(profile.get("sma60", 0.0))
+        except Exception:
+            pass
+
+        if action == "sell":
+            try:
+                if config.trading_env not in {"demo", "real"}:
+                    existing = db.row("SELECT avg_price FROM holdings WHERE symbol = ?", (symbol,))
+                    if existing:
+                        avg_price = float(existing["avg_price"])
+                        indicators["rt"] = ((price - avg_price) / avg_price * 100.0) if avg_price > 0 else 0.0
+                else:
+                    holdings = get_holdings()
+                    matching = next((h for h in holdings if h["symbol"] == symbol), None)
+                    if matching:
+                        indicators["rt"] = matching["rt"]
+            except Exception:
+                pass
+
+        slack_order(
+            name=symbol_name(symbol),
+            symbol=symbol,
+            action=action,
+            qty=qty,
+            price=price,
+            reason=reason,
+            ok=ok,
+            indicators=indicators,
+        )
+    except Exception as e:
+        from src.utils.logger import logger
+        logger.error(f"Failed to send Slack order notification: {e}")
+
+
 def place_paper_order(symbol: str, action: str, qty: float, price: float, reason: str = "") -> dict[str, Any]:
     symbol = normalize_symbol(symbol)
     action = str(action).lower()
     qty = float(qty)
     price = float(price or quote(symbol)["current"] or 0.0)
     if qty <= 0 or price <= 0:
+        notify_slack_order(symbol, action, qty, price, "qty and price must be greater than 0", False)
         return {"ok": False, "status": "failed", "message": "qty and price must be greater than 0"}
-    cash = float(db.get_setting("cash", str(config.total_capital)) or 0.0)
-    existing = db.row("SELECT symbol, name, qty, avg_price FROM holdings WHERE symbol = ?", (symbol,))
-    if action == "buy":
-        cost = qty * price
-        if cost > cash:
-            return {"ok": False, "status": "failed", "message": "insufficient paper cash"}
-        if existing:
-            old_qty = float(existing["qty"])
-            old_avg = float(existing["avg_price"])
-            new_qty = old_qty + qty
-            new_avg = ((old_qty * old_avg) + cost) / new_qty
-            db.execute("UPDATE holdings SET qty = ?, avg_price = ?, updated_at = ? WHERE symbol = ?", (new_qty, new_avg, db.now_text(), symbol))
+
+    if config.trading_env not in {"demo", "real"}:
+        cash = float(db.get_setting("cash", str(config.total_capital)) or 0.0)
+        existing = db.row("SELECT symbol, name, qty, avg_price FROM holdings WHERE symbol = ?", (symbol,))
+        if action == "buy":
+            cost = qty * price
+            if cost > cash:
+                notify_slack_order(symbol, action, qty, price, "insufficient paper cash", False)
+                return {"ok": False, "status": "failed", "message": "insufficient paper cash"}
+            if existing:
+                old_qty = float(existing["qty"])
+                old_avg = float(existing["avg_price"])
+                new_qty = old_qty + qty
+                new_avg = ((old_qty * old_avg) + cost) / new_qty
+                db.execute("UPDATE holdings SET qty = ?, avg_price = ?, updated_at = ? WHERE symbol = ?", (new_qty, new_avg, db.now_text(), symbol))
+            else:
+                db.execute(
+                    "INSERT INTO holdings (symbol, name, qty, avg_price, updated_at) VALUES (?, ?, ?, ?, ?)",
+                    (symbol, symbol_name(symbol), qty, price, db.now_text()),
+                )
+            db.set_setting("cash", str(cash - cost))
+        elif action == "sell":
+            if not existing or float(existing["qty"]) < qty:
+                notify_slack_order(symbol, action, qty, price, "insufficient paper holdings", False)
+                return {"ok": False, "status": "failed", "message": "insufficient paper holdings"}
+            remaining = float(existing["qty"]) - qty
+            if remaining > 0:
+                db.execute("UPDATE holdings SET qty = ?, updated_at = ? WHERE symbol = ?", (remaining, db.now_text(), symbol))
+            else:
+                db.execute("DELETE FROM holdings WHERE symbol = ?", (symbol,))
+            db.set_setting("cash", str(cash + qty * price))
         else:
-            db.execute(
-                "INSERT INTO holdings (symbol, name, qty, avg_price, updated_at) VALUES (?, ?, ?, ?, ?)",
-                (symbol, symbol_name(symbol), qty, price, db.now_text()),
-            )
-        db.set_setting("cash", str(cash - cost))
-    elif action == "sell":
-        if not existing or float(existing["qty"]) < qty:
-            return {"ok": False, "status": "failed", "message": "insufficient paper holdings"}
-        remaining = float(existing["qty"]) - qty
-        if remaining > 0:
-            db.execute("UPDATE holdings SET qty = ?, updated_at = ? WHERE symbol = ?", (remaining, db.now_text(), symbol))
-        else:
-            db.execute("DELETE FROM holdings WHERE symbol = ?", (symbol,))
-        db.set_setting("cash", str(cash + qty * price))
+            notify_slack_order(symbol, action, qty, price, "action must be buy or sell", False)
+            return {"ok": False, "status": "failed", "message": "action must be buy or sell"}
+        save_trade(symbol, symbol_name(symbol), action, qty, price, reason, True, "filled", "paper order filled")
+        notify_slack_order(symbol, action, qty, price, reason or "paper order filled", True)
+        return {"ok": True, "status": "filled", "msg1": "paper order filled"}
     else:
-        return {"ok": False, "status": "failed", "message": "action must be buy or sell"}
-    save_trade(symbol, symbol_name(symbol), action, qty, price, reason, True, "filled", "paper order filled")
-    return {"ok": True, "status": "filled", "msg1": "paper order filled"}
+        real_orders_enabled = (not config.dry_run) and config.trading_env == "real" and config.enable_live_trading
+        order_submission_enabled = (not config.dry_run) and (config.trading_env == "demo" or real_orders_enabled)
+        if not order_submission_enabled:
+            save_trade(symbol, symbol_name(symbol), action, qty, price, reason, True, "dry_run", "dry run order skipped")
+            notify_slack_order(symbol, action, qty, price, reason or "dry run order skipped", True)
+            return {"ok": True, "status": "dry_run", "msg1": "dry run order skipped"}
+        try:
+            client = _get_kis_client()
+            res = client.place_overseas_order(symbol, action, price, qty)
+            rt_cd = res.get("rt_cd")
+            msg = res.get("msg1") or "KIS order response received"
+            ok = (rt_cd == "0")
+            status = "filled" if ok else "failed"
+            save_trade(symbol, symbol_name(symbol), action, qty, price, reason, ok, status, msg)
+            notify_slack_order(symbol, action, qty, price, reason or msg, ok)
+            return {"ok": ok, "status": status, "msg1": msg, "res": res}
+        except Exception as e:
+            from src.utils.logger import logger
+            logger.error(f"Failed to place KIS US order: {e}")
+            save_trade(symbol, symbol_name(symbol), action, qty, price, reason, False, "failed", str(e))
+            notify_slack_order(symbol, action, qty, price, str(e), False)
+            return {"ok": False, "status": "failed", "message": str(e)}
 
 
 def save_trade(symbol: str, name: str, action: str, qty: float, price: float, reason: str, ok: bool, order_status: str, response_msg: str) -> None:

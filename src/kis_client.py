@@ -438,3 +438,165 @@ class KISClient:
         except Exception as exc:
             self.mark_failure()
             return {"rt_cd": "1", "msg1": str(exc)}
+
+    def get_overseas_balance(self) -> dict[str, Any]:
+        self.check_circuit()
+        tr_id = "VTRP6504R" if self.config.is_demo else "CTRP6504R"
+        params = {
+            "CANO": self.config.account_prefix,
+            "ACNT_PRDT_CD": self.config.account_suffix,
+            "WCRC_FRCR_DVSN_CD": "02",
+            "NATN_CD": "840",
+            "TR_MKET_CD": "00",
+            "INQR_DVSN_CD": "00",
+        }
+        last_error = ""
+        for _attempt in range(2):
+            try:
+                response = self.session.get(
+                    f"{self.config.base_url}/uapi/overseas-stock/v1/trading/inquire-present-balance",
+                    headers=self.headers(tr_id),
+                    params=params,
+                    timeout=self.config.request_timeout_seconds,
+                )
+                response.raise_for_status()
+                data = response.json()
+                if data.get("rt_cd") == "0":
+                    self.mark_success()
+                    return data
+                last_error = str(data.get("msg1", "unknown KIS balance error"))
+            except Exception as exc:
+                last_error = str(exc)
+        self.mark_failure()
+        return {"output1": [], "output2": {}, "_error": last_error or "unknown KIS balance error"}
+
+    def _parse_us_symbol(self, symbol: str) -> tuple[str, str, str]:
+        """
+        Parses symbol and returns (clean_symbol, KIS_excd, KIS_ovrs_excg_cd)
+        excd: NAS, NYS, AMS, etc. (for quotations)
+        ovrs_excg_cd: NASD, NYSE, AMEX, etc. (for trading)
+        """
+        symbol_upper = symbol.upper().strip()
+        if ":" in symbol_upper:
+            exch, sym = symbol_upper.split(":", 1)
+            sym = sym.strip()
+            if exch in {"NAS", "NASD", "NASDAQ"}:
+                return sym, "NAS", "NASD"
+            elif exch in {"NYS", "NYSE"}:
+                return sym, "NYS", "NYSE"
+            elif exch in {"AMS", "AMEX"}:
+                return sym, "AMS", "AMEX"
+            else:
+                return sym, "NAS", "NASD"
+
+        # Check standard NASDAQ_UNIVERSE
+        try:
+            from src.mistock.strategy import NASDAQ_UNIVERSE
+            is_nasdaq = symbol_upper in NASDAQ_UNIVERSE
+        except Exception:
+            is_nasdaq = True # default fallback
+        
+        if is_nasdaq:
+            return symbol_upper, "NAS", "NASD"
+        else:
+            return symbol_upper, "NYS", "NYSE"
+
+    def get_overseas_quote(self, symbol: str) -> dict[str, float]:
+        self.check_circuit()
+        clean_symbol, excd, _ = self._parse_us_symbol(symbol)
+        try:
+            response = self.session.get(
+                f"{self.config.base_url}/uapi/overseas-stock/v1/quotations/price",
+                headers=self.headers("HHDFS00000300"),
+                params={"EXCD": excd, "SYMB": clean_symbol},
+                timeout=self.config.request_timeout_seconds,
+            )
+            data = response.json()
+            output = data.get("output", {})
+            self.mark_success()
+            return {
+                "current": float(output.get("last", 0) or 0.0),
+                "ask1": float(output.get("askp1", 0) or 0.0),
+                "bid1": float(output.get("bidp1", 0) or 0.0),
+            }
+        except Exception:
+            self.mark_failure()
+            return {"current": 0.0, "ask1": 0.0, "bid1": 0.0}
+
+    def place_overseas_order(self, symbol: str, order_type: str, price: float, qty: float) -> dict[str, Any]:
+        if self.config.is_demo:
+            tr_id = "VTTT1002U" if order_type == "buy" else "VTTT1006U"
+        else:
+            tr_id = "JTTT1002U" if order_type == "buy" else "JTTT1006U"
+        
+        clean_symbol, _, ovrs_excg_cd = self._parse_us_symbol(symbol)
+        body = {
+            "CANO": self.config.account_prefix,
+            "ACNT_PRDT_CD": self.config.account_suffix,
+            "OVRS_EXCG_CD": ovrs_excg_cd,
+            "PDNO": clean_symbol,
+            "ORD_DVSN": "00",
+            "ORD_QTY": str(int(qty)),
+            "ORD_UNPR": f"{price:.2f}",
+        }
+        headers = self.headers(tr_id)
+        hashkey = self.create_hashkey(body)
+        if hashkey:
+            headers["hashkey"] = hashkey
+        self.check_circuit()
+        try:
+            response = self.session.post(
+                f"{self.config.base_url}/uapi/overseas-stock/v1/trading/order",
+                headers=headers,
+                json=body,
+                timeout=self.config.request_timeout_seconds,
+            )
+            response.raise_for_status()
+            self.mark_success()
+            return response.json()
+        except Exception as exc:
+            self.mark_failure()
+            return {"rt_cd": "1", "msg1": str(exc)}
+
+    def get_condition_search_list(self, user_id: str) -> list[dict[str, Any]]:
+        self.check_circuit()
+        params = {
+            "user_id": user_id,
+            "seq": "0"
+        }
+        try:
+            response = self.session.get(
+                f"{self.config.base_url}/uapi/domestic-stock/v1/quotations/inquire-condition-search",
+                headers=self.headers("HHKST03900400"),
+                params=params,
+                timeout=self.config.request_timeout_seconds,
+            )
+            data = response.json()
+            self.mark_success()
+            return data.get("output", [])
+        except Exception:
+            self.mark_failure()
+            return []
+
+    def get_condition_search_result(self, user_id: str, condition_no: str, condition_name: str) -> list[str]:
+        self.check_circuit()
+        params = {
+            "user_id": user_id,
+            "seq": condition_no,
+            "cond_nm": condition_name,
+        }
+        try:
+            response = self.session.get(
+                f"{self.config.base_url}/uapi/domestic-stock/v1/quotations/inquire-condition-search-result",
+                headers=self.headers("HHKST03900300"),
+                params=params,
+                timeout=self.config.request_timeout_seconds,
+            )
+            data = response.json()
+            self.mark_success()
+            output = data.get("output", [])
+            return [row["code"].strip() for row in output if row.get("code")]
+        except Exception:
+            self.mark_failure()
+            return []
+

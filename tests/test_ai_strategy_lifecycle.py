@@ -13,6 +13,8 @@ class AiStrategyLifecycleTests(unittest.TestCase):
             conn.execute("DELETE FROM ai_strategies")
             conn.execute("DELETE FROM ai_strategy_events")
             conn.commit()
+        self.original_backtest_pass = getattr(dashboard.trader.config, "ai_require_backtest_pass", True)
+        dashboard.trader.config.ai_require_backtest_pass = True
         save_ai_strategies([
             {
                 "id": "lifecycle_rule",
@@ -38,6 +40,10 @@ class AiStrategyLifecycleTests(unittest.TestCase):
                 },
             }
         ])
+
+    def tearDown(self):
+        dashboard.trader.config.ai_require_backtest_pass = self.original_backtest_pass
+
 
     def test_strategy_context_route_exposes_active_gate(self):
         body = dashboard.get_strategy_context()
