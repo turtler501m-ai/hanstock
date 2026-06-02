@@ -17,7 +17,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -146,7 +145,8 @@ class MainActivity : FragmentActivity() {
                         ),
                     contentAlignment = Alignment.Center
                 ) {
-                    CircularProgressIndicator(
+                    Text(
+                        text = "한스톡 테스트 화면",
                         color = MaterialTheme.colorScheme.primary
                     )
                 }
