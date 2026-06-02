@@ -1,4 +1,6 @@
 import sqlite3
+import time
+import sys
 
 db_path = '/home/turtler800/hanstock/.runtime/trades.sqlite'
 try:
@@ -20,3 +22,14 @@ try:
         print("No trade records found.")
 except Exception as e:
     print(f"Error querying database: {e}")
+
+print("\n=== MEASURING CANDIDATES RUNTIME ===")
+t0 = time.time()
+try:
+    sys.path.insert(0, '/home/turtler800/hanstock')
+    from src.strategy.seven_split import find_candidates
+    print("Starting candidate scan...")
+    res = find_candidates(set(), min_score=2)
+    print(f"Scanned {len(res['candidates'])} candidates in {time.time() - t0:.2f} seconds")
+except Exception as e:
+    print(f"Candidate scan failed: {e}")
