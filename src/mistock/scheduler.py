@@ -105,6 +105,28 @@ def run_mistock_scheduled_cycle(mode: str = "execute") -> dict:
         "result": result,
     }, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
     
+    # 누적 기록 파일에도 크로노그래피컬하게 누적 저장 (VM 크론탭 실행 누락 방지)
+    today_path = Path(".runtime/mistock/daily_auto_today_results.json")
+    today_str = datetime.now(KST).strftime("%Y-%m-%d")
+    today_runs = []
+    if today_path.exists():
+        try:
+            data = json.loads(today_path.read_text(encoding="utf-8"))
+            if isinstance(data, list):
+                today_runs = [r for r in data if r.get("recorded_at", "").startswith(today_str)]
+        except Exception:
+            pass
+            
+    today_runs.append({
+        "recorded_at": recorded_at,
+        "mode": mode,
+        "result": result
+    })
+    try:
+        today_path.write_text(json.dumps(today_runs, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
+    except Exception:
+        pass
+    
     # 슬랙 알림 발송
     if os.environ.get("MISTOCK_SCHEDULER_SLACK", "true").lower() not in {"0", "false", "no", "off"}:
         status_str = "성공"
