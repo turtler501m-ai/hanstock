@@ -635,7 +635,15 @@ def find_candidates(
                 has_today = any(c.get("date") == today_str for c in db_charts)
                 
                 # 데이터가 아예 없거나, 최근 데이터가 없고, KIS API가 사용 가능할 때 동기화 진행
-                if (len(db_charts) < 60 or not has_today) and api is not None:
+                # 대형 스캔(50종목 초과) 시, 캐시가 충분히(60개 이상) 존재한다면 오늘치 당일 시세가 없더라도 KIS API 추가 호출을 생략하여 타임아웃을 방지합니다.
+                is_large_scan = len(scan_list) > 50
+                needs_sync = False
+                if len(db_charts) < 60:
+                    needs_sync = True
+                elif not has_today and not is_large_scan:
+                    needs_sync = True
+
+                if needs_sync and api is not None:
                     logger.info(f"[SCAN] {code}의 캐시 데이터가 부족하여 KIS API에서 시세를 가져옵니다.")
                     try:
                         kis_data = api.get_daily(code, n=120)
@@ -710,19 +718,31 @@ def find_candidates(
                 scan_summary,
                 key=lambda item: (-float(item.get("score", 0) or 0), item.get("ticker", "")),
             )[:ai_candidate_limit]
-            for entry in ai_targets:
+            
+            import concurrent.futures
+            def predict_for_entry(entry):
                 try:
                     prediction = predictor.predict(entry.get("feature_payload", {}))
-                    entry["score"] = round(float(prediction["final_score"]), 4)
-                    entry["ml_score"] = (
-                        round(float(prediction["ml_score"]), 4)
-                        if prediction.get("ml_score") is not None
-                        else None
-                    )
-                    entry["final_score"] = round(float(prediction["final_score"]), 4)
-                    entry["ai_enabled"] = prediction["ai_enabled"]
-                except Exception as p_err:
-                    logger.warning(f"[AI] Hybrid ranker update failed for {entry['ticker']}: {p_err}")
+                    return entry, prediction, None
+                except Exception as e:
+                    return entry, None, e
+
+            with concurrent.futures.ThreadPoolExecutor(max_workers=len(ai_targets)) as executor:
+                futures = [executor.submit(predict_for_entry, entry) for entry in ai_targets]
+                for future in concurrent.futures.as_completed(futures):
+                    entry, prediction, p_err = future.result()
+                    if p_err is not None:
+                        logger.warning(f"[AI] Hybrid ranker update failed for {entry['ticker']}: {p_err}")
+                        continue
+                    if prediction:
+                        entry["score"] = round(float(prediction["final_score"]), 4)
+                        entry["ml_score"] = (
+                            round(float(prediction["ml_score"]), 4)
+                            if prediction.get("ml_score") is not None
+                            else None
+                        )
+                        entry["final_score"] = round(float(prediction["final_score"]), 4)
+                        entry["ai_enabled"] = prediction["ai_enabled"]
                     
         return {
             "candidates": candidates,
@@ -810,25 +830,37 @@ def find_candidates(
             scan_summary,
             key=lambda item: (-float(item.get("score", 0) or 0), item.get("ticker", "")),
         )[:ai_candidate_limit]
-        for entry in ai_targets:
+        
+        import concurrent.futures
+        def predict_for_entry(entry):
             try:
                 prediction = predictor.predict(entry.get("feature_payload", {}))
-                entry["score"] = round(float(prediction["final_score"]), 4)
-                entry["ml_score"] = (
-                    round(float(prediction["ml_score"]), 4)
-                    if prediction.get("ml_score") is not None
-                    else None
-                )
-                entry["final_score"] = round(float(prediction["final_score"]), 4)
-                entry["ai_enabled"] = prediction["ai_enabled"]
-                entry["ai_model_status"] = prediction["model_status"]
-                entry["ai_model_version"] = prediction["model_version"]
-                entry["feature_version"] = prediction["feature_version"]
-                entry["ai_score_weight"] = prediction["score_weight"]
-                entry["ai_fallback_reason"] = prediction["fallback_reason"]
-                entry["top_features"] = prediction["top_features"]
+                return entry, prediction, None
             except Exception as e:
-                logger.info(f"[WARN] OpenAI scoring failed for {entry.get('ticker')}: {e}")
+                return entry, None, e
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=len(ai_targets)) as executor:
+            futures = [executor.submit(predict_for_entry, entry) for entry in ai_targets]
+            for future in concurrent.futures.as_completed(futures):
+                entry, prediction, e = future.result()
+                if e is not None:
+                    logger.info(f"[WARN] OpenAI scoring failed for {entry.get('ticker')}: {e}")
+                    continue
+                if prediction:
+                    entry["score"] = round(float(prediction["final_score"]), 4)
+                    entry["ml_score"] = (
+                        round(float(prediction["ml_score"]), 4)
+                        if prediction.get("ml_score") is not None
+                        else None
+                    )
+                    entry["final_score"] = round(float(prediction["final_score"]), 4)
+                    entry["ai_enabled"] = prediction["ai_enabled"]
+                    entry["ai_model_status"] = prediction["model_status"]
+                    entry["ai_model_version"] = prediction["model_version"]
+                    entry["feature_version"] = prediction["feature_version"]
+                    entry["ai_score_weight"] = prediction["score_weight"]
+                    entry["ai_fallback_reason"] = prediction["fallback_reason"]
+                    entry["top_features"] = prediction["top_features"]
 
     candidates.sort(key=lambda x: -x["score"])
     scan_summary.sort(key=lambda x: -x["score"])
