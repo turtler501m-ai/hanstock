@@ -3245,3 +3245,26 @@ async function triggerSchedule(mode) {
         setButtonBusy(btn, false);
     }
 }
+
+function copySchedulerLog() {
+    const logBox = document.getElementById('scheduler-running-log');
+    if (!logBox) return;
+    const text = logBox.innerText || logBox.textContent;
+    
+    navigator.clipboard.writeText(text).then(() => {
+        const btn = document.getElementById('btn-copy-scheduler-log');
+        if (btn) {
+            const originalText = btn.textContent;
+            btn.textContent = '복사 완료!';
+            btn.style.borderColor = '#10b981';
+            btn.style.color = '#10b981';
+            setTimeout(() => {
+                btn.textContent = originalText;
+                btn.style.borderColor = '';
+                btn.style.color = '';
+            }, 2000);
+        }
+    }).catch(err => {
+        alert('로그 복사 실패: ' + err);
+    });
+}

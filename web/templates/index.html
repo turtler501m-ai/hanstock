@@ -409,9 +409,12 @@
 
                 <!-- Running Overlay / Progress State -->
                 <div id="scheduler-running-panel" class="card glass panel-schedule-running" style="display: none; margin-top: 1.5rem; border-color: rgba(59, 130, 246, 0.45);">
-                    <div class="running-header" style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem;">
-                        <span class="dot live pulsing" style="background-color: var(--warning); width: 10px; height: 10px; border-radius: 50%;"></span>
-                        <h2 style="margin: 0; font-size: 1.25rem;">스케쥴러 동작 중...</h2>
+                    <div class="running-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+                        <div style="display: flex; align-items: center; gap: 0.5rem;">
+                            <span class="dot live pulsing" style="background-color: var(--warning); width: 10px; height: 10px; border-radius: 50%;"></span>
+                            <h2 style="margin: 0; font-size: 1.25rem;">스케쥴러 동작 중...</h2>
+                        </div>
+                        <button type="button" class="button-ghost" id="btn-copy-scheduler-log" style="padding: 2px 10px; font-size: 0.75rem; min-height: 26px; border-radius: 4px; border: 1px solid rgba(255,255,255,0.15); background: rgba(255,255,255,0.05); color: var(--text-color); cursor: pointer;" onclick="copySchedulerLog()">로그 복사</button>
                     </div>
                     <p class="section-help">스케쥴러가 실시간으로 매매 분석 및 KIS API 통신을 수행하고 있습니다. 잠시만 기다려 주세요.</p>
                     <div class="running-log-box" id="scheduler-running-log" style="background: rgba(0,0,0,0.4); padding: 1rem; border-radius: 6px; font-family: monospace; font-size: 0.85rem; max-height: 200px; overflow-y: auto; white-space: pre-wrap; border: 1px solid rgba(255,255,255,0.08); margin-top: 0.5rem; color: #34d399;">

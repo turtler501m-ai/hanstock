@@ -1783,3 +1783,18 @@ body {
         text-overflow: ellipsis;
     }
 }
+
+/* Allow text selection for log boxes, status banners, table data, and help copy */
+.running-log-box, 
+.status-banner, 
+pre, 
+code,
+td,
+th,
+.card h2,
+.card p,
+.control-help,
+.section-help {
+    -webkit-user-select: text !important;
+    user-select: text !important;
+}
