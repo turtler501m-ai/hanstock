@@ -746,6 +746,92 @@ def mistock_usage_quota():
     return {"ok": True, "quota": {"provider": "mistock-local", "used": 0, "limit": 0}, "message": "Mistock uses local rule-based analysis."}
 
 
+def map_mistock_to_kis_format(mistock_result: dict) -> dict:
+    if not mistock_result:
+        return {}
+        
+    if "results" in mistock_result:
+        return mistock_result
+        
+    results = []
+    auto_approved = []
+    
+    # 1. Map 'sold' items
+    for s in mistock_result.get("sold", []):
+        row = {
+            "symbol": s["symbol"],
+            "name": symbol_name(s["symbol"]),
+            "action": "sell",
+            "decision": "execute",
+            "qty": s["qty"],
+            "price": s["price"],
+            "reason": s.get("reason") or "보유 종목 매도 신호",
+            "ok": True,
+            "message": "매도 주문 실행 성공"
+        }
+        results.append(row)
+        auto_approved.append({
+            "symbol": s["symbol"],
+            "action": "sell",
+            "status": "executed",
+            "qty": s["qty"],
+            "price": s["price"],
+            "message": "매도 완료"
+        })
+        
+    # 2. Map 'bought' items
+    for b in mistock_result.get("bought", []):
+        row = {
+            "symbol": b["symbol"],
+            "name": symbol_name(b["symbol"]),
+            "action": "buy",
+            "decision": "execute",
+            "qty": b["qty"],
+            "price": b["price"],
+            "reason": b.get("reason") or "매수 신호",
+            "ok": True,
+            "message": "매수 주문 실행 성공"
+        }
+        results.append(row)
+        auto_approved.append({
+            "symbol": b["symbol"],
+            "action": "buy",
+            "status": "executed",
+            "qty": b["qty"],
+            "price": b["price"],
+            "message": "매수 완료"
+        })
+        
+    # 3. Map 'plan' items (that didn't execute)
+    executed_symbols = {b["symbol"] for b in mistock_result.get("bought", [])}
+    for p in mistock_result.get("plan", []):
+        if p["symbol"] in executed_symbols:
+            continue
+        row = {
+            "symbol": p["symbol"],
+            "name": symbol_name(p["symbol"]),
+            "action": "buy",
+            "decision": "queue",
+            "qty": p["quantity"],
+            "price": p["price"],
+            "reason": p.get("reason") or "매수 계획 수립",
+            "ok": True,
+            "message": "승인 대기 등록"
+        }
+        results.append(row)
+        
+    return {
+        "status": mistock_result.get("status") or "success",
+        "ok": mistock_result.get("ok", True),
+        "results": results,
+        "auto_approved": auto_approved,
+        "auto_approval_errors": [],
+        "errors": [],
+        "scanned": mistock_result.get("scanned", 0),
+        "candidates": mistock_result.get("candidates", 0)
+    }
+
+
 @app.get("/api/mistock/scheduler/status")
 def mistock_scheduler_status():
     global _mistock_scheduler_run_state
@@ -758,13 +844,23 @@ def mistock_scheduler_status():
         except Exception:
             pass
             
+    if last_result and "result" in last_result:
+        last_result = {
+            **last_result,
+            "result": map_mistock_to_kis_format(last_result["result"])
+        }
+        
+    run_state_to_return = _mistock_scheduler_run_state.copy()
+    if run_state_to_return.get("result"):
+        run_state_to_return["result"] = map_mistock_to_kis_format(run_state_to_return["result"])
+        
     return {
         "config": {
             "trading_env": mistock_config.trading_env,
             "dry_run": mistock_config.dry_run,
         },
         "last_result": last_result,
-        "run_state": _mistock_scheduler_run_state
+        "run_state": run_state_to_return
     }
 
 
