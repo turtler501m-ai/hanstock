@@ -728,9 +728,13 @@ def _bg_run_mistock_scheduled_cycle(mode: str):
     try:
         from src.mistock.scheduler import run_mistock_scheduled_cycle
         result = run_mistock_scheduled_cycle(mode=mode)
+        
+        recorded_at = datetime.now(timezone(timedelta(hours=9))).isoformat()
+        save_mistock_daily_run(recorded_at, mode, result)
+        
         with _mistock_scheduler_running_lock:
             _mistock_scheduler_run_state["is_running"] = False
-            _mistock_scheduler_run_state["completed_at"] = datetime.now(timezone(timedelta(hours=9))).isoformat()
+            _mistock_scheduler_run_state["completed_at"] = recorded_at
             _mistock_scheduler_run_state["result"] = result
             _mistock_scheduler_run_state["error"] = None
     except Exception as e:
@@ -832,23 +836,130 @@ def map_mistock_to_kis_format(mistock_result: dict) -> dict:
     }
 
 
+def save_mistock_daily_run(recorded_at: str, mode: str, result: dict):
+    from datetime import datetime, timezone, timedelta
+    KST = timezone(timedelta(hours=9))
+    today_str = datetime.now(KST).strftime("%Y-%m-%d")
+    
+    path = Path(".runtime/mistock/daily_auto_today_results.json")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    
+    existing_runs = []
+    if path.exists():
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+            if isinstance(data, list):
+                # Filter to keep only today's runs (KST)
+                for run in data:
+                    run_time_str = run.get("recorded_at", "")
+                    if run_time_str.startswith(today_str):
+                        existing_runs.append(run)
+        except Exception:
+            pass
+            
+    existing_runs.append({
+        "recorded_at": recorded_at,
+        "mode": mode,
+        "result": result
+    })
+    
+    path.write_text(json.dumps(existing_runs, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
+
+
+def load_mistock_daily_runs() -> list:
+    from datetime import datetime, timezone, timedelta
+    KST = timezone(timedelta(hours=9))
+    today_str = datetime.now(KST).strftime("%Y-%m-%d")
+    
+    runs_path = Path(".runtime/mistock/daily_auto_today_results.json")
+    runs = []
+    if runs_path.exists():
+        try:
+            data = json.loads(runs_path.read_text(encoding="utf-8"))
+            if isinstance(data, list):
+                for run in data:
+                    run_time_str = run.get("recorded_at", "")
+                    if run_time_str.startswith(today_str):
+                        runs.append(run)
+        except Exception:
+            pass
+            
+    last_path = Path(".runtime/mistock/daily_auto_last_result.json")
+    if last_path.exists():
+        try:
+            last_run = json.loads(last_path.read_text(encoding="utf-8"))
+            if isinstance(last_run, dict) and "recorded_at" in last_run:
+                last_recorded = last_run["recorded_at"]
+                if last_recorded.startswith(today_str):
+                    if not any(r.get("recorded_at") == last_recorded for r in runs):
+                        runs.append({
+                            "recorded_at": last_recorded,
+                            "mode": last_run.get("mode") or "execute",
+                            "result": last_run["result"]
+                        })
+                        runs_path.parent.mkdir(parents=True, exist_ok=True)
+                        runs_path.write_text(json.dumps(runs, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
+        except Exception:
+            pass
+            
+    runs.sort(key=lambda r: r.get("recorded_at", ""))
+    return runs
+
+
+def merge_mistock_runs_to_kis_format(runs: list) -> dict | None:
+    if not runs:
+        return None
+        
+    merged_results = []
+    merged_approved = []
+    
+    latest_recorded_at = runs[-1]["recorded_at"]
+    latest_mode = runs[-1]["mode"]
+    
+    for idx, run in enumerate(runs):
+        round_num = idx + 1
+        recorded_at_str = run["recorded_at"]
+        time_part = recorded_at_str.replace("T", " ").split(" ")[1][:5]
+        
+        raw_result = run["result"]
+        mapped = map_mistock_to_kis_format(raw_result)
+        
+        for item in mapped.get("results", []):
+            item_copy = dict(item)
+            item_copy["time"] = time_part
+            item_copy["round"] = round_num
+            item_copy["reason"] = f"[{time_part}] {item_copy['reason']}"
+            merged_results.append(item_copy)
+            
+        for item in mapped.get("auto_approved", []):
+            item_copy = dict(item)
+            item_copy["time"] = time_part
+            item_copy["round"] = round_num
+            item_copy["message"] = f"[{time_part}] {item_copy['message']}"
+            merged_approved.append(item_copy)
+            
+    return {
+        "recorded_at": latest_recorded_at,
+        "mode": latest_mode,
+        "result": {
+            "status": "success",
+            "ok": True,
+            "results": merged_results,
+            "auto_approved": merged_approved,
+            "auto_approval_errors": [],
+            "errors": [],
+            "scanned": runs[-1]["result"].get("scanned", 0),
+            "candidates": runs[-1]["result"].get("candidates", 0)
+        }
+    }
+
+
 @app.get("/api/mistock/scheduler/status")
 def mistock_scheduler_status():
     global _mistock_scheduler_run_state
     
-    last_result = None
-    path = Path(".runtime/mistock/daily_auto_last_result.json")
-    if path.exists():
-        try:
-            last_result = json.loads(path.read_text(encoding="utf-8"))
-        except Exception:
-            pass
-            
-    if last_result and "result" in last_result:
-        last_result = {
-            **last_result,
-            "result": map_mistock_to_kis_format(last_result["result"])
-        }
+    runs = load_mistock_daily_runs()
+    last_result = merge_mistock_runs_to_kis_format(runs)
         
     run_state_to_return = _mistock_scheduler_run_state.copy()
     if run_state_to_return.get("result"):
