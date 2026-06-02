@@ -1540,7 +1540,10 @@ def trigger_scheduler_run(payload: dict = Body(...)):
     global _scheduler_run_state
     mode = str(payload.get("mode", "daily_auto")).lower()
     if mode not in {"daily_auto", "execute", "analysis_only"}:
-        raise HTTPException(status_code=400, detail="Invalid scheduler mode")
+        raise HTTPException(
+            status_code=400,
+            detail=f"지원하지 않는 국내장 스케줄러 모드입니다: '{mode}'. 'daily_auto', 'execute', 'analysis_only' 중 하나를 선택해 주세요."
+        )
         
     include_ai_rebalance = bool(payload.get("include_ai_rebalance", True))
     auto_approve = bool(payload.get("auto_approve", mode == "daily_auto"))

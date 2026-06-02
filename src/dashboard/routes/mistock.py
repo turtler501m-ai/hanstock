@@ -772,8 +772,16 @@ def mistock_scheduler_status():
 def mistock_scheduler_run(payload: dict = Body(default={})):
     global _mistock_scheduler_run_state
     mode = str(payload.get("mode", "execute")).lower()
-    if mode not in {"execute", "analysis_only"}:
-        raise HTTPException(status_code=400, detail="Invalid scheduler mode")
+    
+    if mode == "daily_auto":
+        run_mode = "execute"
+    elif mode in {"execute", "analysis_only"}:
+        run_mode = mode
+    else:
+        raise HTTPException(
+            status_code=400,
+            detail=f"지원하지 않는 미장 스케줄러 모드입니다: '{mode}'. 'execute', 'analysis_only', 'daily_auto' 중 하나를 선택해 주세요."
+        )
         
     with _mistock_scheduler_running_lock:
         if _mistock_scheduler_run_state["is_running"]:
@@ -788,7 +796,7 @@ def mistock_scheduler_run(payload: dict = Body(default={})):
         
     t = threading.Thread(
         target=_bg_run_mistock_scheduled_cycle,
-        args=(mode,),
+        args=(run_mode,),
         daemon=True
     )
     t.start()
