@@ -5,6 +5,44 @@ import src.dashboard.core as _core
 from src.dashboard.core import *
 globals().update({k: v for k, v in _core.__dict__.items() if not k.startswith('__')})
 
+ENV_FIELD_TEXT = {
+    "KISTOCK_APP_KEY": {"label": "KIS App Key", "hint": "국내주식 KIS API 앱 키입니다."},
+    "KISTOCK_APP_SECRET": {"label": "KIS App Secret", "hint": "국내주식 KIS API 앱 시크릿입니다."},
+    "KISTOCK_ACCOUNT": {"label": "KIS 계좌번호", "hint": "8자리 또는 10자리 계좌번호를 입력합니다."},
+    "TRADING_ENV": {"label": "거래 환경", "hint": "demo=모의투자, real=실전투자 환경입니다."},
+    "DRY_RUN": {"label": "주문 차단 모드", "hint": "true이면 실제 KIS 주문 API를 호출하지 않습니다."},
+    "ENABLE_LIVE_TRADING": {"label": "실전 주문 허용", "hint": "실전 환경에서 실제 주문을 허용하는 최종 보호 스위치입니다."},
+    "REQUIRE_APPROVAL": {"label": "주문 승인 필요", "hint": "true이면 주문을 승인 대기열에 먼저 등록합니다."},
+    "SPLIT_N": {"label": "분할 매수 횟수"},
+    "STOP_LOSS_PCT": {"label": "손절 기준 %"},
+    "TAKE_PROFIT": {"label": "익절 기준 %"},
+    "RSI_BUY": {"label": "RSI 매수 기준"},
+    "RSI_SELL": {"label": "RSI 매도 기준"},
+    "TOTAL_CAPITAL": {"label": "총 운용 자금"},
+    "MAX_POSITIONS": {"label": "최대 보유 종목 수"},
+    "MAX_SINGLE_WEIGHT": {"label": "종목당 최대 비중"},
+    "CASH_BUFFER": {"label": "현금 보유 비중"},
+    "MAX_DAILY_LOSS_PCT": {"label": "일 최대 손실 %"},
+    "SCAN_UNIVERSE_SIZE": {"label": "스캔 종목 수"},
+    "KIS_CIRCUIT_COOLDOWN_SECONDS": {"label": "KIS API 차단 해제 대기초", "hint": "KIS API 오류가 반복될 때 재시도 전 대기 시간입니다."},
+    "TRADE_DB_PATH": {"label": "거래 DB 경로"},
+    "ACTIVE_MODEL_VERSION": {"label": "활성 모델 버전"},
+    "AI_STRATEGY_ENABLED": {"label": "AI 전략 사용", "hint": "true이면 후보 평가에 OpenAI 모델 점수를 함께 사용합니다."},
+    "AI_SCORE_WEIGHT": {"label": "AI 점수 반영 비중", "hint": "0~1 사이 값입니다. 0.4이면 룰 60%, AI 40%로 계산합니다."},
+    "AI_MIN_MODEL_CONFIDENCE": {"label": "AI 최소 신뢰도"},
+    "AI_REQUIRE_BACKTEST_PASS": {"label": "백테스트 통과 필수"},
+    "AI_AUTO_APPROVE": {"label": "AI 자동 승인"},
+    "OPENAI_API_KEY": {"label": "OpenAI API Key", "hint": "gpt-5-mini 호출에 사용할 OpenAI API 키입니다."},
+    "OPENAI_MODEL": {"label": "OpenAI 모델", "hint": "예: gpt-5-mini"},
+    "OPENAI_TIMEOUT_SECONDS": {"label": "OpenAI 응답 제한초"},
+    "AI_CANDIDATE_LIMIT": {"label": "AI 평가 후보 수"},
+    "SLACK_WEBHOOK_URL": {"label": "Slack Webhook URL"},
+    "TELEGRAM_API_ID": {"label": "Telegram API ID"},
+    "TELEGRAM_API_HASH": {"label": "Telegram API Hash"},
+    "TELEGRAM_SESSION_NAME": {"label": "Telegram Session Name", "hint": "로컬 Telethon 세션 경로입니다. Git에 포함하지 마세요."},
+    "TELEGRAM_TARGET_CHANNELS": {"label": "Telegram Target Channels", "hint": "쉼표로 구분한 채널 사용자명, ID, 초대 링크입니다."},
+}
+
 @app.get("/api/config")
 def get_config():
     return {
@@ -48,13 +86,14 @@ def get_env_settings():
     fields = []
     for field in ENV_FIELDS:
         key = field["key"]
+        text = ENV_FIELD_TEXT.get(key, {})
         value = _virtual_env_value(key, values) if field.get("virtual") else values.get(key, "")
         item = {
             "key": key,
-            "label": field["label"],
+            "label": text.get("label", field["label"]),
             "type": field["type"],
             "options": field.get("options", []),
-            "hint": field.get("hint", ""),
+            "hint": text.get("hint", field.get("hint", "")),
             "secret": field["type"] == "secret",
             "virtual": bool(field.get("virtual")),
             "has_value": bool(value),
@@ -136,5 +175,4 @@ def set_runtime_order_mode(payload: dict = Body(...)):
         "real_orders_enabled": trader.REAL_ORDERS_ENABLED,
         "requires_restart": False,
     }
-
 

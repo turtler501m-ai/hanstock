@@ -159,6 +159,19 @@ class DashboardCoreTests(unittest.TestCase):
     def test_secret_env_values_are_masked_for_response(self):
         self.assertEqual(dashboard._mask_env_value("1234567801"), "12******01")
 
+    def test_env_settings_labels_are_korean_for_ai_fields(self):
+        original_env_path = dashboard.ENV_PATH
+        try:
+            dashboard.ENV_PATH = MemoryTextPath("AI_STRATEGY_ENABLED=false\nOPENAI_MODEL=gpt-5-mini\n")
+            data = dashboard.get_env_settings()
+            labels = {field["key"]: field["label"] for field in data["fields"]}
+
+            self.assertEqual(labels["AI_STRATEGY_ENABLED"], "AI 전략 사용")
+            self.assertEqual(labels["OPENAI_MODEL"], "OpenAI 모델")
+            self.assertEqual(labels["TRADING_ENV"], "거래 환경")
+        finally:
+            dashboard.ENV_PATH = original_env_path
+
     def test_config_response_includes_account(self):
         original_account = dashboard.trader.config.kistock_account
         try:
@@ -234,6 +247,36 @@ class DashboardCoreTests(unittest.TestCase):
             dashboard.trader.MAX_SINGLE_WEIGHT = original_max_single_weight
             dashboard.trader.config.total_capital = original_config_total_capital
             dashboard.trader.config.max_single_weight = original_config_max_single_weight
+
+    def test_env_update_saves_openai_strategy_settings(self):
+        original_env_path = dashboard.ENV_PATH
+        original_ai_enabled = dashboard.trader.config.ai_strategy_enabled
+        original_openai_key = dashboard.trader.config.openai_api_key
+        original_openai_model = dashboard.trader.config.openai_model
+        try:
+            path = MemoryTextPath("AI_STRATEGY_ENABLED=false\nOPENAI_MODEL=gpt-5-mini\n")
+            dashboard.ENV_PATH = path
+
+            result = dashboard.update_env_settings({
+                "values": {
+                    "AI_STRATEGY_ENABLED": "true",
+                    "OPENAI_API_KEY": "sk-test-openai-key",
+                    "OPENAI_MODEL": "gpt-5-mini",
+                }
+            })
+
+            self.assertFalse(result["requires_restart"])
+            self.assertTrue(dashboard.trader.config.ai_strategy_enabled)
+            self.assertEqual(dashboard.trader.config.openai_api_key, "sk-test-openai-key")
+            self.assertEqual(dashboard.trader.config.openai_model, "gpt-5-mini")
+            self.assertIn("AI_STRATEGY_ENABLED=true", path.content)
+            self.assertIn("OPENAI_API_KEY=sk-test-openai-key", path.content)
+            self.assertIn("OPENAI_MODEL=gpt-5-mini", path.content)
+        finally:
+            dashboard.ENV_PATH = original_env_path
+            dashboard.trader.config.ai_strategy_enabled = original_ai_enabled
+            dashboard.trader.config.openai_api_key = original_openai_key
+            dashboard.trader.config.openai_model = original_openai_model
 
     def test_kis_account_validation_accepts_8_or_10_digits(self):
         self.assertEqual(dashboard._validate_env_value("KISTOCK_ACCOUNT", "12345678"), "12345678")

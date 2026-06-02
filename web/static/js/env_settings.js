@@ -47,7 +47,7 @@ function buildEnvControl(field) {
     const key = escapeHtml(field.key);
     const label = escapeHtml(field.label || field.key);
     const value = escapeHtml(field.value || '');
-    const hint = field.hint || (field.secret ? '민감정보가 그대로 표시됩니다.' : '');
+    const hint = escapeHtml(field.hint || (field.secret ? '민감 정보입니다. 값은 그대로 저장되며 화면에 표시됩니다.' : ''));
 
     if (field.type === 'bool') {
         const selected = String(field.value || '').toLowerCase() === 'true';
@@ -96,7 +96,7 @@ async function renderEnvSettings() {
     try {
         const data = await fetchJson('/api/env');
         document.getElementById('env-grid').innerHTML = (data.fields || []).map(buildEnvControl).join('');
-        document.getElementById('env-meta').textContent = `${data.path || '.env'} · 저장 후 서버 재시작 필요`;
+        document.getElementById('env-meta').textContent = `${data.path || '.env'} · 저장 즉시 런타임 반영, 일부 값은 서버 재시작 필요`;
     } catch (err) {
         setStatus(`환경설정 불러오기 실패: ${err.message}`);
     }
@@ -123,7 +123,8 @@ async function saveEnvSettings(event) {
     try {
         const result = await postJson('/api/env', { values });
         await renderEnvSettings();
-        setStatus(`환경설정을 저장했습니다: ${result.updated.join(', ')}. 서버를 재시작해야 적용됩니다.`, true);
+        const restartText = result.requires_restart ? '서버 재시작 후 완전히 적용됩니다.' : '현재 실행 중인 대시보드에도 반영되었습니다.';
+        setStatus(`환경설정을 저장했습니다: ${result.updated.join(', ')}. ${restartText}`, true);
     } catch (err) {
         setStatus(`환경설정 저장 실패: ${err.message}`);
     } finally {
