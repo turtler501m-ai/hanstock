@@ -71,3 +71,30 @@ class TestKISWebSocketClient(unittest.TestCase):
         bad_numbers_payload = "USR100^50012345^0001^0000^02^00^005930^abc^xyz^abc^xyz^093000^Y^0^0^2^CHK001"
         self.client._process_order_execution(bad_numbers_payload)
         mock_slack_order.assert_not_called()
+
+    def test_process_realtime_quote_stores_latest_quote(self):
+        payload = "005930^093000^72000^2^500^0.70^72000^72100^71900^72000^70000^1000^2000^123456"
+
+        self.client._process_realtime_quote(payload)
+
+        quote = self.client.last_quotes["005930"]
+        self.assertEqual(quote["symbol"], "005930")
+        self.assertEqual(quote["time"], "093000")
+        self.assertEqual(quote["price"], 72000.0)
+        self.assertEqual(quote["volume"], 123456.0)
+
+    def test_process_realtime_orderbook_stores_latest_orderbook(self):
+        payload = "005930^093000^0^72100^72000^72200^71900"
+
+        self.client._process_realtime_orderbook(payload)
+
+        orderbook = self.client.last_orderbooks["005930"]
+        self.assertEqual(orderbook["ask1"], 72100.0)
+        self.assertEqual(orderbook["bid1"], 72000.0)
+
+    def test_subscribe_quote_and_orderbook_register_expected_tr_ids(self):
+        self.client.subscribe_quote("005930")
+        self.client.subscribe_orderbook("000660")
+
+        self.assertIn(("H0STCNT0", "005930"), self.client.active_subscriptions)
+        self.assertIn(("H0STASP0", "000660"), self.client.active_subscriptions)

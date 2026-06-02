@@ -122,6 +122,10 @@ class DashboardCoreTests(unittest.TestCase):
         self.assertIn("/api/kis/websocket/status", paths)
         self.assertIn("/api/kis/websocket/start", paths)
         self.assertIn("/api/kis/websocket/stop", paths)
+        self.assertIn("/api/kis/websocket/subscribe", paths)
+        self.assertIn("/api/kis/orders/cancel", paths)
+        self.assertIn("/api/kis/orders/revise", paths)
+        self.assertIn("/api/kis/rehearsal", paths)
 
     def test_kis_env_settings_apply_without_restart(self):
         original_env_path = dashboard.ENV_PATH

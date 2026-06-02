@@ -29,6 +29,11 @@ class KISWebSocketClient(threading.Thread):
         self.running = False
         self.approval_key = None
         self.active_subscriptions = set() # Store subscribed tuples of (tr_id, tr_key)
+        self.reconnect_count = 0
+        self.last_message_at = None
+        self.last_error = ""
+        self.last_quotes = {}
+        self.last_orderbooks = {}
 
     def get_approval_key(self) -> str:
         """[3편/11편 구현] 웹소켓 등록용 실시간 Approval Key 발급 (REST API)"""
@@ -66,9 +71,11 @@ class KISWebSocketClient(threading.Thread):
                 # run_forever matches heartbeat constraints (PING every 30s)
                 self.ws.run_forever(ping_interval=30, ping_timeout=10)
             except Exception as e:
+                self.last_error = str(e)
                 logger.error(f"WebSocket client loop crash: {e}")
             
             if self.running:
+                self.reconnect_count += 1
                 logger.info("WebSocket connection lost. Reconnecting in 5 seconds...")
                 time.sleep(5)
 
@@ -104,6 +111,14 @@ class KISWebSocketClient(threading.Thread):
         if self.ws and self.ws.sock and self.ws.sock.connected:
             self._send_subscription(tr_id, tr_key, "1")
 
+    def subscribe_quote(self, symbol: str):
+        """Subscribe domestic real-time execution/quote ticks."""
+        self.subscribe("H0STCNT0", symbol)
+
+    def subscribe_orderbook(self, symbol: str):
+        """Subscribe domestic real-time orderbook ticks."""
+        self.subscribe("H0STASP0", symbol)
+
     def unsubscribe(self, tr_id: str, tr_key: str):
         """Cancel an active real-time topic subscription"""
         self.active_subscriptions.discard((tr_id, tr_key))
@@ -134,6 +149,7 @@ class KISWebSocketClient(threading.Thread):
     def on_message(self, ws, message):
         """[11~14편 구현] Handle incoming WebSocket message frames"""
         try:
+            self.last_message_at = time.strftime("%Y-%m-%d %H:%M:%S")
             if message.startswith("0") or message.startswith("1"):
                 # Flat plain-text data frame separated by '|'
                 # Format: EncryptDvsN|TR_ID|DataCount|Payload
@@ -145,6 +161,10 @@ class KISWebSocketClient(threading.Thread):
                     # Handle Order Execution 통보 (H0STCNI0 / H0STCNI9)
                     if tr_id in {"H0STCNI0", "H0STCNI9"}:
                         self._process_order_execution(raw_payload)
+                    elif tr_id == "H0STCNT0":
+                        self._process_realtime_quote(raw_payload)
+                    elif tr_id == "H0STASP0":
+                        self._process_realtime_orderbook(raw_payload)
             else:
                 # JSON control frame (PING / Subscription response)
                 data = json.loads(message)
@@ -155,7 +175,46 @@ class KISWebSocketClient(threading.Thread):
                 elif "rt_cd" in data:
                     logger.info(f"[WS RESPONSE] {data.get('msg1') or 'Subscription success'}")
         except Exception as e:
+            self.last_error = str(e)
             logger.error(f"[WS] Error processing message: {e}")
+
+    def _process_realtime_quote(self, payload: str):
+        fields = payload.split("^")
+        if len(fields) < 3:
+            return
+        symbol = fields[0].strip()
+        if not symbol:
+            return
+        self.last_quotes[symbol] = {
+            "symbol": symbol,
+            "time": fields[1].strip() if len(fields) > 1 else "",
+            "price": self._to_float(fields[2]) if len(fields) > 2 else 0.0,
+            "change": self._to_float(fields[4]) if len(fields) > 4 else 0.0,
+            "change_rate": self._to_float(fields[5]) if len(fields) > 5 else 0.0,
+            "volume": self._to_float(fields[13]) if len(fields) > 13 else 0.0,
+            "raw": payload,
+        }
+
+    def _process_realtime_orderbook(self, payload: str):
+        fields = payload.split("^")
+        if len(fields) < 5:
+            return
+        symbol = fields[0].strip()
+        if not symbol:
+            return
+        self.last_orderbooks[symbol] = {
+            "symbol": symbol,
+            "ask1": self._to_float(fields[3]) if len(fields) > 3 else 0.0,
+            "bid1": self._to_float(fields[4]) if len(fields) > 4 else 0.0,
+            "raw": payload,
+        }
+
+    @staticmethod
+    def _to_float(value: str) -> float:
+        try:
+            return float(str(value).strip() or 0.0)
+        except Exception:
+            return 0.0
 
     def _process_order_execution(self, payload: str):
         """
@@ -202,6 +261,7 @@ class KISWebSocketClient(threading.Thread):
             logger.error(f"[WS Execution] Parsing failed: {e} | Payload: {payload}")
 
     def on_error(self, ws, error):
+        self.last_error = str(error)
         logger.error(f"[WS ERROR] {error}")
 
     def on_close(self, ws, close_status_code, close_msg):

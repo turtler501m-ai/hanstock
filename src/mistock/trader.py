@@ -416,6 +416,32 @@ def place_paper_order(symbol: str, action: str, qty: float, price: float, reason
             return {"ok": False, "status": "failed", "message": str(e)}
 
 
+def cancel_order(symbol: str, order_no: str, qty: float = 0) -> dict[str, Any]:
+    symbol = normalize_symbol(symbol)
+    if config.trading_env not in {"demo", "real"}:
+        return {"ok": False, "status": "unsupported", "message": "broker cancel requires MISTOCK_TRADING_ENV=demo or real"}
+    if config.dry_run:
+        return {"ok": True, "status": "dry_run", "msg1": "dry run cancel skipped"}
+    try:
+        res = _get_kis_client().cancel_overseas_order(symbol, order_no, qty=qty)
+        return {"ok": res.get("rt_cd") == "0", "status": "submitted" if res.get("rt_cd") == "0" else "failed", "res": res}
+    except Exception as exc:
+        return {"ok": False, "status": "failed", "message": str(exc)}
+
+
+def revise_order(symbol: str, order_no: str, qty: float, price: float) -> dict[str, Any]:
+    symbol = normalize_symbol(symbol)
+    if config.trading_env not in {"demo", "real"}:
+        return {"ok": False, "status": "unsupported", "message": "broker revise requires MISTOCK_TRADING_ENV=demo or real"}
+    if config.dry_run:
+        return {"ok": True, "status": "dry_run", "msg1": "dry run revise skipped"}
+    try:
+        res = _get_kis_client().revise_overseas_order(symbol, order_no, qty=qty, price=price)
+        return {"ok": res.get("rt_cd") == "0", "status": "submitted" if res.get("rt_cd") == "0" else "failed", "res": res}
+    except Exception as exc:
+        return {"ok": False, "status": "failed", "message": str(exc)}
+
+
 def save_trade(symbol: str, name: str, action: str, qty: float, price: float, reason: str, ok: bool, order_status: str, response_msg: str) -> None:
     db.execute(
         """
@@ -427,4 +453,3 @@ def save_trade(symbol: str, name: str, action: str, qty: float, price: float, re
             int(config.dry_run), order_status, response_msg, json.dumps({"paper": True}, ensure_ascii=False),
         ),
     )
-

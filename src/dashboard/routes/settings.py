@@ -18,6 +18,11 @@ def _kis_websocket_status() -> dict:
         "trading_env": trader.TRADING_ENV,
         "hts_id": getattr(trader.config, "kistock_hts_id", "") or "",
         "subscriptions": sorted([f"{tr_id}:{tr_key}" for tr_id, tr_key in getattr(client, "active_subscriptions", set())]) if client else [],
+        "reconnect_count": int(getattr(client, "reconnect_count", 0) or 0) if client else 0,
+        "last_message_at": getattr(client, "last_message_at", None) if client else None,
+        "last_error": getattr(client, "last_error", "") if client else "",
+        "last_quotes": getattr(client, "last_quotes", {}) if client else {},
+        "last_orderbooks": getattr(client, "last_orderbooks", {}) if client else {},
     }
 
 
@@ -318,3 +323,100 @@ def start_kis_websocket():
 @app.post("/api/kis/websocket/stop")
 def stop_kis_websocket():
     return _stop_kis_websocket()
+
+
+@app.post("/api/kis/websocket/subscribe")
+def subscribe_kis_websocket(payload: dict = Body(...)):
+    client = _kis_websocket_client
+    if not client:
+        raise HTTPException(status_code=409, detail="KIS WebSocket is not running")
+    symbol = str(payload.get("symbol") or "").strip()
+    stream = str(payload.get("stream") or "quote").strip().lower()
+    if not symbol:
+        raise HTTPException(status_code=400, detail="symbol is required")
+    if stream == "quote":
+        client.subscribe_quote(symbol)
+    elif stream in {"orderbook", "askbid"}:
+        client.subscribe_orderbook(symbol)
+    else:
+        raise HTTPException(status_code=400, detail="stream must be quote or orderbook")
+    return {"ok": True, **_kis_websocket_status()}
+
+
+@app.post("/api/kis/orders/cancel")
+def cancel_kis_stock_order(payload: dict = Body(...)):
+    order_no = str(payload.get("order_no") or payload.get("original_order_no") or "").strip()
+    if not order_no:
+        raise HTTPException(status_code=400, detail="order_no is required")
+    api = KIStockAPI()
+    result = api.cancel_order(
+        order_no,
+        qty=_to_int(payload.get("qty")),
+        order_division=str(payload.get("order_division") or "00"),
+        original_order_branch=str(payload.get("original_order_branch") or ""),
+        exchange_id=str(payload.get("exchange_id") or "KRX"),
+        cancel_all=bool(payload.get("cancel_all", True)),
+    )
+    return {"ok": result.get("rt_cd") == "0", "result": result}
+
+
+@app.post("/api/kis/orders/revise")
+def revise_kis_stock_order(payload: dict = Body(...)):
+    order_no = str(payload.get("order_no") or payload.get("original_order_no") or "").strip()
+    qty = _to_int(payload.get("qty"))
+    price = _to_int(payload.get("price"))
+    if not order_no:
+        raise HTTPException(status_code=400, detail="order_no is required")
+    if qty <= 0:
+        raise HTTPException(status_code=400, detail="qty must be greater than 0")
+    result = KIStockAPI().revise_order(
+        order_no,
+        qty=qty,
+        price=price,
+        order_division=str(payload.get("order_division") or "00"),
+        original_order_branch=str(payload.get("original_order_branch") or ""),
+        exchange_id=str(payload.get("exchange_id") or "KRX"),
+    )
+    return {"ok": result.get("rt_cd") == "0", "result": result}
+
+
+@app.get("/api/kis/rehearsal")
+def get_kis_rehearsal():
+    checks = []
+    required = {
+        "KISTOCK_APP_KEY": bool(str(getattr(trader.config, "kistock_app_key", "") or "").strip()),
+        "KISTOCK_APP_SECRET": bool(str(getattr(trader.config, "kistock_app_secret", "") or "").strip()),
+        "KISTOCK_ACCOUNT": bool(str(getattr(trader.config, "kistock_account", "") or "").strip()),
+    }
+    for key, ok in required.items():
+        checks.append({"key": key, "ok": ok, "critical": True})
+
+    checks.append({"key": "DRY_RUN", "ok": bool(trader.DRY_RUN), "critical": False})
+    checks.append({"key": "ORDER_SUBMISSION_ENABLED", "ok": bool(trader.ORDER_SUBMISSION_ENABLED), "critical": False})
+    checks.append({"key": "WEBSOCKET_CONFIGURED", "ok": bool(getattr(trader.config, "kistock_hts_id", "") or trader.config.kistock_account), "critical": False})
+    checks.append({"key": "CONDITION_SEARCH_CONFIGURED", "ok": bool(
+        getattr(trader.config, "kis_condition_seq", "")
+        and getattr(trader.config, "kis_condition_name", "")
+        and (getattr(trader.config, "kis_condition_user_id", "") or getattr(trader.config, "kistock_hts_id", ""))
+    ), "critical": False})
+
+    sample_order = {
+        "CANO": str(getattr(trader.config, "kistock_account", "") or "")[:8],
+        "ACNT_PRDT_CD": str(getattr(trader.config, "kistock_account", "") or "")[8:] or "01",
+        "PDNO": "005930",
+        "ORD_DVSN": "01",
+        "ORD_QTY": "1",
+        "ORD_UNPR": "0",
+        "EXCG_ID_DVSN_CD": "KRX",
+    }
+    critical_ok = all(item["ok"] for item in checks if item["critical"])
+    return {
+        "ok": critical_ok,
+        "trading_env": trader.TRADING_ENV,
+        "dry_run": bool(trader.DRY_RUN),
+        "order_submission_enabled": bool(trader.ORDER_SUBMISSION_ENABLED),
+        "real_orders_enabled": bool(trader.REAL_ORDERS_ENABLED),
+        "checks": checks,
+        "sample_order_payload": sample_order,
+        "websocket": _kis_websocket_status(),
+    }

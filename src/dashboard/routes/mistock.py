@@ -740,3 +740,25 @@ def mistock_set_auto_approval(payload: dict = Body(...)):
 @app.post("/api/mistock/runtime/order-mode")
 def mistock_runtime_order_mode(payload: dict = Body(...)):
     return {"ok": True, **mistock_trader.runtime_flags(), "message": "Mistock order mode is configured through MISTOCK_* environment values."}
+
+
+@app.post("/api/mistock/orders/cancel")
+def mistock_cancel_order(payload: dict = Body(...)):
+    symbol = str(payload.get("symbol") or "").strip()
+    order_no = str(payload.get("order_no") or payload.get("original_order_no") or "").strip()
+    if not symbol or not order_no:
+        raise HTTPException(status_code=400, detail="symbol and order_no are required")
+    return mistock_trader.cancel_order(symbol, order_no, qty=float(payload.get("qty") or 0))
+
+
+@app.post("/api/mistock/orders/revise")
+def mistock_revise_order(payload: dict = Body(...)):
+    symbol = str(payload.get("symbol") or "").strip()
+    order_no = str(payload.get("order_no") or payload.get("original_order_no") or "").strip()
+    qty = float(payload.get("qty") or 0)
+    price = float(payload.get("price") or 0)
+    if not symbol or not order_no:
+        raise HTTPException(status_code=400, detail="symbol and order_no are required")
+    if qty <= 0 or price <= 0:
+        raise HTTPException(status_code=400, detail="qty and price must be greater than 0")
+    return mistock_trader.revise_order(symbol, order_no, qty=qty, price=price)

@@ -194,6 +194,50 @@ class KISClientTests(unittest.TestCase):
         self.assertEqual(order_call.kwargs["headers"]["tr_id"], "TTTC0801U")
         self.assertEqual(order_call.kwargs["headers"]["hashkey"], "hash-value")
 
+    def test_cancel_domestic_order_uses_revise_cancel_endpoint_and_exchange(self):
+        session = Mock()
+        session.post.side_effect = [
+            _FakeResponse({"HASH": "hash-value"}),
+            _FakeResponse({"rt_cd": "0", "msg1": "ok"}),
+        ]
+        client = KISClient(
+            self.make_config(),
+            session=session,
+            access_token="token",
+        )
+
+        result = client.cancel_domestic_order("OD123", exchange_id="NXT")
+
+        self.assertEqual(result["rt_cd"], "0")
+        order_call = session.post.call_args_list[1]
+        self.assertEqual(order_call.args[0], "https://example.test/uapi/domestic-stock/v1/trading/order-rvsecncl")
+        self.assertEqual(order_call.kwargs["headers"]["tr_id"], "VTTC0803U")
+        self.assertEqual(order_call.kwargs["headers"]["hashkey"], "hash-value")
+        self.assertEqual(order_call.kwargs["json"]["ORGN_ODNO"], "OD123")
+        self.assertEqual(order_call.kwargs["json"]["RVSE_CNCL_DVSN_CD"], "02")
+        self.assertEqual(order_call.kwargs["json"]["QTY_ALL_ORD_YN"], "Y")
+        self.assertEqual(order_call.kwargs["json"]["EXCG_ID_DVSN_CD"], "NXT")
+
+    def test_revise_domestic_order_uses_revise_cancel_endpoint(self):
+        session = Mock()
+        session.post.side_effect = [
+            _FakeResponse({"HASH": "hash-value"}),
+            _FakeResponse({"rt_cd": "0", "msg1": "ok"}),
+        ]
+        client = KISClient(
+            self.make_config(),
+            session=session,
+            access_token="token",
+        )
+
+        result = client.revise_domestic_order("OD123", qty=2, price=71000)
+
+        self.assertEqual(result["rt_cd"], "0")
+        body = session.post.call_args_list[1].kwargs["json"]
+        self.assertEqual(body["RVSE_CNCL_DVSN_CD"], "01")
+        self.assertEqual(body["ORD_QTY"], "2")
+        self.assertEqual(body["ORD_UNPR"], "71000")
+
     def test_parse_us_symbol_uses_explicit_exchange_map(self):
         client = KISClient(
             self.make_config(),
@@ -226,6 +270,27 @@ class KISClientTests(unittest.TestCase):
         self.assertEqual(order_call.kwargs["headers"]["hashkey"], "hash-value")
         self.assertEqual(order_call.kwargs["json"]["OVRS_EXCG_CD"], "NYSE")
         self.assertEqual(order_call.kwargs["json"]["PDNO"], "BRK.B")
+
+    def test_cancel_overseas_order_uses_revise_cancel_endpoint(self):
+        session = Mock()
+        session.post.side_effect = [
+            _FakeResponse({"HASH": "hash-value"}),
+            _FakeResponse({"rt_cd": "0", "msg1": "ok"}),
+        ]
+        client = KISClient(
+            self.make_config(),
+            session=session,
+            access_token="token",
+        )
+
+        result = client.cancel_overseas_order("AAPL", "OD987")
+
+        self.assertEqual(result["rt_cd"], "0")
+        order_call = session.post.call_args_list[1]
+        self.assertEqual(order_call.args[0], "https://example.test/uapi/overseas-stock/v1/trading/order-rvsecncl")
+        self.assertEqual(order_call.kwargs["headers"]["tr_id"], "VTTT1004U")
+        self.assertEqual(order_call.kwargs["json"]["ORGN_ODNO"], "OD987")
+        self.assertEqual(order_call.kwargs["json"]["RVSE_CNCL_DVSN_CD"], "02")
 
 
 if __name__ == "__main__":

@@ -26,6 +26,8 @@ class MistockDashboardTests(unittest.TestCase):
         self.assertIn("/mistock", paths)
         self.assertIn("/api/mistock/balance", paths)
         self.assertIn("/api/mistock/approvals/{approval_id}/approve", paths)
+        self.assertIn("/api/mistock/orders/cancel", paths)
+        self.assertIn("/api/mistock/orders/revise", paths)
 
     def test_mistock_uses_separate_runtime_database(self):
         health = mistock.mistock_health()
