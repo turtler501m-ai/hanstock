@@ -80,8 +80,13 @@ class MistockDashboardTests(unittest.TestCase):
         self.assertTrue(watchlist_result["enabled"])
         self.assertEqual(watchlist_result["threshold"], 4.0)
         self.assertTrue(mistock.mistock_trades_sync()["ok"])
-        with patch.object(mistock_trader, "scan_candidates", return_value={"scanned": 0, "candidates": []}):
-            self.assertIn("result", mistock.mistock_scheduler_run({"mode": "analysis_only"}))
+        with patch("src.dashboard.routes.mistock.threading.Thread") as mock_thread:
+            mock_thread_instance = mock_thread.return_value
+            with patch.object(mistock_trader, "scan_candidates", return_value={"scanned": 0, "candidates": []}):
+                response = mistock.mistock_scheduler_run({"mode": "analysis_only"})
+                self.assertIn("result", response)
+                mock_thread.assert_called_once()
+                mock_thread_instance.start.assert_called_once()
 
     def test_mistock_easy_preset_uses_nasdaq_profile_and_selects_strategy(self):
         result = mistock.mistock_apply_ai_strategy_preset("aggressive")

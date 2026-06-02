@@ -762,6 +762,9 @@ def map_mistock_to_kis_format(mistock_result: dict) -> dict:
     
     # 1. Map 'sold' items
     for s in mistock_result.get("sold", []):
+        s_res = s.get("result") or {}
+        ok = s_res.get("ok", True)
+        msg1 = s_res.get("message") or s_res.get("msg1") or ("매도 완료" if ok else "매도 실패")
         row = {
             "symbol": s["symbol"],
             "name": symbol_name(s["symbol"]),
@@ -770,21 +773,24 @@ def map_mistock_to_kis_format(mistock_result: dict) -> dict:
             "qty": s["qty"],
             "price": s["price"],
             "reason": s.get("reason") or "보유 종목 매도 신호",
-            "ok": True,
-            "message": "매도 주문 실행 성공"
+            "ok": ok,
+            "message": msg1
         }
         results.append(row)
         auto_approved.append({
             "symbol": s["symbol"],
             "action": "sell",
-            "status": "executed",
+            "status": "executed" if ok else "failed",
             "qty": s["qty"],
             "price": s["price"],
-            "message": "매도 완료"
+            "message": msg1
         })
         
     # 2. Map 'bought' items
     for b in mistock_result.get("bought", []):
+        b_res = b.get("result") or {}
+        ok = b_res.get("ok", True)
+        msg1 = b_res.get("message") or b_res.get("msg1") or ("매수 완료" if ok else "매수 실패")
         row = {
             "symbol": b["symbol"],
             "name": symbol_name(b["symbol"]),
@@ -793,17 +799,17 @@ def map_mistock_to_kis_format(mistock_result: dict) -> dict:
             "qty": b["qty"],
             "price": b["price"],
             "reason": b.get("reason") or "매수 신호",
-            "ok": True,
-            "message": "매수 주문 실행 성공"
+            "ok": ok,
+            "message": msg1
         }
         results.append(row)
         auto_approved.append({
             "symbol": b["symbol"],
             "action": "buy",
-            "status": "executed",
+            "status": "executed" if ok else "failed",
             "qty": b["qty"],
             "price": b["price"],
-            "message": "매수 완료"
+            "message": msg1
         })
         
     # 3. Map 'plan' items (that didn't execute)
@@ -1021,11 +1027,24 @@ def mistock_reset_circuit():
     return {"ok": True, "circuit_breaker": {"opened": False, "error_count": 0, "max_errors": 5, "opened_at": None}}
 
 
+def _auto_approve_mistock_pending_approvals() -> list[dict]:
+    pending = mistock_db.rows("SELECT id FROM approvals WHERE status = 'pending'")
+    results = []
+    for row in pending:
+        try:
+            res = _execute_approval(int(row["id"]), approve=True)
+            results.append(res)
+        except Exception:
+            continue
+    return results
+
+
 @app.post("/api/mistock/auto-approval")
 def mistock_set_auto_approval(payload: dict = Body(...)):
     enabled = bool(payload.get("enabled"))
     mistock_db.set_setting("auto_approval", "true" if enabled else "false")
-    return {"ok": True, "enabled": enabled, "processed": [], "processed_count": 0}
+    processed = _auto_approve_mistock_pending_approvals() if enabled else []
+    return {"ok": True, "enabled": enabled, "processed": processed, "processed_count": len(processed)}
 
 
 @app.post("/api/mistock/runtime/order-mode")

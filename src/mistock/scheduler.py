@@ -13,6 +13,8 @@ from src.mistock import db as mistock_db
 from src.notifier.slack import send_slack
 from src.utils.logger import logger
 
+from src.mistock.strategy import symbol_name
+
 KST = timezone(timedelta(hours=9))
 
 def run_mistock_scheduled_cycle(mode: str = "execute") -> dict:
@@ -31,7 +33,11 @@ def run_mistock_scheduled_cycle(mode: str = "execute") -> dict:
     balance = mistock_trader.get_balance()
     cash = balance["cash"]
     
-    # 3. 매도 신호 처리 및 주문 집행
+    # Check auto-approval setting from database
+    auto_approve = (mistock_db.get_setting("auto_approval", "false") == "true")
+    flags = mistock_trader.runtime_flags()
+    
+    # 3. 매도 신호 처리 및 주문 집행/대기등록
     sigs = mistock_trader.signals()
     sold_items = []
     for sig in sigs:
@@ -39,18 +45,27 @@ def run_mistock_scheduled_cycle(mode: str = "execute") -> dict:
             qty = float(sig["signal_qty"])
             price = float(sig["signal_price"])
             if qty > 0:
-                logger.info(f"[MISTOCK SCHEDULER] Sell signal for {sig['symbol']}. Qty={qty}, Price={price}")
-                res = mistock_trader.place_paper_order(sig["symbol"], "sell", qty, price, reason=sig["reason"])
-                sold_items.append({"symbol": sig["symbol"], "qty": qty, "price": price, "result": res})
-                
-    # 4. 매수 주문 조립 및 집행
+                if mode == "execute" and (auto_approve or flags["order_submission_enabled"]):
+                    logger.info(f"[MISTOCK SCHEDULER] Sell signal for {sig['symbol']}. Qty={qty}, Price={price}")
+                    res = mistock_trader.place_paper_order(sig["symbol"], "sell", qty, price, reason=sig["reason"])
+                    sold_items.append({"symbol": sig["symbol"], "qty": qty, "price": price, "result": res})
+                else:
+                    logger.info(f"[MISTOCK SCHEDULER] Auto-approval and order submission disabled/skipped for sell signal. Queuing {sig['symbol']} as pending approval.")
+                    now = mistock_db.now_text()
+                    mistock_db.execute(
+                        """
+                        INSERT INTO approvals (created_at, updated_at, symbol, name, action, qty, price, reason, source, status, response_msg)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', '')
+                        """,
+                        (now, now, sig["symbol"], symbol_name(sig["symbol"]), "sell", qty, price, sig.get("reason") or "보유 종목 매도 신호", "scheduler"),
+                    )
+                 
+    # 4. 매수 주문 조립 및 집행/대기등록
     orders = mistock_trader.build_orders(candidates, cash)
     bought_items = []
     
     if mode == "execute":
-        # Check active settings to decide if execution is allowed
-        flags = mistock_trader.runtime_flags()
-        if flags["order_submission_enabled"]:
+        if auto_approve or flags["order_submission_enabled"]:
             for ord in orders:
                 qty = float(ord["quantity"])
                 price = float(ord["price"])
@@ -58,7 +73,18 @@ def run_mistock_scheduled_cycle(mode: str = "execute") -> dict:
                 res = mistock_trader.place_paper_order(ord["symbol"], "buy", qty, price, reason=ord["reason"])
                 bought_items.append({"symbol": ord["symbol"], "qty": qty, "price": price, "result": res})
         else:
-            logger.info("[MISTOCK SCHEDULER] Order submission is disabled. Skipping purchase execution.")
+            logger.info("[MISTOCK SCHEDULER] Order submission and auto-approval are disabled. Queuing buy plans as pending approvals.")
+            for ord in orders:
+                qty = float(ord["quantity"])
+                price = float(ord["price"])
+                now = mistock_db.now_text()
+                mistock_db.execute(
+                    """
+                    INSERT INTO approvals (created_at, updated_at, symbol, name, action, qty, price, reason, source, status, response_msg)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', '')
+                    """,
+                    (now, now, ord["symbol"], symbol_name(ord["symbol"]), "buy", qty, price, ord.get("reason") or "매수 계획", "scheduler"),
+                )
             
     result = {
         "status": "success",
