@@ -59,9 +59,11 @@ from src.utils.exchange_rate import get_usd_krw_rate
 def mistock_config_api():
     flags = mistock_trader.runtime_flags()
     watchlist = [item["symbol"] for item in mistock_trader.get_watchlist()]
+    from src.config import config as main_config
+    account_no = main_config.kistock_account if mistock_config.trading_env in {"demo", "real"} else "MISTOCK-PAPER"
     return {
         **flags,
-        "kistock_account": "MISTOCK-PAPER",
+        "kistock_account": account_no,
         "split_n": mistock_config.split_n,
         "stop_loss_pct": mistock_config.stop_loss_pct,
         "take_profit": mistock_config.take_profit,
