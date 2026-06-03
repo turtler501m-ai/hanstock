@@ -114,6 +114,7 @@ def build_order_payload(
     reason: str,
     ok: bool,
     indicators: dict[str, Any] | None = None,
+    exchange_rate: float | None = None,
 ) -> dict[str, Any]:
     details = indicators or {}
     action_label = "매수" if action == "buy" else "매도"
@@ -123,8 +124,14 @@ def build_order_payload(
     is_us = not symbol.isdigit()
     
     if is_us:
-        price_str = f"${price:,.2f}" if price else "시장가"
-        amount_str = f"${qty * price:,.2f}" if price else "-"
+        if exchange_rate:
+            krw_price = price * exchange_rate
+            krw_amount = qty * price * exchange_rate
+            price_str = f"${price:,.2f} (₩{int(krw_price):,}원)" if price else "시장가"
+            amount_str = f"${qty * price:,.2f} (₩{int(krw_amount):,}원)" if price else "-"
+        else:
+            price_str = f"${price:,.2f}" if price else "시장가"
+            amount_str = f"${qty * price:,.2f}" if price else "-"
         qty_str = f"{qty}주" if float(qty).is_integer() else f"{qty:.4f}주"
     else:
         price_str = f"{int(price):,}원" if price else "시장가"
@@ -146,6 +153,53 @@ def build_order_payload(
                 {"type": "mrkdwn", "text": f"*수익률*\n{details.get('rt', 0):+.2f}%"},
             ]},
             {"type": "context", "elements": [{"type": "mrkdwn", "text": f"사유: {reason}"}]},
+        ],
+        color="#36a64f" if ok else "#e74c3c",
+    )
+
+
+def build_order_summary_payload(
+    name: str,
+    symbol: str,
+    action: str,
+    qty: float,
+    price: float,
+    reason: str,
+    ok: bool,
+    indicators: dict[str, Any] | None = None,
+    exchange_rate: float | None = None,
+) -> dict[str, Any]:
+    details = indicators or {}
+    action_label = "매수" if action == "buy" else "매도"
+    status = "성공" if ok else "실패"
+    is_us = not symbol.isdigit()
+
+    if is_us:
+        if exchange_rate:
+            krw_price = price * exchange_rate
+            krw_amount = qty * price * exchange_rate
+            price_str = f"${price:,.2f} (₩{int(krw_price):,}원)" if price else "시장가"
+            amount_str = f"${qty * price:,.2f} (₩{int(krw_amount):,}원)" if price else "-"
+        else:
+            price_str = f"${price:,.2f}" if price else "시장가"
+            amount_str = f"${qty * price:,.2f}" if price else "-"
+        qty_str = f"{int(qty)}주" if float(qty).is_integer() else f"{qty:.4f}주"
+    else:
+        price_str = f"{int(price):,}원" if price else "시장가"
+        amount_str = f"{int(qty * price):,}원" if price else "-"
+        qty_str = f"{int(qty)}주" if float(qty).is_integer() else f"{qty}주"
+
+    rsi_value = details.get("rsi", "-")
+    rsi_str = f"{rsi_value:.1f}" if isinstance(rsi_value, (int, float)) else str(rsi_value)
+    rt_value = details.get("rt", 0)
+    rt_str = f"{rt_value:+.2f}%" if isinstance(rt_value, (int, float)) else str(rt_value)
+    first_line = f"{status} | {action_label} {name}({symbol}) {qty_str} @ {price_str} / {amount_str}"
+    second_line = f"사유: {reason} | RSI {rsi_str}, 수익률 {rt_str}"
+
+    return build_slack_payload(
+        text=f"{first_line}\n{second_line}",
+        blocks=[
+            {"type": "section", "text": {"type": "mrkdwn", "text": f"*{first_line}*\n{second_line}"}},
         ],
         color="#36a64f" if ok else "#e74c3c",
     )
@@ -250,4 +304,3 @@ def build_session_end_payload(
 
 def build_error_payload(message: str) -> dict[str, Any]:
     return build_slack_payload(text=f"세븐 스플릿 오류: {message}", color="#e74c3c")
-

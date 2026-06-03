@@ -90,13 +90,15 @@ def mistock_slack_order(
     name: str,
     symbol: str,
     action: str,
-    qty: int,
-    price: int,
+    qty: float,
+    price: float,
     reason: str,
     ok: bool,
     indicators: dict,
 ) -> None:
-    payload = build_order_payload(name, symbol, action, qty, price, reason, ok, indicators)
+    from src.utils.exchange_rate import get_usd_krw_rate
+    rate = get_usd_krw_rate()
+    payload = build_order_payload(name, symbol, action, qty, price, reason, ok, indicators, exchange_rate=rate)
     post_slack_payload(config.mistock_slack_webhook_url or "", payload, HTTP, log_fn=logger.warning)
 
 

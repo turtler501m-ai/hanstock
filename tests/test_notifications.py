@@ -5,6 +5,7 @@ from src.notifications import (
     build_candidates_payload,
     build_error_payload,
     build_order_payload,
+    build_order_summary_payload,
     build_session_end_payload,
     build_session_start_payload,
     build_slack_payload,
@@ -79,6 +80,81 @@ class NotificationTests(unittest.TestCase):
         self.assertEqual(fields[1]["text"], "*가격*\n시장가")
         self.assertEqual(fields[3]["text"], "*RSI*\n31.2")
         self.assertEqual(fields[5]["text"], "*수익률*\n-15.34%")
+
+    def test_build_order_payload_formats_us_stock_with_exchange_rate(self):
+        payload = build_order_payload(
+            name="Apple",
+            symbol="AAPL",
+            action="buy",
+            qty=2.5,
+            price=180.0,
+            reason="split buy",
+            ok=True,
+            indicators={"rsi": 35.0, "sma20": 178.0, "sma60": 175.0, "rt": 1.25},
+            exchange_rate=1300.0,
+        )
+        fields = payload["attachments"][0]["blocks"][1]["fields"]
+        self.assertEqual(payload["attachments"][0]["color"], "#36a64f")
+        self.assertEqual(fields[0]["text"], "*수량*\n2.5000주")
+        self.assertEqual(fields[1]["text"], "*가격*\n$180.00 (₩234,000원)")
+        self.assertEqual(fields[2]["text"], "*금액*\n$450.00 (₩585,000원)")
+        self.assertEqual(fields[3]["text"], "*RSI*\n35.0")
+        self.assertEqual(fields[5]["text"], "*수익률*\n+1.25%")
+
+    def test_build_order_summary_payload_uses_two_line_summary_for_kr_stock(self):
+        payload = build_order_summary_payload(
+            name="삼성전자",
+            symbol="005930",
+            action="buy",
+            qty=3,
+            price=70000,
+            reason="RSI recovery",
+            ok=True,
+            indicators={"rsi": 31.2, "rt": 1.5},
+        )
+
+        lines = payload["text"].splitlines()
+        self.assertEqual(len(lines), 2)
+        self.assertIn("성공 | 매수 삼성전자(005930) 3주 @ 70,000원 / 210,000원", lines[0])
+        self.assertIn("사유: RSI recovery", lines[1])
+        self.assertIn("RSI 31.2", lines[1])
+
+    def test_build_order_summary_payload_uses_two_line_summary_for_us_stock(self):
+        payload = build_order_summary_payload(
+            name="Apple",
+            symbol="AAPL",
+            action="sell",
+            qty=1.25,
+            price=205.5,
+            reason="take profit",
+            ok=False,
+            indicators={"rsi": 70, "rt": -0.25},
+        )
+
+        lines = payload["text"].splitlines()
+        self.assertEqual(len(lines), 2)
+        self.assertIn("실패 | 매도 Apple(AAPL) 1.2500주 @ $205.50 / $256.88", lines[0])
+        self.assertIn("사유: take profit", lines[1])
+        self.assertIn("수익률 -0.25%", lines[1])
+
+    def test_build_order_summary_payload_uses_two_line_summary_for_us_stock_with_exchange_rate(self):
+        payload = build_order_summary_payload(
+            name="Apple",
+            symbol="AAPL",
+            action="sell",
+            qty=1.25,
+            price=205.5,
+            reason="take profit",
+            ok=False,
+            indicators={"rsi": 70, "rt": -0.25},
+            exchange_rate=1350.0,
+        )
+
+        lines = payload["text"].splitlines()
+        self.assertEqual(len(lines), 2)
+        self.assertIn("실패 | 매도 Apple(AAPL) 1.2500주 @ $205.50 (₩277,425원) / $256.88 (₩346,781원)", lines[0])
+        self.assertIn("사유: take profit", lines[1])
+        self.assertIn("수익률 -0.25%", lines[1])
 
     def test_build_candidates_payload_returns_none_for_empty_candidates(self):
         self.assertIsNone(build_candidates_payload([]))
