@@ -304,7 +304,7 @@ def execution_plan() -> dict[str, Any]:
 
 def notify_slack_order(symbol: str, action: str, qty: float, price: float, reason: str, ok: bool) -> None:
     try:
-        from src.notifier.slack import slack_order
+        from src.notifier.slack import mistock_slack_order
         # Gather indicators
         indicators = {"rsi": 0.0, "sma20": 0.0, "sma60": 0.0, "rt": 0.0}
         try:
@@ -331,7 +331,7 @@ def notify_slack_order(symbol: str, action: str, qty: float, price: float, reaso
             except Exception:
                 pass
 
-        slack_order(
+        mistock_slack_order(
             name=symbol_name(symbol),
             symbol=symbol,
             action=action,

@@ -92,6 +92,7 @@ ENV_FIELDS = [
     {"key": "OPENAI_TIMEOUT_SECONDS", "label": "OpenAI Timeout Seconds", "type": "float"},
     {"key": "AI_CANDIDATE_LIMIT", "label": "AI Candidate Limit", "type": "int"},
     {"key": "SLACK_WEBHOOK_URL", "label": "Slack Webhook URL", "type": "secret"},
+    {"key": "MISTOCK_SLACK_WEBHOOK_URL", "label": "Mistock Slack Webhook URL", "type": "secret"},
     {"key": "TELEGRAM_API_ID", "label": "Telegram API ID", "type": "secret"},
     {"key": "TELEGRAM_API_HASH", "label": "Telegram API Hash", "type": "secret"},
     {"key": "TELEGRAM_SESSION_NAME", "label": "Telegram Session Name", "type": "text", "hint": "Local Telethon session path. Keep it out of git."},

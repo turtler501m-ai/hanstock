@@ -34,6 +34,7 @@ class Settings(BaseSettings):
 
     # Notifications
     slack_webhook_url: Optional[str] = ""
+    mistock_slack_webhook_url: Optional[str] = ""
     
     # Trading Modes
     trading_env: str = "demo"

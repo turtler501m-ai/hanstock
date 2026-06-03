@@ -10,7 +10,7 @@ from pathlib import Path
 from src.mistock import trader as mistock_trader
 from src.mistock.config import config as mistock_config
 from src.mistock import db as mistock_db
-from src.notifier.slack import send_slack
+from src.notifier.slack import send_mistock_slack
 from src.utils.logger import logger
 
 from src.mistock.strategy import symbol_name
@@ -139,7 +139,7 @@ def run_mistock_scheduled_cycle(mode: str = "execute") -> dict:
             f"*총 평가 금액*: ${balance['total_eval']:,.2f}",
             f"*환경*: {mistock_config.trading_env}, dry_run={mistock_config.dry_run}",
         ]
-        send_slack(
+        send_mistock_slack(
             text=f"[미스톡 VM] 미장 자동매매 {status_str}",
             blocks=[
                 {"type": "header", "text": {"type": "plain_text", "text": "미스톡 미국주식 자동매매"}},

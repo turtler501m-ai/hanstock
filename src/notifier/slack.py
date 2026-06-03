@@ -18,6 +18,14 @@ HTTP = requests.Session()
 
 
 def send_slack(text: str = "", blocks: list | None = None, color: str | None = None) -> None:
+    _send_slack_to(config.slack_webhook_url, text=text, blocks=blocks, color=color)
+
+
+def send_mistock_slack(text: str = "", blocks: list | None = None, color: str | None = None) -> None:
+    _send_slack_to(config.mistock_slack_webhook_url, text=text, blocks=blocks, color=color)
+
+
+def _send_slack_to(webhook_url: str | None, text: str = "", blocks: list | None = None, color: str | None = None) -> None:
     payload = {}
     if text:
         payload["text"] = text
@@ -32,7 +40,7 @@ def send_slack(text: str = "", blocks: list | None = None, color: str | None = N
         payload["blocks"] = blocks
 
     post_slack_payload(
-        webhook_url=config.slack_webhook_url,
+        webhook_url=webhook_url or "",
         payload=payload,
         session=HTTP,
         log_fn=logger.warning,
@@ -76,6 +84,20 @@ def slack_order(
 ) -> None:
     payload = build_order_payload(name, symbol, action, qty, price, reason, ok, indicators)
     post_slack_payload(config.slack_webhook_url, payload, HTTP, log_fn=logger.warning)
+
+
+def mistock_slack_order(
+    name: str,
+    symbol: str,
+    action: str,
+    qty: int,
+    price: int,
+    reason: str,
+    ok: bool,
+    indicators: dict,
+) -> None:
+    payload = build_order_payload(name, symbol, action, qty, price, reason, ok, indicators)
+    post_slack_payload(config.mistock_slack_webhook_url or "", payload, HTTP, log_fn=logger.warning)
 
 
 def slack_candidates(candidates: list[dict]) -> None:
