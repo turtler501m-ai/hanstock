@@ -5,14 +5,16 @@ let watchlistSortAsc = true;
 let activeStrategyAuditId = '';
 
 let currentCurrency = 'USD';
+let exchangeRate = 1380.0;
 
 const formatCurrency = (value) => {
     const isKrw = currentCurrency === 'KRW';
+    const amount = isKrw ? Number(value || 0) * exchangeRate : Number(value || 0);
     return new Intl.NumberFormat('ko-KR', {
         style: 'currency',
         currency: currentCurrency,
         maximumFractionDigits: isKrw ? 0 : 2
-    }).format(Number(value || 0));
+    }).format(amount);
 };
 
 const formatPercent = (value) => {
@@ -707,6 +709,7 @@ async function renderConfig() {
     const config = await fetchJson('/api/mistock/config');
     latestConfig = config;
     currentCurrency = config.currency || 'USD';
+    exchangeRate = Number(config.exchange_rate || 1380.0);
     setElementText('val-account', config.NASDAQtock_account || '-');
     renderAiStrategySummary(config);
     const settingsEl = document.getElementById('settings-grid');
