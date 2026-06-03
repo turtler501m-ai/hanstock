@@ -94,9 +94,19 @@ def get_holdings() -> list[dict[str, Any]]:
             if not isinstance(balance_data, dict):
                 from src.utils.logger import logger
                 logger.error(f"Invalid balance_data type in get_holdings: {type(balance_data)}, expected dict. Value: {balance_data}")
-                balance_data = {"output1": [], "output2": {}}
+                balance_data = {"output1": [], "output2": {}, "output3": {}}
+            
+            output1 = balance_data.get("output1", [])
+            if not isinstance(output1, list):
+                if isinstance(output1, dict):
+                    output1 = [output1]
+                else:
+                    output1 = []
+            
             holdings = []
-            for item in balance_data.get("output1", []):
+            for item in output1:
+                if not isinstance(item, dict):
+                    continue
                 symbol = item.get("pdno", "").strip()
                 if not symbol:
                     continue
@@ -153,9 +163,25 @@ def get_balance() -> dict[str, Any]:
             if not isinstance(balance_data, dict):
                 from src.utils.logger import logger
                 logger.error(f"Invalid balance_data type in get_balance: {type(balance_data)}, expected dict. Value: {balance_data}")
-                balance_data = {"output1": [], "output2": {}}
+                balance_data = {"output1": [], "output2": {}, "output3": {}}
+            
             summary = balance_data.get("output2", {})
+            if not isinstance(summary, dict):
+                if isinstance(summary, list):
+                    summary = next((item for item in summary if isinstance(item, dict)), {})
+                else:
+                    summary = {}
+            
             cash = float(summary.get("frcr_dncl_amt") or summary.get("frcr_dncl_amt_2") or 0.0)
+            if cash <= 0:
+                output3 = balance_data.get("output3", {})
+                if not isinstance(output3, dict):
+                    if isinstance(output3, list):
+                        output3 = next((item for item in output3 if isinstance(item, dict)), {})
+                    else:
+                        output3 = {}
+                cash = float(output3.get("frcr_use_psbl_amt") or output3.get("dncl_amt") or output3.get("tot_dncl_amt") or 0.0)
+            
             if cash <= 0:
                 cash = float(db.get_setting("cash", str(config.total_capital)) or 0.0)
             holdings = get_holdings()
