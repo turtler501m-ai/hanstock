@@ -70,6 +70,7 @@ def mistock_config_api():
         "cash_buffer": mistock_config.cash_buffer,
         "max_daily_loss_pct": mistock_config.max_daily_loss_pct,
         "watchlist": watchlist,
+        "currency": mistock_config.currency,
         "scan_universe_size": mistock_config.scan_universe_size,
         "kospi_universe_size": len(NASDAQ_UNIVERSE),
         "nasdaq_universe_size": len(NASDAQ_UNIVERSE),

@@ -4,11 +4,14 @@ let watchlistSortKey = '';
 let watchlistSortAsc = true;
 let activeStrategyAuditId = '';
 
+let currentCurrency = 'USD';
+
 const formatCurrency = (value) => {
+    const isKrw = currentCurrency === 'KRW';
     return new Intl.NumberFormat('ko-KR', {
         style: 'currency',
-        currency: 'USD',
-        maximumFractionDigits: 2
+        currency: currentCurrency,
+        maximumFractionDigits: isKrw ? 0 : 2
     }).format(Number(value || 0));
 };
 
@@ -703,6 +706,7 @@ async function toggleAutoApproval() {
 async function renderConfig() {
     const config = await fetchJson('/api/mistock/config');
     latestConfig = config;
+    currentCurrency = config.currency || 'USD';
     setElementText('val-account', config.NASDAQtock_account || '-');
     renderAiStrategySummary(config);
     const settingsEl = document.getElementById('settings-grid');
@@ -2291,9 +2295,13 @@ async function renderExecutionPlan() {
 }
 
 async function fetchDashboardData() {
+    try {
+        await renderConfig();
+    } catch (err) {
+        console.error("Failed to load config:", err);
+    }
     await Promise.all([
         renderRuntime(),
-        renderConfig(),
         renderBalance(),
         renderTrades(),
         renderApprovals(),
