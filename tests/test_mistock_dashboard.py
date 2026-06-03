@@ -104,6 +104,25 @@ class MistockDashboardTests(unittest.TestCase):
         self.assertEqual(context["active_strategy"]["id"], result["strategy"]["id"])
         self.assertIn("backtest", context["active_strategy"]["validation"]["checks"])
 
+    def test_mistock_runtime_order_mode(self):
+        # 1. Store initial MISTOCK_DRY_RUN value
+        initial_val = mistock_config.dry_run
+        target_val = not initial_val
+
+        # 2. Toggle dry_run
+        with patch("src.dashboard.routes.mistock._core._write_env_values") as mock_write:
+            result = mistock.mistock_runtime_order_mode({"key": "DRY_RUN", "enabled": target_val})
+            self.assertTrue(result["ok"])
+            self.assertEqual(result["dry_run"], target_val)
+            self.assertEqual(mistock_config.dry_run, target_val)
+            mock_write.assert_called_once()
+
+            # Toggle back to initial value
+            result_true = mistock.mistock_runtime_order_mode({"key": "DRY_RUN", "enabled": initial_val})
+            self.assertTrue(result_true["ok"])
+            self.assertEqual(result_true["dry_run"], initial_val)
+            self.assertEqual(mistock_config.dry_run, initial_val)
+
 
 if __name__ == "__main__":
     unittest.main()

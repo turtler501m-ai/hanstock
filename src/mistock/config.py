@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 
-@dataclass(frozen=True)
+@dataclass
 class MistockConfig:
     market: str = os.environ.get("MISTOCK_MARKET", "NASDAQ")
     trading_env: str = os.environ.get("MISTOCK_TRADING_ENV", "paper")

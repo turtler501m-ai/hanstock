@@ -1275,7 +1275,19 @@ def mistock_set_auto_approval(payload: dict = Body(...)):
 
 @app.post("/api/mistock/runtime/order-mode")
 def mistock_runtime_order_mode(payload: dict = Body(...)):
-    return {"ok": True, **mistock_trader.runtime_flags(), "message": "Mistock order mode is configured through MISTOCK_* environment values."}
+    key = str(payload.get("key", "")).strip()
+    enabled = bool(payload.get("enabled"))
+    if key.upper() == "DRY_RUN":
+        updates = {"MISTOCK_DRY_RUN": "true" if enabled else "false"}
+        _core._write_env_values(updates, _core._public_value("ENV_PATH", _core.ENV_PATH))
+        # Update in-memory config
+        mistock_config.dry_run = enabled
+        return {
+            "ok": True,
+            "updated": ["MISTOCK_DRY_RUN"],
+            **mistock_trader.runtime_flags(),
+        }
+    raise HTTPException(status_code=400, detail="key must be DRY_RUN")
 
 
 @app.post("/api/mistock/orders/cancel")
