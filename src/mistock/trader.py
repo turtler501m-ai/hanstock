@@ -91,6 +91,10 @@ def get_holdings() -> list[dict[str, Any]]:
         try:
             client = _get_kis_client()
             balance_data = client.get_overseas_balance()
+            if not isinstance(balance_data, dict):
+                from src.utils.logger import logger
+                logger.error(f"Invalid balance_data type in get_holdings: {type(balance_data)}, expected dict. Value: {balance_data}")
+                balance_data = {"output1": [], "output2": {}}
             holdings = []
             for item in balance_data.get("output1", []):
                 symbol = item.get("pdno", "").strip()
@@ -146,6 +150,10 @@ def get_balance() -> dict[str, Any]:
         try:
             client = _get_kis_client()
             balance_data = client.get_overseas_balance()
+            if not isinstance(balance_data, dict):
+                from src.utils.logger import logger
+                logger.error(f"Invalid balance_data type in get_balance: {type(balance_data)}, expected dict. Value: {balance_data}")
+                balance_data = {"output1": [], "output2": {}}
             summary = balance_data.get("output2", {})
             cash = float(summary.get("frcr_dncl_amt") or summary.get("frcr_dncl_amt_2") or 0.0)
             if cash <= 0:
