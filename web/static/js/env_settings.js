@@ -95,6 +95,7 @@ function buildEnvControl(field) {
 const CATEGORIES = [
     {
         title: "🇰🇷 국내주식 자동매매 설정 (한스톡)",
+        short: "국내주식 (한스톡)",
         keys: [
             "TRADING_ENV",
             "DRY_RUN",
@@ -117,6 +118,7 @@ const CATEGORIES = [
     },
     {
         title: "🇺🇸 미국주식 자동매매 설정 (미스톡)",
+        short: "미국주식 (미스톡)",
         keys: [
             "MISTOCK_TRADING_ENV",
             "MISTOCK_DRY_RUN",
@@ -131,6 +133,7 @@ const CATEGORIES = [
     },
     {
         title: "🔑 한국투자증권(KIS) API 연동 정보",
+        short: "증권사 API",
         keys: [
             "KISTOCK_APP_KEY",
             "KISTOCK_APP_SECRET",
@@ -146,6 +149,7 @@ const CATEGORIES = [
     },
     {
         title: "🤖 AI 모델 및 OpenAI 연동",
+        short: "AI & OpenAI",
         keys: [
             "AI_STRATEGY_ENABLED",
             "AI_SCORE_WEIGHT",
@@ -160,6 +164,7 @@ const CATEGORIES = [
     },
     {
         title: "📢 알림 및 수집기 설정 (Slack / Telegram)",
+        short: "알림 & 수집기",
         keys: [
             "SLACK_WEBHOOK_URL",
             "MISTOCK_SLACK_WEBHOOK_URL",
@@ -171,6 +176,8 @@ const CATEGORIES = [
     }
 ];
 
+let currentActiveTabIndex = 0;
+
 async function renderEnvSettings() {
     try {
         const data = await fetchJson('/api/env');
@@ -181,17 +188,22 @@ async function renderEnvSettings() {
         });
 
         let html = '';
+        let tabsHtml = '';
         const categorisedKeys = new Set();
 
-        CATEGORIES.forEach(cat => {
+        CATEGORIES.forEach((cat, index) => {
             const catFields = cat.keys
                 .map(k => fieldMap[k])
                 .filter(Boolean);
 
             if (catFields.length > 0) {
                 cat.keys.forEach(k => categorisedKeys.add(k));
+                
+                const isActive = index === currentActiveTabIndex;
+                tabsHtml += `<button type="button" class="env-tab-button ${isActive ? 'active' : ''}" data-tab-index="${index}">${cat.short}</button>`;
+
                 html += `
-                    <div class="env-category-section" style="margin-bottom: 2.5rem; padding-bottom: 2rem; border-bottom: 1px solid rgba(255,255,255,0.08);">
+                    <div class="env-category-section" id="env-sec-${index}" style="display: ${isActive ? 'block' : 'none'};">
                         <h3 class="env-category-title" style="margin-bottom: 1.25rem; color: #60a5fa; font-size: 1.15rem; font-weight: 600; display: flex; align-items: center; gap: 0.5rem; text-shadow: 0 0 10px rgba(96,165,250,0.1);">
                             ${cat.title}
                         </h3>
@@ -205,9 +217,13 @@ async function renderEnvSettings() {
 
         // Render uncategorized fields if any
         const uncategorisedFields = fields.filter(f => !categorisedKeys.has(f.key));
+        const miscIndex = CATEGORIES.length;
         if (uncategorisedFields.length > 0) {
+            const isActive = miscIndex === currentActiveTabIndex;
+            tabsHtml += `<button type="button" class="env-tab-button ${isActive ? 'active' : ''}" data-tab-index="${miscIndex}">기타 설정</button>`;
+            
             html += `
-                <div class="env-category-section" style="margin-bottom: 2.5rem;">
+                <div class="env-category-section" id="env-sec-${miscIndex}" style="display: ${isActive ? 'block' : 'none'};">
                     <h3 class="env-category-title" style="margin-bottom: 1.25rem; color: #9ca3af; font-size: 1.15rem; font-weight: 600; display: flex; align-items: center; gap: 0.5rem;">
                         ⚙️ 기타 설정
                     </h3>
@@ -218,9 +234,31 @@ async function renderEnvSettings() {
             `;
         }
 
+        const tabsEl = document.getElementById('env-tabs');
+        if (tabsEl) {
+            tabsEl.innerHTML = tabsHtml;
+            
+            tabsEl.querySelectorAll('.env-tab-button').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    const tabIdx = parseInt(btn.dataset.tabIndex, 10);
+                    currentActiveTabIndex = tabIdx;
+                    
+                    tabsEl.querySelectorAll('.env-tab-button').forEach(b => b.classList.remove('active'));
+                    btn.classList.add('active');
+                    
+                    document.querySelectorAll('.env-category-section').forEach(sec => {
+                        sec.style.display = 'none';
+                    });
+                    const targetSec = document.getElementById(`env-sec-${tabIdx}`);
+                    if (targetSec) {
+                        targetSec.style.display = 'block';
+                    }
+                });
+            });
+        }
+
         const envGridEl = document.getElementById('env-grid');
         if (envGridEl) {
-            // Remove flat grid style to let category sections stack cleanly
             envGridEl.style.display = 'block';
             envGridEl.innerHTML = html;
         }
