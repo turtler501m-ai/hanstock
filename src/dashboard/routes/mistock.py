@@ -694,24 +694,245 @@ def mistock_trades_sync():
     return {"ok": True, "synced_count": 0, "message": "Broker API is deferred; Mistock paper DB is already authoritative."}
 
 
+def _mistock_account_trades(trades: list[dict]) -> list[dict]:
+    account_rows = []
+    show_dry_run = mistock_config.dry_run or (mistock_config.trading_env in {"paper", "demo"})
+    for trade in trades:
+        ok_val = trade.get("ok")
+        if ok_val is not None:
+            try:
+                ok = bool(int(float(ok_val)))
+            except Exception:
+                ok = True
+        else:
+            ok = True
+        if not ok:
+            continue
+            
+        reason = str(trade.get("reason") or "").lower()
+        if any(token in reason for token in ("sync", "adjust")):
+            continue
+            
+        dr_val = trade.get("dry_run")
+        is_dr = False
+        if dr_val is not None:
+            try:
+                is_dr = bool(int(float(dr_val)))
+            except Exception:
+                pass
+        if not show_dry_run and is_dr:
+            continue
+            
+        account_rows.append(trade)
+    return account_rows
+
+
+def _period_bucket() -> dict:
+    return {
+        "order_count": 0,
+        "buy_count": 0,
+        "sell_count": 0,
+        "buy_amount": 0.0,
+        "sell_amount": 0.0,
+        "realized_pnl": 0.0,
+        "cost_of_sold": 0.0,
+        "realized_pnl_rate": 0.0,
+        "net_cashflow": 0.0,
+    }
+
+
+def _build_mistock_periodic_performance(trades: list[dict]) -> dict:
+    daily: dict[str, dict] = {}
+    monthly: dict[str, dict] = {}
+    holdings: dict[str, dict] = {}
+
+    for trade in _mistock_account_trades(trades):
+        ts = str(trade.get("ts") or "")
+        if len(ts) < 10 or ts[0] == "-":
+            continue
+
+        day_key = ts[:10]
+        month_key = ts[:7]
+        action = str(trade.get("action") or "").lower()
+        symbol = str(trade.get("symbol") or "")
+        
+        try:
+            qty = float(trade.get("qty") or 0.0)
+            price = float(trade.get("price") or 0.0)
+        except Exception:
+            continue
+            
+        amount = qty * price
+
+        if qty <= 0 or price <= 0 or action not in {"buy", "sell"}:
+            continue
+
+        day = daily.setdefault(day_key, _period_bucket())
+        month = monthly.setdefault(month_key, _period_bucket())
+        for bucket in (day, month):
+            bucket["order_count"] += 1
+            if action == "buy":
+                bucket["buy_count"] += 1
+                bucket["buy_amount"] += amount
+            else:
+                bucket["sell_count"] += 1
+                bucket["sell_amount"] += amount
+
+        if symbol not in holdings:
+            holdings[symbol] = {"qty": 0.0, "avg_cost": 0.0}
+        holding = holdings[symbol]
+
+        if action == "buy":
+            total_qty = holding["qty"] + qty
+            total_cost = holding["qty"] * holding["avg_cost"] + amount
+            holding["qty"] = total_qty
+            holding["avg_cost"] = total_cost / total_qty if total_qty > 0 else 0.0
+        else:
+            sell_qty = min(qty, holding["qty"])
+            cost_of_shares_sold = holding["avg_cost"] * sell_qty
+            realized = (price - holding["avg_cost"]) * sell_qty
+            
+            day["realized_pnl"] += realized
+            month["realized_pnl"] += realized
+            day["cost_of_sold"] += cost_of_shares_sold
+            month["cost_of_sold"] += cost_of_shares_sold
+            
+            holding["qty"] = max(0.0, holding["qty"] - sell_qty)
+            if holding["qty"] <= 0:
+                holding["avg_cost"] = 0.0
+
+    for rows in (daily, monthly):
+        for bucket in rows.values():
+            bucket["net_cashflow"] = round(bucket["sell_amount"] - bucket["buy_amount"], 2)
+            bucket["realized_pnl_rate"] = round((bucket["realized_pnl"] / bucket["cost_of_sold"] * 100), 2) if bucket["cost_of_sold"] > 0 else 0.0
+            bucket["buy_amount"] = round(bucket["buy_amount"], 2)
+            bucket["sell_amount"] = round(bucket["sell_amount"], 2)
+            bucket["realized_pnl"] = round(bucket["realized_pnl"], 2)
+            bucket["cost_of_sold"] = round(bucket["cost_of_sold"], 2)
+
+    return {
+        "daily": [{"period": key, **value} for key, value in sorted(daily.items())],
+        "monthly": [{"period": key, **value} for key, value in sorted(monthly.items())],
+    }
+
+
 @app.get("/api/mistock/performance")
 def mistock_performance():
-    trades = mistock_db.rows("SELECT * FROM trades ORDER BY id ASC")
-    sells = [row for row in trades if row["action"] == "sell" and row["ok"]]
-    return {
-        "total_trades": len(trades),
-        "win_rate": 0.0,
-        "realized_pnl": 0.0,
-        "return_pct": 0.0,
-        "wins": 0,
-        "losses": 0,
-        "closed_trades": len(sells),
-    }
+    try:
+        trades = mistock_db.rows("SELECT * FROM trades ORDER BY ts ASC")
+        account_trades = _mistock_account_trades(trades)
+        
+        total_trades = len(account_trades)
+        success_count = sum(1 for t in account_trades if t.get("ok", 1))
+        success_rate = (success_count / total_trades * 100) if total_trades > 0 else 0.0
+        
+        holdings = {}
+        realized_pnl = 0.0
+        names = {}
+        
+        for t in account_trades:
+            sym = t["symbol"]
+            names[sym] = t.get("name", sym)
+            qty = float(t.get("qty") or 0.0)
+            price = float(t.get("price") or 0.0)
+            action = t["action"]
+            
+            if qty <= 0 or price <= 0:
+                continue
+                
+            if sym not in holdings:
+                holdings[sym] = {"qty": 0.0, "cost": 0.0}
+                
+            h = holdings[sym]
+            if action == "buy":
+                total_qty = h["qty"] + qty
+                total_cost = h["qty"] * h["cost"] + qty * price
+                h["qty"] = total_qty
+                h["cost"] = total_cost / total_qty if total_qty > 0 else 0.0
+            elif action == "sell":
+                sell_qty = min(qty, h["qty"])
+                realized_pnl += (price - h["cost"]) * sell_qty
+                h["qty"] = max(0.0, h["qty"] - sell_qty)
+                if h["qty"] <= 0:
+                    h["cost"] = 0.0
+                    
+        # Filter sold holdings
+        sells = [row for row in account_trades if row["action"] == "sell"]
+        wins = sum(1 for row in sells if row.get("price", 0.0) > holdings.get(row["symbol"], {}).get("cost", 0.0))
+        losses = len(sells) - wins
+        
+        current_holdings = {}
+        total_broker_pnl = 0.0
+        try:
+            parsed_holdings = mistock_trader.get_holdings()
+            current_holdings = {h['symbol']: h for h in parsed_holdings}
+            total_broker_pnl = sum(float(h.get("pnl") or 0.0) for h in parsed_holdings)
+        except Exception:
+            pass
+            
+        eval_details = []
+        total_eval_pnl = total_broker_pnl
+        
+        for sym, data in holdings.items():
+            if data["qty"] > 0:
+                current_price = data["cost"]
+                if sym in current_holdings:
+                    current_price = float(current_holdings[sym]["price"])
+                else:
+                    try:
+                        q = quote(sym)
+                        current_price = float(q["current"] or data["cost"])
+                    except Exception:
+                        pass
+                
+                eval_pnl = (current_price - data["cost"]) * data["qty"]
+                return_rate = ((current_price / data["cost"]) - 1) * 100 if data["cost"] > 0 else 0.0
+                
+                eval_details.append({
+                    "symbol": sym,
+                    "name": names.get(sym, sym),
+                    "qty": data["qty"],
+                    "avg_cost": round(data["cost"], 2),
+                    "current_price": round(current_price, 2),
+                    "eval_pnl": round(eval_pnl, 2),
+                    "return_rate": round(return_rate, 2),
+                    "broker_qty": current_holdings.get(sym, {}).get("qty", 0.0),
+                    "broker_pnl": round(current_holdings.get(sym, {}).get("pnl", 0.0), 2),
+                    "diff_reason": ""
+                })
+                
+        return {
+            "total_trades": total_trades,
+            "success_rate": round(success_rate, 2),
+            "realized_pnl": round(realized_pnl, 2),
+            "total_eval_pnl": round(total_eval_pnl, 2),
+            "total_broker_pnl": round(total_broker_pnl, 2),
+            "eval_details": eval_details,
+            "untracked_details": []
+        }
+    except Exception as e:
+        from src.utils.logger import logger
+        logger.error(f"Failed to calculate mistock performance: {e}")
+        return {
+            "total_trades": 0,
+            "success_rate": 0.0,
+            "realized_pnl": 0.0,
+            "total_eval_pnl": 0.0,
+            "total_broker_pnl": 0.0,
+            "eval_details": [],
+            "untracked_details": []
+        }
 
 
 @app.get("/api/mistock/performance/periodic")
 def mistock_periodic_performance():
-    return {"periods": [], "summary": {"return_pct": 0.0, "max_drawdown_pct": 0.0}}
+    try:
+        trades = mistock_db.rows("SELECT * FROM trades ORDER BY ts ASC")
+        return _build_mistock_periodic_performance(trades)
+    except Exception as e:
+        from src.utils.logger import logger
+        logger.error(f"Failed to calculate mistock periodic performance: {e}")
+        return {"daily": [], "monthly": []}
 
 
 import threading
