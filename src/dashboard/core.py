@@ -97,6 +97,7 @@ ENV_FIELDS = [
     {"key": "TELEGRAM_SESSION_NAME", "label": "Telegram Session Name", "type": "text", "hint": "Local Telethon session path. Keep it out of git."},
     {"key": "TELEGRAM_TARGET_CHANNELS", "label": "Telegram Target Channels", "type": "text", "hint": "Comma-separated channel usernames, IDs, or invite targets."},
     {"key": "MISTOCK_EXCHANGE_MAP", "label": "Mistock Exchange Map", "type": "text", "hint": "미국주식 거래소 매핑입니다. 예: BRK.B=NYSE,TSLA=NASD"},
+    {"key": "MISTOCK_CURRENCY", "label": "Mistock Currency", "type": "text", "hint": "미스톡 대시보드 표기 통화입니다. 예: USD, KRW"},
 ]
 ENV_FIELD_MAP = {field["key"]: field for field in ENV_FIELDS}
 VENDOR_PROJECTS = {
