@@ -881,6 +881,37 @@ def _apply_runtime_env_updates(updates: dict[str, str]) -> None:
             parsed = _env_bool_value({"value": value}, "value")
             trader.config.enable_live_trading = parsed
             trader.ENABLE_LIVE_TRADING = parsed
+        elif key == "MISTOCK_TRADING_ENV":
+            from src.mistock.config import config as mistock_config
+            mistock_config.trading_env = value
+        elif key == "MISTOCK_DRY_RUN":
+            from src.mistock.config import config as mistock_config
+            parsed = _env_bool_value({"value": value}, "value")
+            mistock_config.dry_run = parsed
+        elif key == "MISTOCK_ENABLE_LIVE_TRADING":
+            from src.mistock.config import config as mistock_config
+            parsed = _env_bool_value({"value": value}, "value")
+            mistock_config.enable_live_trading = parsed
+        elif key == "MISTOCK_REQUIRE_APPROVAL":
+            from src.mistock.config import config as mistock_config
+            parsed = _env_bool_value({"value": value}, "value")
+            mistock_config.require_approval = parsed
+        elif key == "MISTOCK_TOTAL_CAPITAL":
+            from src.mistock.config import config as mistock_config
+            try:
+                mistock_config.total_capital = float(value)
+            except ValueError:
+                pass
+        elif key == "MISTOCK_CURRENCY":
+            from src.mistock.config import config as mistock_config
+            mistock_config.currency = value
+        elif key == "MISTOCK_MARKET":
+            from src.mistock.config import config as mistock_config
+            mistock_config.market = value
+        elif key == "MISTOCK_TRADE_DB_PATH":
+            from src.mistock.config import config as mistock_config
+            from pathlib import Path
+            mistock_config.trade_db_path = Path(value)
 
     trader.REAL_ORDERS_ENABLED = (
         (not trader.DRY_RUN)
