@@ -99,6 +99,13 @@ ENV_FIELDS = [
     {"key": "TELEGRAM_TARGET_CHANNELS", "label": "Telegram Target Channels", "type": "text", "hint": "Comma-separated channel usernames, IDs, or invite targets."},
     {"key": "MISTOCK_EXCHANGE_MAP", "label": "Mistock Exchange Map", "type": "text", "hint": "미국주식 거래소 매핑입니다. 예: BRK.B=NYSE,TSLA=NASD"},
     {"key": "MISTOCK_CURRENCY", "label": "Mistock Currency", "type": "text", "hint": "미스톡 대시보드 표기 통화입니다. 예: USD, KRW"},
+    {"key": "MISTOCK_MARKET", "label": "Mistock Market", "type": "text", "hint": "미국주식 타겟 시장입니다. 예: NASDAQ"},
+    {"key": "MISTOCK_TRADING_ENV", "label": "Mistock Trading Env", "type": "select", "options": ["paper", "demo", "real"], "hint": "paper=가상모의, demo=실제모의, real=실전매매"},
+    {"key": "MISTOCK_DRY_RUN", "label": "Mistock Dry Run (주문차단)", "type": "bool", "hint": "true이면 실제 KIS 미국주식 주문 API를 호출하지 않습니다."},
+    {"key": "MISTOCK_ENABLE_LIVE_TRADING", "label": "Mistock Enable Live Trading", "type": "bool", "hint": "미국주식 실전매매 최종허용 안전스위치입니다."},
+    {"key": "MISTOCK_REQUIRE_APPROVAL", "label": "Mistock Require Approval", "type": "bool", "hint": "true이면 미국주식 주문 시 승인 대기를 거칩니다."},
+    {"key": "MISTOCK_TOTAL_CAPITAL", "label": "Mistock Total Capital", "type": "float", "hint": "미국주식 총 운용 자금(USD)입니다."},
+    {"key": "MISTOCK_TRADE_DB_PATH", "label": "Mistock Trade DB Path", "type": "text", "hint": "미국주식 거래 기록용 SQLite DB 경로입니다."},
 ]
 ENV_FIELD_MAP = {field["key"]: field for field in ENV_FIELDS}
 VENDOR_PROJECTS = {

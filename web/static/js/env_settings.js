@@ -92,10 +92,138 @@ function buildEnvControl(field) {
     `;
 }
 
+const CATEGORIES = [
+    {
+        title: "🇰🇷 국내주식 자동매매 설정 (한스톡)",
+        keys: [
+            "TRADING_ENV",
+            "DRY_RUN",
+            "ENABLE_LIVE_TRADING",
+            "REQUIRE_APPROVAL",
+            "TOTAL_CAPITAL",
+            "MAX_POSITIONS",
+            "MAX_SINGLE_WEIGHT",
+            "CASH_BUFFER",
+            "MAX_DAILY_LOSS_PCT",
+            "SPLIT_N",
+            "STOP_LOSS_PCT",
+            "TAKE_PROFIT",
+            "RSI_BUY",
+            "RSI_SELL",
+            "SCAN_UNIVERSE_SIZE",
+            "TRADE_DB_PATH",
+            "ACTIVE_MODEL_VERSION"
+        ]
+    },
+    {
+        title: "🇺🇸 미국주식 자동매매 설정 (미스톡)",
+        keys: [
+            "MISTOCK_TRADING_ENV",
+            "MISTOCK_DRY_RUN",
+            "MISTOCK_ENABLE_LIVE_TRADING",
+            "MISTOCK_REQUIRE_APPROVAL",
+            "MISTOCK_TOTAL_CAPITAL",
+            "MISTOCK_CURRENCY",
+            "MISTOCK_MARKET",
+            "MISTOCK_TRADE_DB_PATH",
+            "MISTOCK_EXCHANGE_MAP"
+        ]
+    },
+    {
+        title: "🔑 한국투자증권(KIS) API 연동 정보",
+        keys: [
+            "KISTOCK_APP_KEY",
+            "KISTOCK_APP_SECRET",
+            "KISTOCK_ACCOUNT",
+            "KISTOCK_HTS_ID",
+            "KIS_WEBSOCKET_ENABLED",
+            "KIS_CONDITION_SEARCH_ENABLED",
+            "KIS_CONDITION_USER_ID",
+            "KIS_CONDITION_SEQ",
+            "KIS_CONDITION_NAME",
+            "KIS_CIRCUIT_COOLDOWN_SECONDS"
+        ]
+    },
+    {
+        title: "🤖 AI 모델 및 OpenAI 연동",
+        keys: [
+            "AI_STRATEGY_ENABLED",
+            "AI_SCORE_WEIGHT",
+            "AI_MIN_MODEL_CONFIDENCE",
+            "AI_REQUIRE_BACKTEST_PASS",
+            "AI_AUTO_APPROVE",
+            "AI_CANDIDATE_LIMIT",
+            "OPENAI_API_KEY",
+            "OPENAI_MODEL",
+            "OPENAI_TIMEOUT_SECONDS"
+        ]
+    },
+    {
+        title: "📢 알림 및 수집기 설정 (Slack / Telegram)",
+        keys: [
+            "SLACK_WEBHOOK_URL",
+            "MISTOCK_SLACK_WEBHOOK_URL",
+            "TELEGRAM_API_ID",
+            "TELEGRAM_API_HASH",
+            "TELEGRAM_SESSION_NAME",
+            "TELEGRAM_TARGET_CHANNELS"
+        ]
+    }
+];
+
 async function renderEnvSettings() {
     try {
         const data = await fetchJson('/api/env');
-        document.getElementById('env-grid').innerHTML = (data.fields || []).map(buildEnvControl).join('');
+        const fields = data.fields || [];
+        const fieldMap = {};
+        fields.forEach(f => {
+            fieldMap[f.key] = f;
+        });
+
+        let html = '';
+        const categorisedKeys = new Set();
+
+        CATEGORIES.forEach(cat => {
+            const catFields = cat.keys
+                .map(k => fieldMap[k])
+                .filter(Boolean);
+
+            if (catFields.length > 0) {
+                cat.keys.forEach(k => categorisedKeys.add(k));
+                html += `
+                    <div class="env-category-section" style="margin-bottom: 2.5rem; padding-bottom: 2rem; border-bottom: 1px solid rgba(255,255,255,0.08);">
+                        <h3 class="env-category-title" style="margin-bottom: 1.25rem; color: #60a5fa; font-size: 1.15rem; font-weight: 600; display: flex; align-items: center; gap: 0.5rem; text-shadow: 0 0 10px rgba(96,165,250,0.1);">
+                            ${cat.title}
+                        </h3>
+                        <div class="env-grid env-page-grid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 1.25rem;">
+                            ${catFields.map(buildEnvControl).join('')}
+                        </div>
+                    </div>
+                `;
+            }
+        });
+
+        // Render uncategorized fields if any
+        const uncategorisedFields = fields.filter(f => !categorisedKeys.has(f.key));
+        if (uncategorisedFields.length > 0) {
+            html += `
+                <div class="env-category-section" style="margin-bottom: 2.5rem;">
+                    <h3 class="env-category-title" style="margin-bottom: 1.25rem; color: #9ca3af; font-size: 1.15rem; font-weight: 600; display: flex; align-items: center; gap: 0.5rem;">
+                        ⚙️ 기타 설정
+                    </h3>
+                    <div class="env-grid env-page-grid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 1.25rem;">
+                        ${uncategorisedFields.map(buildEnvControl).join('')}
+                    </div>
+                </div>
+            `;
+        }
+
+        const envGridEl = document.getElementById('env-grid');
+        if (envGridEl) {
+            // Remove flat grid style to let category sections stack cleanly
+            envGridEl.style.display = 'block';
+            envGridEl.innerHTML = html;
+        }
         document.getElementById('env-meta').textContent = `${data.path || '.env'} · 저장 즉시 런타임 반영, 일부 값은 서버 재시작 필요`;
     } catch (err) {
         setStatus(`환경설정 불러오기 실패: ${err.message}`);
