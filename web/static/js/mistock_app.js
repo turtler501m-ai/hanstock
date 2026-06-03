@@ -535,7 +535,7 @@ function renderAiStrategySummary(config) {
         : (enabled ? 'OPENAI_API_KEY 없음: Seven Split 룰 점수로 분석' : 'Seven Split 룰 점수만 사용');
     const ruleWeight = Number(ai.rule_weight ?? 1) * 100;
     const scoreWeight = Number(ai.score_weight ?? 0) * 100;
-    const accountText = ai.account || config.NASDAQtock_account || '-';
+    const accountText = ai.account || config.kistock_account || '-';
     const flow = ai.auto_approve ? 'AI 제안 후 자동승인 설정 켜짐' : 'AI 제안 후 승인 대기';
 
     setElementText('ai-summary-model', `${modelStatus} · ${ai.model_name || '-'}`);
@@ -710,7 +710,7 @@ async function renderConfig() {
     latestConfig = config;
     currentCurrency = config.currency || 'USD';
     exchangeRate = Number(config.exchange_rate || 1380.0);
-    setElementText('val-account', config.NASDAQtock_account || '-');
+    setElementText('val-account', config.kistock_account || '-');
     renderAiStrategySummary(config);
     const settingsEl = document.getElementById('settings-grid');
     settingsEl.innerHTML = renderStrategySettingsForm(config);
