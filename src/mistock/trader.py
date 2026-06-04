@@ -172,18 +172,29 @@ def get_balance() -> dict[str, Any]:
                 else:
                     summary = {}
             
+            # KIS 외화 예수금 파싱
             cash = float(summary.get("frcr_dncl_amt") or summary.get("frcr_dncl_amt_2") or 0.0)
-            if cash <= 0:
-                output3 = balance_data.get("output3", {})
-                if not isinstance(output3, dict):
-                    if isinstance(output3, list):
-                        output3 = next((item for item in output3 if isinstance(item, dict)), {})
-                    else:
-                        output3 = {}
-                cash = float(output3.get("frcr_use_psbl_amt") or output3.get("dncl_amt") or output3.get("tot_dncl_amt") or 0.0)
             
+            # 통합증거금 원화 가용 자원 파싱 및 합산
+            output3 = balance_data.get("output3", {})
+            if not isinstance(output3, dict):
+                if isinstance(output3, list):
+                    output3 = next((item for item in output3 if isinstance(item, dict)), {})
+                else:
+                    output3 = {}
+                    
+            exchange_rate = float(summary.get("frst_rt") or output3.get("frst_rt") or 1380.0)
+            if exchange_rate <= 0:
+                exchange_rate = 1380.0
+                
+            krw_cash = float(output3.get("tot_dncl_amt") or output3.get("dncl_amt") or 0.0)
+            if krw_cash > 0:
+                # 98% 마진율을 적용해 달러 가용 금액에 합산 (통합증거금)
+                cash += (krw_cash / exchange_rate) * 0.98
+
             if cash <= 0:
                 cash = float(db.get_setting("cash", str(config.total_capital)) or 0.0)
+                
             holdings = get_holdings()
             stock_eval = sum(float(item["value"] or 0.0) for item in holdings)
             pnl = sum(float(item["pnl"] or 0.0) for item in holdings)
@@ -477,13 +488,19 @@ def revise_order(symbol: str, order_no: str, qty: float, price: float) -> dict[s
 
 
 def save_trade(symbol: str, name: str, action: str, qty: float, price: float, reason: str, ok: bool, order_status: str, response_msg: str) -> None:
+    # 수수료/세금 예상 계산 (미장 기본 수수료 0.1%, 매도시 SEC Fee 등 0.03% 추가)
+    fee = (qty * price * 0.001) if ok else 0.0
+    tax = (qty * price * 0.0003) if (ok and action.lower() == "sell") else 0.0
+    exchange_rate = 1380.0
+    
     db.execute(
         """
-        INSERT INTO trades (ts, symbol, name, action, qty, price, reason, ok, env, dry_run, order_status, response_msg, broker_result)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO trades (ts, symbol, name, action, qty, price, reason, ok, env, dry_run, order_status, response_msg, broker_result, fee, tax, exchange_rate)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             db.now_text(), symbol, name, action, qty, price, reason, int(ok), config.trading_env,
             int(config.dry_run), order_status, response_msg, json.dumps({"paper": True}, ensure_ascii=False),
+            fee, tax, exchange_rate,
         ),
     )

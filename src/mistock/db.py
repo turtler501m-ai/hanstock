@@ -192,6 +192,17 @@ def init_db() -> None:
                 json.dumps({"checks": {"static": {"ok": True, "status": "passed"}}}, ensure_ascii=False),
             ),
         )
+        # Migrations for fee and tax tracking
+        for col_name, col_type in [("fee", "REAL DEFAULT 0.0"), ("tax", "REAL DEFAULT 0.0"), ("exchange_rate", "REAL DEFAULT 1.0")]:
+            try:
+                conn.execute(f"ALTER TABLE trades ADD COLUMN {col_name} {col_type}")
+            except sqlite3.OperationalError:
+                pass
+        for col_name, col_type in [("fee", "REAL DEFAULT 0.0"), ("tax", "REAL DEFAULT 0.0")]:
+            try:
+                conn.execute(f"ALTER TABLE approvals ADD COLUMN {col_name} {col_type}")
+            except sqlite3.OperationalError:
+                pass
         conn.commit()
     finally:
         conn.close()

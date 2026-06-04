@@ -647,6 +647,9 @@ class KISClient:
             tr_id = "JTTT1002U" if order_type == "buy" else "JTTT1006U"
         
         clean_symbol, _, ovrs_excg_cd = self._parse_us_symbol(symbol)
+        if not float(qty).is_integer():
+            return {"rt_cd": "1", "msg1": f"해외주식 실거래 주문은 정수 수량만 지원합니다. 요청 수량: {qty}"}
+            
         body = {
             "CANO": self.config.account_prefix,
             "ACNT_PRDT_CD": self.config.account_suffix,
