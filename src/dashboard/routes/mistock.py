@@ -313,6 +313,7 @@ def mistock_apply_ai_strategy_preset(preset: str):
         "latest": {"check": "preset_apply", "result": {"ok": True, "preset": preset}},
     }
 
+    mistock_db.execute("UPDATE ai_strategies SET status = 'retired' WHERE name = ?", (preset_data["name"],))
     mistock_db.execute("UPDATE ai_strategies SET selected = 0", ())
     mistock_db.execute(
         """

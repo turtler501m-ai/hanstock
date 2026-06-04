@@ -907,13 +907,46 @@ async function syncStrategiesToDropdown() {
         const previous = select.value || localStorage.getItem('mistock_ai_ranker') || '';
         select.innerHTML = '';
         const strategies = (data.strategies || []).filter((strategy) => strategy.status !== 'retired');
+        const uniqueStrategies = [];
+
         if (strategies.length === 0) {
             const opt = document.createElement('option');
             opt.value = 'rule_only_default';
             opt.textContent = '⚙️ 기본 기술 룰베이스 랭커';
             select.appendChild(opt);
         } else {
+            // Group by strategy name to avoid duplicates in the dropdown
+            const grouped = {};
             strategies.forEach((strategy) => {
+                const name = strategy.name;
+                if (!grouped[name]) {
+                    grouped[name] = [];
+                }
+                grouped[name].push(strategy);
+            });
+
+            Object.keys(grouped).forEach((name) => {
+                const group = grouped[name];
+                // Sort to pick the best representative: selected first, then highest version, then alphabetical/id descending
+                group.sort((a, b) => {
+                    if (a.selected && !b.selected) return -1;
+                    if (!a.selected && b.selected) return 1;
+                    const aVer = a.strategy_version || 1;
+                    const bVer = b.strategy_version || 1;
+                    if (aVer !== bVer) return bVer - aVer;
+                    return b.id.localeCompare(a.id);
+                });
+                uniqueStrategies.push(group[0]);
+            });
+
+            // Sort uniqueStrategies so selected is first, then name alphabetical
+            uniqueStrategies.sort((a, b) => {
+                if (a.selected && !b.selected) return -1;
+                if (!a.selected && b.selected) return 1;
+                return a.name.localeCompare(b.name);
+            });
+
+            uniqueStrategies.forEach((strategy) => {
                 const opt = document.createElement('option');
                 opt.value = strategy.id;
                 opt.textContent = `${strategy.selected ? '* ' : ''}${strategy.name} · ${strategyStatusLabel(strategy.status)} · v${strategy.strategy_version || 1}`;
@@ -921,7 +954,7 @@ async function syncStrategiesToDropdown() {
             });
         }
 
-        const active = strategies.find((strategy) => strategy.selected) || strategies[0];
+        const active = uniqueStrategies.find((strategy) => strategy.selected) || uniqueStrategies[0];
         if (previous && select.querySelector(`option[value="${previous}"]`)) {
             select.value = previous;
         } else if (active) {

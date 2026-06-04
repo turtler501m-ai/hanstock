@@ -380,6 +380,8 @@ def apply_ai_strategy_preset(preset: str):
 
     strategies = load_ai_strategies()
     for item in strategies:
+        if item.get("name") == preset_data["name"]:
+            item["status"] = "retired"
         item["selected"] = False
     strategies.append(strategy)
     save_ai_strategies(strategies)
