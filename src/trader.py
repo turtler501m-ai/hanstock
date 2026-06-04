@@ -551,7 +551,7 @@ def build_ai_rebalance_rows(api, balance_data: dict, total_eval: int) -> list[di
     return rows
 
 
-def build_runtime_plan(api, balance_data: dict, *, include_ai_rebalance: bool = False) -> dict:
+def build_runtime_plan(api, balance_data: dict, *, include_ai_rebalance: bool = False, read_cached_candidates: bool = False) -> dict:
     stocks = balance_data.get("output1", [])
     summary = (balance_data.get("output2") or [{}])[0]
     cash = int(summary.get("dnca_tot_amt", 0) or 0)
@@ -583,9 +583,35 @@ def build_runtime_plan(api, balance_data: dict, *, include_ai_rebalance: bool = 
 
     if not halted:
         held_symbols = {s.get("pdno", "") for s in stocks}
-        universe = build_scan_universe(api, held_symbols)
-        scan_result = find_candidates(held_symbols, universe=universe)
-        candidates = scan_result.get("candidates", [])
+        
+        if read_cached_candidates:
+            from src.db.repository import get_latest_scanned_candidates
+            db_candidates = get_latest_scanned_candidates()
+            candidates = []
+            for row in db_candidates:
+                candidates.append({
+                    "ticker": row["symbol"],
+                    "name": row["name"],
+                    "current_price": row["price"],
+                    "score": row["score"],
+                    "rule_score": row["rule_score"] if row["rule_score"] is not None else row["score"],
+                    "ml_score": row["ml_score"],
+                    "final_score": row["final_score"] if row["final_score"] is not None else row["score"],
+                    "reasons": row["reasons"].split(",") if row["reasons"] else [],
+                    "rsi": row["rsi"],
+                    "rsi2": row["rsi2"],
+                    "macd_hist": row["macd_hist"],
+                    "sma20": row["sma20"],
+                    "sma60": row["sma60"],
+                    "bb_lo": row.get("bb_lo") or 0.0,
+                    "bb_hi": row.get("bb_hi") or 0.0,
+                })
+            candidates = sorted(candidates, key=lambda c: (-float(c["final_score"]), c["ticker"]))
+        else:
+            universe = build_scan_universe(api, held_symbols)
+            scan_result = find_candidates(held_symbols, universe=universe)
+            candidates = scan_result.get("candidates", [])
+
         orders = build_orders(candidates, api.get_quote, len(held_symbols), cash)
         order_by_ticker = {o["ticker"]: o for o in orders}
 
@@ -601,26 +627,36 @@ def build_runtime_plan(api, balance_data: dict, *, include_ai_rebalance: bool = 
             candidate_rows.append(row)
             
             # Automatically save scan results to DB for history tracking in automated cycles
-            from src.db.repository import save_scanned_candidate
-            save_scanned_candidate(
-                symbol=candidate.get("ticker", candidate.get("symbol", "")),
-                name=candidate.get("name", candidate.get("ticker", "")),
-                score=candidate.get("score", 0),
-                reasons=candidate.get("reasons", []),
-                price=candidate.get("current_price", candidate.get("price", 0)),
-                env=TRADING_ENV,
-                indicators=indicators
-            )
+            if not read_cached_candidates:
+                from src.db.repository import save_scanned_candidate
+                save_scanned_candidate(
+                    symbol=candidate.get("ticker", candidate.get("symbol", "")),
+                    name=candidate.get("name", candidate.get("ticker", "")),
+                    score=candidate.get("score", 0),
+                    reasons=candidate.get("reasons", []),
+                    price=candidate.get("current_price", candidate.get("price", 0)),
+                    env=TRADING_ENV,
+                    indicators=indicators
+                )
             if order:
                 remaining_cash -= int(order.get("estimated_cost", 0) or 0)
 
-        candidate_scan = {
-            "candidates": candidates,
-            "scan_summary": scan_result.get("scan_summary", []),
-            "scanned": scan_result.get("scanned", 0),
-            "min_score": scan_result.get("min_score", 2),
-            "scan_error": scan_result.get("scan_error"),
-        }
+        if read_cached_candidates:
+            candidate_scan = {
+                "candidates": candidates,
+                "scan_summary": candidates,
+                "scanned": len(candidates),
+                "min_score": 2,
+                "scan_error": None if candidates else "No cached candidates found in database",
+            }
+        else:
+            candidate_scan = {
+                "candidates": candidates,
+                "scan_summary": scan_result.get("scan_summary", []),
+                "scanned": scan_result.get("scanned", 0),
+                "min_score": scan_result.get("min_score", 2),
+                "scan_error": scan_result.get("scan_error"),
+            }
 
     plan = build_execution_plan(position_rows=position_rows, candidate_rows=candidate_rows)
     ai_rebalance_rows = []

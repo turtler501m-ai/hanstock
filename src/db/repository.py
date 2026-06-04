@@ -550,6 +550,25 @@ def get_scanned_candidates_history(limit: int = 100, days: int = 30) -> list[dic
         return []
 
 
+def get_latest_scanned_candidates() -> list[dict]:
+    init_db()
+    try:
+        with connect_db() as conn:
+            conn.row_factory = sqlite3.Row
+            row = conn.execute("SELECT scanned_at FROM scanned_candidates ORDER BY scanned_at DESC LIMIT 1").fetchone()
+            if not row:
+                return []
+            latest_time = row["scanned_at"]
+            rows = conn.execute(
+                "SELECT * FROM scanned_candidates WHERE scanned_at = ? ORDER BY score DESC, symbol ASC",
+                (latest_time,)
+            ).fetchall()
+            return [dict(row) for row in rows]
+    except Exception as e:
+        logger.warning(f"Failed to fetch latest scanned candidates: {e}")
+        return []
+
+
 def delete_scanned_candidate(candidate_id: int) -> int:
     init_db()
     try:

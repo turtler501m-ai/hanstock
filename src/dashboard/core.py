@@ -682,7 +682,7 @@ def build_dashboard_execution_plan() -> dict:
     api = _get_api()
     balance_data = _get_balance_data(api)
     parsed = _parse_balance(balance_data)
-    runtime_bundle = trader.build_runtime_plan(api, balance_data)
+    runtime_bundle = trader.build_runtime_plan(api, balance_data, read_cached_candidates=True)
     return {
         "mode": "dashboard",
         "plan": runtime_bundle["plan"],

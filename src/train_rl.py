@@ -25,7 +25,7 @@ def train():
     env = DummyVecEnv([lambda: SimpleStockTradingEnv(**env_kwargs)])
     
     print("Initialize PPO Model...")
-    model = PPO("MlpPolicy", env, verbose=1, tensorboard_log="./tensorboard_logs/")
+    model = PPO("MlpPolicy", env, verbose=1, tensorboard_log=None)
     
     print("Training started...")
     # Using 10,000 steps for quick demonstration. Real training should be much longer (e.g., 200,000+).

@@ -326,28 +326,34 @@ def generate_ai_weight_plan(holdings: list[dict], total_eval: int) -> dict:
 
     ai_weights = {}
     if model:
-        # Construct observation matching rl_env.py format
-        obs = []
+        raw_ratings = {}
         for ticker in WATCHLIST:
             if ticker in holding_map:
                 it = holding_map[ticker]
-                price = it.get("price", 0) / 100000.0
-                rsi = it["profile"].get("rsi", 50.0) / 100.0
-                macd = it["profile"].get("macd_hist", 0.0) / 1000.0
-                trend = it.get("trend", 0.0)
-                obs.extend([price, rsi, macd, trend])
+                price = (it.get("price", 0) or 0.0) / 100000.0
+                rsi = (it["profile"].get("rsi", 50.0) or 50.0) / 100.0
+                macd = (it["profile"].get("macd_hist", 0.0) or 0.0) / 1000.0
+                trend = float(it.get("trend", 0.0) or 0.0)
+                obs = [price, rsi, macd, trend]
             else:
-                obs.extend([0.0, 0.5, 0.0, 0.0]) # fallback
-
-        obs_arr = np.array(obs, dtype=np.float32)
+                obs = [0.0, 0.5, 0.0, 0.0]
+            
+            obs_arr = np.array(obs, dtype=np.float32)
+            try:
+                action, _ = model.predict(obs_arr, deterministic=True)
+                raw_ratings[ticker] = float(action[0])
+            except Exception as e:
+                logger.info(f"[ERROR] AI prediction failed for {ticker}: {e}")
+                raw_ratings[ticker] = -1.0
+                
         try:
-            action, _ = model.predict(obs_arr, deterministic=True)
-            exp_a = np.exp(action)
-            target_w = exp_a / np.sum(exp_a)
+            ratings_arr = np.array([raw_ratings[t] for t in WATCHLIST], dtype=np.float32)
+            exp_r = np.exp(ratings_arr)
+            target_w = exp_r / np.sum(exp_r)
             for i, ticker in enumerate(WATCHLIST):
-                ai_weights[ticker] = target_w[i]
+                ai_weights[ticker] = float(target_w[i])
         except Exception as e:
-            logger.info(f"[ERROR] AI prediction failed: {e}")
+            logger.info(f"[ERROR] Softmax normalization failed: {e}")
     else:
         # [Fallback for WinError 1114 / Missing Model environments]
         # Simulate neural-network-like target weights inversely proportional to volatility for UI demonstration.
