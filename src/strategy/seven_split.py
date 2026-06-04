@@ -188,7 +188,7 @@ def get_yfinance_ticker(code: str) -> str:
     return f"{code}.KS"
 
 def calc_strategy_profile(prices: list[float], highs: list[float] | None = None,
-                          volumes: list[float] | None = None) -> dict:
+                          volumes: list[float] | None = None, strategy_model: str = "") -> dict:
     highs = highs or prices
     volumes = volumes or []
     current = prices[-1] if prices else 0
@@ -201,54 +201,99 @@ def calc_strategy_profile(prices: list[float], highs: list[float] | None = None,
     bb_lo, bb_mid, bb_hi = calc_bollinger(prices, 20)
     macd = calc_macd(prices)
 
-    score = 0
+    score = 0.0
     reasons = []
 
-    if len(prices) >= 16:
-        prev_rsi = calc_rsi(prices[:-1], 14)
-        if prev_rsi < config.rsi_buy <= rsi14:
-            score += 2
-            reasons.append(f"RSI recovery {prev_rsi:.0f}->{rsi14:.0f}")
-        elif 30 < rsi14 < 50:
-            score += 1
-            reasons.append(f"RSI pullback {rsi14:.0f}")
+    # Check if a custom strategy model is active or specified
+    if not strategy_model:
+        try:
+            from src.db.repository import load_ai_strategies
+            active = next((s for s in load_ai_strategies() if s.get("selected")), None)
+            if active:
+                strategy_model = active.get("model") or ""
+        except Exception:
+            pass
 
-    if macd["bull_cross"]:
-        score += 2
-        reasons.append("MACD bullish cross")
-    elif macd["hist"] > 0:
-        score += 1
-        reasons.append("MACD positive")
+    # Dynamic Custom Strategy loading
+    custom_inst = None
+    if strategy_model and strategy_model not in ("none", "gpt-5-mini", "ranker_lgbm_v3", "allocator_v2", "ppo_policy_v1", "rule_based"):
+        try:
+            from src.db.repository import get_custom_strategy_instance
+            custom_inst = get_custom_strategy_instance(strategy_model)
+        except Exception:
+            pass
 
-    if len(prices) >= 21:
-        prev_lo, _prev_mid, _prev_hi = calc_bollinger(prices[:-1], 20)
-        if prev < prev_lo and current >= bb_lo:
-            score += 2
-            reasons.append("Bollinger rebound")
-        elif current <= bb_lo:
-            score += 1
-            reasons.append("near lower band")
+    if custom_inst:
+        indicators = {
+            "rsi": rsi14,
+            "rsi2": rsi2,
+            "sma20": sma20,
+            "sma60": sma60,
+            "sma120": sma120,
+            "bb_lo": bb_lo,
+            "bb_mid": bb_mid,
+            "bb_hi": bb_hi,
+            "macd": macd["macd"],
+            "macd_signal": macd["signal"],
+            "macd_hist": macd["hist"],
+            "macd_bull_cross": macd["bull_cross"],
+            "macd_bear_cross": macd["bear_cross"],
+        }
+        try:
+            score = float(custom_inst.calculate_score(prices, indicators))
+            reasons.append(f"Custom Rule: {strategy_model} (score={score:.2f})")
+        except Exception as e:
+            logger.warning(f"Error calculating score with custom strategy {strategy_model}: {e}")
+            custom_inst = None
 
-    if len(prices) >= 60 and current > sma60 and rsi2 <= 15:
-        score += 2
-        reasons.append(f"trend pullback RSI2={rsi2:.0f}")
-    elif len(prices) >= 120 and current > sma120 and rsi2 <= 20:
-        score += 1
-        reasons.append(f"long trend pullback RSI2={rsi2:.0f}")
+    if not custom_inst:
+        # Default strategy logic
+        score = 0.0
+        if len(prices) >= 16:
+            prev_rsi = calc_rsi(prices[:-1], 14)
+            if prev_rsi < config.rsi_buy <= rsi14:
+                score += 2.0
+                reasons.append(f"RSI recovery {prev_rsi:.0f}->{rsi14:.0f}")
+            elif 30 < rsi14 < 50:
+                score += 1.0
+                reasons.append(f"RSI pullback {rsi14:.0f}")
 
-    if len(highs) >= 21 and len(volumes) >= 20:
-        high20 = max(highs[-21:-1])
-        vol_avg = sum(volumes[-20:]) / 20
-        if current > high20 and volumes[-1] > vol_avg * 1.5:
-            score += 2
-            reasons.append("20-day breakout with volume")
-        elif volumes[-1] > vol_avg * 1.5:
-            score += 1
-            reasons.append("volume spike")
+        if macd["bull_cross"]:
+            score += 2.0
+            reasons.append("MACD bullish cross")
+        elif macd["hist"] > 0:
+            score += 1.0
+            reasons.append("MACD positive")
 
-    if sma20 > sma60 > 0:
-        score += 1
-        reasons.append("SMA20>SMA60")
+        if len(prices) >= 21:
+            prev_lo, _prev_mid, _prev_hi = calc_bollinger(prices[:-1], 20)
+            if prev < prev_lo and current >= bb_lo:
+                score += 2.0
+                reasons.append("Bollinger rebound")
+            elif current <= bb_lo:
+                score += 1.0
+                reasons.append("near lower band")
+
+        if len(prices) >= 60 and current > sma60 and rsi2 <= 15:
+            score += 2.0
+            reasons.append(f"trend pullback RSI2={rsi2:.0f}")
+        elif len(prices) >= 120 and current > sma120 and rsi2 <= 20:
+            score += 1.0
+            reasons.append(f"long trend pullback RSI2={rsi2:.0f}")
+
+        if len(highs) >= 21 and len(volumes) >= 20:
+            high20 = max(highs[-21:-1])
+            vol_avg = sum(volumes[-20:]) / 20
+            if current > high20 and volumes[-1] > vol_avg * 1.5:
+                score += 2.0
+                reasons.append("20-day breakout with volume")
+            elif volumes[-1] > vol_avg * 1.5:
+                score += 1.0
+                reasons.append("volume spike")
+
+        if sma20 > sma60 > 0:
+            score += 1.0
+            reasons.append("SMA20>SMA60")
 
     feature_payload = build_strategy_features(prices, highs, volumes, strategy_score=score)
     return {

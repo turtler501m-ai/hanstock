@@ -980,9 +980,10 @@ async function renderStrategyAudit(strategyId) {
     if (!id) return;
     activeStrategyAuditId = id;
     try {
-        const [performance, events] = await Promise.all([
+        const [performance, events, strategiesRes] = await Promise.all([
             fetchJson(`/api/ai-strategies/${encodeURIComponent(id)}/performance?days=30`, 30000),
             fetchJson(`/api/ai-strategies/${encodeURIComponent(id)}/events?limit=20`, 30000),
+            fetchJson('/api/ai-strategies', 30000),
         ]);
         setElementText('strategy-audit-title', `${id} 최근 운영 상태`);
         setElementText('strategy-audit-candidates', formatNumber(performance.candidate_count || 0));
@@ -1001,6 +1002,81 @@ async function renderStrategyAudit(strategyId) {
             'strategy-audit-warning',
             `5d return/win, fill ${trades.fill_rate ?? '-'}% (${trades.filled_count || 0}/${trades.order_count || 0})`
         );
+
+        // Draw strategy backtest chart
+        const strategy = (strategiesRes.strategies || []).find(s => s.id === id);
+        let backtestData = null;
+        if (strategy && strategy.last_validation_result) {
+            try {
+                const valResult = typeof strategy.last_validation_result === 'string'
+                    ? JSON.parse(strategy.last_validation_result)
+                    : strategy.last_validation_result;
+                backtestData = valResult.checks?.backtest;
+            } catch (err) {
+                console.warn('Failed to parse last_validation_result:', err);
+            }
+        }
+
+        const container = document.getElementById('strategy-backtest-chart-container');
+        if (container) {
+            if (backtestData && backtestData.equity_curve && backtestData.equity_curve.length > 0) {
+                container.style.display = 'block';
+                const ctx = document.getElementById('chart-strategy-backtest').getContext('2d');
+                
+                if (window.strategyBacktestChart) {
+                    window.strategyBacktestChart.destroy();
+                }
+                
+                const labels = backtestData.dates || backtestData.equity_curve.map((_, i) => `Day ${i}`);
+                const dataPoints = backtestData.equity_curve;
+                
+                window.strategyBacktestChart = new Chart(ctx, {
+                    type: 'line',
+                    data: {
+                        labels: labels,
+                        datasets: [{
+                            label: '누적 자산 가치',
+                            data: dataPoints,
+                            borderColor: '#10b981',
+                            backgroundColor: 'rgba(16, 185, 129, 0.1)',
+                            borderWidth: 2,
+                            fill: true,
+                            tension: 0.1,
+                            pointRadius: 0
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            legend: { display: false },
+                            tooltip: {
+                                mode: 'index',
+                                intersect: false,
+                                callbacks: {
+                                    label: function(context) {
+                                        return '자산: ' + Number(context.raw).toLocaleString() + '원';
+                                    }
+                                }
+                            }
+                        },
+                        scales: {
+                            x: {
+                                grid: { color: 'rgba(255, 255, 255, 0.05)' },
+                                ticks: { color: '#94a3b8', font: { size: 9 }, maxTicksLimit: 8 }
+                            },
+                            y: {
+                                grid: { color: 'rgba(255, 255, 255, 0.05)' },
+                                ticks: { color: '#94a3b8', font: { size: 9 } }
+                            }
+                        }
+                    }
+                });
+            } else {
+                container.style.display = 'none';
+            }
+        }
+
         const tbody = document.querySelector('#table-strategy-events tbody');
         if (tbody) {
             tbody.innerHTML = '';
@@ -1058,6 +1134,7 @@ async function renderAiStrategies() {
                         <button type="button" class="button-ghost btn-quick-apply-strategy compact-button" data-id="${escapeHtml(strategy.id)}">적용</button>
                         <button type="button" class="button-ghost btn-quick-validate-strategy compact-button" data-id="${escapeHtml(strategy.id)}">자동검증</button>
                         <button type="button" class="button-ghost btn-performance-strategy compact-button" data-id="${escapeHtml(strategy.id)}">성과</button>
+                        <button type="button" class="button-ghost btn-evolve-strategy compact-button" style="background: rgba(16, 185, 129, 0.15); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.3);" data-id="${escapeHtml(strategy.id)}">🌱 자가진화</button>
                     </div>
                     <details class="strategy-advanced-actions">
                         <summary>고급 검증/운영</summary>
@@ -1156,6 +1233,12 @@ async function renderAiStrategies() {
         bindStrategyAction('.btn-performance-strategy', async (id) => {
             await renderStrategyAudit(id);
             setStatus('전략 성과와 이벤트를 불러왔습니다.', true);
+        });
+        bindStrategyAction('.btn-evolve-strategy', async (id) => {
+            const result = await postJson(`/api/ai-strategies/${id}/evolve`, {});
+            const params = result.result?.params || {};
+            const metrics = result.result?.metrics || {};
+            setStatus(`🌱 자가진화 완료! 새 버전 파라미터 적용 - AI 비중: ${Math.round(params.ai_weight * 100)}%, 백테스트 수익률: ${metrics.total_return_pct}%`, true);
         });
         bindStrategyAction('.btn-review-strategy', async (id) => {
             const result = await postJson(`/api/ai-strategies/${id}/performance/review?days=30`, {});

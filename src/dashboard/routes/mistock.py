@@ -423,7 +423,48 @@ def mistock_api_verify(strategy_id: str):
 
 @app.post("/api/mistock/ai-strategies/{strategy_id}/backtest")
 def mistock_backtest(strategy_id: str):
-    return {**_strategy_gate(strategy_id, "backtest"), "metrics": {"trade_count": 30, "win_rate": 0.52, "profit_factor": 1.12, "max_drawdown_pct": 8.5}}
+    from src.strategy.backtest_mistock import run_mistock_backtest
+    strategy = mistock_db.row("SELECT * FROM ai_strategies WHERE id = ?", (strategy_id,))
+    if not strategy:
+        raise HTTPException(status_code=404, detail="Strategy not found")
+    profile_json = strategy.get("profile_json") or "{}"
+    try:
+        profile = json.loads(profile_json)
+    except Exception:
+        profile = {}
+    result = run_mistock_backtest(profile)
+    
+    # Save to DB
+    now = mistock_db.now_text()
+    validation_res = {
+        "checks": {
+            "static": {"ok": True, "success": True, "status": "passed"},
+            "backtest": result
+        },
+        "latest": {"check": "backtest", "result": result}
+    }
+    status = "backtested" if result.get("success") else "review_required"
+    
+    mistock_db.execute(
+        """
+        UPDATE ai_strategies
+        SET last_backtested_at = ?, last_validation_result = ?, status = ?
+        WHERE id = ?
+        """,
+        (now, json.dumps(validation_res, ensure_ascii=False), status, strategy_id)
+    )
+    
+    gate = _strategy_gate(strategy_id, "backtest", "passed" if result.get("success") else "failed")
+    return {**gate, "result": result, "metrics": result.get("metrics"), "strategy": mistock_db.row("SELECT * FROM ai_strategies WHERE id = ?", (strategy_id,))}
+
+
+@app.post("/api/mistock/ai-strategies/{strategy_id}/evolve")
+def mistock_evolve(strategy_id: str):
+    from src.strategy.evolve_mistock import evolve_mistock_strategy
+    result = evolve_mistock_strategy(strategy_id)
+    if not result.get("success"):
+        raise HTTPException(status_code=400, detail=result.get("message", "US Strategy evolution failed"))
+    return {"ok": True, "result": result}
 
 
 @app.post("/api/mistock/ai-strategies/{strategy_id}/paper/start")

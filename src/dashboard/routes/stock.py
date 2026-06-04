@@ -92,53 +92,9 @@ def _approval_gate(strategy: dict) -> dict:
 
 
 def _build_strategy_backtest(strategy: dict) -> dict:
+    from src.strategy.backtest import run_historical_backtest
     profile = strategy.get("profile") or {}
-    backtest_cfg = profile.get("backtest") if isinstance(profile.get("backtest"), dict) else {}
-    risk_cfg = profile.get("risk") if isinstance(profile.get("risk"), dict) else {}
-    weight = max(0.0, min(1.0, float(profile.get("ai_weight", strategy.get("weight", 0.0)) or 0.0)))
-    risk_per_trade = float(risk_cfg.get("max_risk_per_trade_pct") or 1.0)
-    trade_count = max(12, int(36 - weight * 12))
-    win_rate = round(max(0.40, 0.57 - weight * 0.08), 3)
-    max_drawdown_pct = round(5.0 + weight * 9.0 + max(0.0, risk_per_trade - 1.0) * 2.0, 2)
-    profit_factor = round(max(0.95, 1.22 - weight * 0.16), 2)
-    total_return_pct = round((profit_factor - 1.0) * trade_count * 0.42, 2)
-    slippage_bps = float(backtest_cfg.get("slippage_bps") or 0)
-    commission_bps = float(backtest_cfg.get("commission_bps") or 0)
-    market_impact_bps = float(backtest_cfg.get("market_impact_bps") or 0)
-    costs_modeled = slippage_bps > 0 and commission_bps > 0
-    passed = (
-        trade_count >= 10
-        and win_rate >= 0.45
-        and max_drawdown_pct <= 15.0
-        and profit_factor >= 1.05
-        and costs_modeled
-    )
-    return {
-        "ok": True,
-        "success": passed,
-        "status": "passed" if passed else "failed",
-        "metrics": {
-            "trade_count": trade_count,
-            "win_rate": win_rate,
-            "profit_factor": profit_factor,
-            "total_return_pct": total_return_pct,
-            "max_drawdown_pct": max_drawdown_pct,
-        },
-        "costs": {
-            "commission_bps": commission_bps,
-            "slippage_bps": slippage_bps,
-            "market_impact_bps": market_impact_bps,
-            "modeled": costs_modeled,
-        },
-        "criteria": {
-            "min_trade_count": 10,
-            "min_win_rate": 0.45,
-            "min_profit_factor": 1.05,
-            "max_drawdown_pct": 15.0,
-            "costs_required": True,
-        },
-        "message": "Deterministic local backtest gate completed",
-    }
+    return run_historical_backtest(profile)
 
 
 def _paper_result_from_payload(payload: PaperCompletePayload, strategy: dict) -> dict:
@@ -559,6 +515,15 @@ def backtest_ai_strategy(id: str):
     save_ai_strategies(strategies)
     record_ai_strategy_event(id, "backtested", result, strategy.get("strategy_version"))
     return {"ok": True, "result": result, "strategy": strategy}
+
+
+@app.post("/api/ai-strategies/{id}/evolve")
+def evolve_ai_strategy(id: str):
+    from src.strategy.evolve import evolve_strategy
+    result = evolve_strategy(id)
+    if not result.get("success"):
+        raise HTTPException(status_code=400, detail=result.get("message", "Strategy evolution failed"))
+    return {"ok": True, "result": result}
 
 
 @app.post("/api/ai-strategies/{id}/paper/start")

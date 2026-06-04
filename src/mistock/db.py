@@ -203,6 +203,11 @@ def init_db() -> None:
                 conn.execute(f"ALTER TABLE approvals ADD COLUMN {col_name} {col_type}")
             except sqlite3.OperationalError:
                 pass
+        try:
+            from src.db.repository import sync_custom_rules_to_db
+            sync_custom_rules_to_db(conn)
+        except Exception:
+            pass
         conn.commit()
     finally:
         conn.close()

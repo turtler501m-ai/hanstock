@@ -293,6 +293,10 @@ def init_db() -> None:
                 conn.commit()
         except Exception as m_err:
             logger.warning(f"Failed to run watchlist migration clean up: {m_err}")
+        try:
+            sync_custom_rules_to_db(conn)
+        except Exception as sc_err:
+            logger.warning(f"Failed to sync custom rules to DB on init: {sc_err}")
 
 
 def _ensure_column(conn: DBWrapper, table: str, column: str, column_type: str) -> None:
@@ -1904,3 +1908,101 @@ def get_watchlist_extra_info(symbol: str) -> dict:
     except Exception as e:
         logger.warning(f"Failed to get watchlist extra info for {symbol}: {e}")
     return res
+
+
+def sync_custom_rules_to_db(conn) -> None:
+    import importlib.util
+    import inspect
+    import sys
+    import json
+    from pathlib import Path
+
+    custom_dir = Path("src/strategy/custom_rules")
+    if not custom_dir.exists():
+        return
+        
+    project_root = str(Path("src").resolve().parent)
+    if project_root not in sys.path:
+        sys.path.insert(0, project_root)
+
+    for py_file in custom_dir.glob("*.py"):
+        if py_file.name == "__init__.py":
+            continue
+        try:
+            module_name = f"src.strategy.custom_rules.{py_file.stem}"
+            spec = importlib.util.spec_from_file_location(module_name, py_file)
+            if not spec or not spec.loader:
+                continue
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+            
+            for name, obj in inspect.getmembers(module, inspect.isclass):
+                if obj.__module__ == module_name and "Strategy" in name:
+                    strat_id = py_file.stem
+                    doc = obj.__doc__ or ""
+                    doc_lines = [line.strip() for line in doc.split("\n") if line.strip()]
+                    strat_name = doc_lines[0] if doc_lines else name
+                    if not (strat_name.startswith("🤖") or strat_name.startswith("⚙️") or strat_name.startswith("📊") or strat_name.startswith("⚖️") or strat_name.startswith("🧠") or strat_name.startswith("🔌")):
+                        strat_name = f"🔌 {strat_name}"
+                    
+                    description = " ".join(doc_lines[1:]) if len(doc_lines) > 1 else doc
+                    if not description:
+                        description = f"Dynamically loaded custom strategy from {py_file.name}"
+                        
+                    # Check if strategy exists in DB
+                    c = conn.execute("SELECT id FROM ai_strategies WHERE id = ?", (strat_id,))
+                    row = c.fetchone()
+                    
+                    profile = _default_strategy_profile({
+                        "id": strat_id,
+                        "provider": "none",
+                        "model": strat_id,
+                        "weight": 0.0,
+                    })
+                    profile_json = json.dumps(profile, ensure_ascii=False, sort_keys=True)
+                    profile_hash = strategy_profile_hash(profile)
+                    
+                    if not row:
+                        conn.execute(
+                            """
+                            INSERT INTO ai_strategies (
+                                id, name, provider, model, weight, description, selected,
+                                status, profile_json, strategy_version, profile_hash
+                            )
+                            VALUES (?, ?, 'none', ?, 0.0, ?, 0, 'verified', ?, 1, ?)
+                            """,
+                            (strat_id, strat_name, strat_id, description, profile_json, profile_hash)
+                        )
+                        logger.info(f"Registered new custom strategy: {strat_id} ({strat_name})")
+        except Exception as e:
+            logger.warning(f"Error loading custom strategy file {py_file.name}: {e}")
+
+
+def get_custom_strategy_instance(strategy_id: str):
+    import importlib.util
+    import inspect
+    import sys
+    from pathlib import Path
+
+    custom_dir = Path("src/strategy/custom_rules")
+    py_file = custom_dir / f"{strategy_id}.py"
+    if not py_file.exists():
+        return None
+        
+    try:
+        module_name = f"src.strategy.custom_rules.{strategy_id}"
+        spec = importlib.util.spec_from_file_location(module_name, py_file)
+        if not spec or not spec.loader:
+            return None
+        module = importlib.util.module_from_spec(spec)
+        project_root = str(Path("src").resolve().parent)
+        if project_root not in sys.path:
+            sys.path.insert(0, project_root)
+        spec.loader.exec_module(module)
+        
+        for name, obj in inspect.getmembers(module, inspect.isclass):
+            if obj.__module__ == module_name and "Strategy" in name:
+                return obj()
+    except Exception as e:
+        logger.warning(f"Failed to load custom strategy instance for {strategy_id}: {e}")
+    return None
