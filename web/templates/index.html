@@ -1045,11 +1045,11 @@
                             <p class="section-help">급락반등 5중 필터 매매 엔진을 수동으로 즉시 구동하거나 설정을 점검합니다.</p>
                             
                             <div style="display: flex; gap: 12px; margin-top: 1.5rem; margin-bottom: 1rem;">
-                                <button type="button" class="button-primary" id="btn-run-execute" style="flex: 1;">
-                                    <span class="loading-spinner" id="spin-run-execute" style="display:none;"></span>실전 자동매매 강제 실행
+                                <button type="button" class="button-primary" id="btn-pb-run-execute" style="flex: 1;">
+                                    <span class="loading-spinner" id="spin-pb-run-execute" style="display:none;"></span>실전 자동매매 강제 실행
                                 </button>
-                                <button type="button" class="button-secondary" id="btn-run-analysis" style="flex: 1;">
-                                    <span class="loading-spinner" id="spin-run-analysis" style="display:none;"></span>스캔 분석 (시뮬레이션)
+                                <button type="button" class="button-secondary" id="btn-pb-run-analysis" style="flex: 1;">
+                                    <span class="loading-spinner" id="spin-pb-run-analysis" style="display:none;"></span>스캔 분석 (시뮬레이션)
                                 </button>
                             </div>
 
@@ -1660,8 +1660,8 @@
         }
 
         async function runTraderCycle(mode) {
-            const spinId = mode === 'execute' ? 'spin-run-execute' : 'spin-run-analysis';
-            const btnId = mode === 'execute' ? 'btn-run-execute' : 'btn-run-analysis';
+            const spinId = mode === 'execute' ? 'spin-pb-run-execute' : 'spin-pb-run-analysis';
+            const btnId = mode === 'execute' ? 'btn-pb-run-execute' : 'btn-pb-run-analysis';
             const spinner = document.getElementById(spinId);
             const btn = document.getElementById(btnId);
 
@@ -1680,7 +1680,7 @@
                 }
             } catch (err) {
                 console.error("Run trader error", err);
-                alert("서버 연결에 실패했습니다.");
+                alert(`실행 중 에러가 발생했습니다:\n${err.message || err}`);
             } finally {
                 if (btn) btn.disabled = false;
                 if (spinner) spinner.style.display = 'none';
@@ -1843,10 +1843,10 @@
                 renderScanTable();
             });
 
-            const btnRunExecute = document.getElementById('btn-run-execute');
+            const btnRunExecute = document.getElementById('btn-pb-run-execute');
             if (btnRunExecute) btnRunExecute.addEventListener('click', () => runTraderCycle('execute'));
 
-            const btnRunAnalysis = document.getElementById('btn-run-analysis');
+            const btnRunAnalysis = document.getElementById('btn-pb-run-analysis');
             if (btnRunAnalysis) btnRunAnalysis.addEventListener('click', () => runTraderCycle('analysis_only'));
 
             const btnRefreshSchedHistory = document.getElementById('btn-refresh-sched-history');
