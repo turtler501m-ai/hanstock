@@ -59,10 +59,10 @@ class NotificationTests(unittest.TestCase):
             mode="DRY_RUN",
             trading_env="demo",
         )
-        fields = payload["attachments"][0]["blocks"][1]["fields"]
-        self.assertEqual(payload["text"], "세븐 스플릿 자동매매 시작 - 2026-04-26 18:30 KST")
-        self.assertEqual(fields[1]["text"], "*실행 모드*\nDRY_RUN")
-        self.assertEqual(fields[4]["text"], "*총 평가금액*\n2,000,000원")
+        text = payload["attachments"][0]["blocks"][0]["text"]["text"]
+        self.assertIn("세븐 스플릿 자동매매 시작", payload["text"])
+        self.assertIn("DRY_RUN", text)
+        self.assertIn("2,000,000원", text)
 
     def test_build_order_payload_formats_market_sell_and_failure_color(self):
         payload = build_order_payload(
@@ -75,11 +75,11 @@ class NotificationTests(unittest.TestCase):
             ok=False,
             indicators={"rsi": 31.25, "sma20": 71000, "sma60": 68000, "rt": -15.34},
         )
-        fields = payload["attachments"][0]["blocks"][1]["fields"]
+        text = payload["attachments"][0]["blocks"][0]["text"]["text"]
         self.assertEqual(payload["attachments"][0]["color"], "#e74c3c")
-        self.assertEqual(fields[1]["text"], "*가격*\n시장가")
-        self.assertEqual(fields[3]["text"], "*RSI*\n31.2")
-        self.assertEqual(fields[5]["text"], "*수익률*\n-15.34%")
+        self.assertIn("시장가", text)
+        self.assertIn("RSI: 31.2", text)
+        self.assertIn("수익률: -15.34%", text)
 
     def test_build_order_payload_formats_us_stock_with_exchange_rate(self):
         payload = build_order_payload(
@@ -93,13 +93,13 @@ class NotificationTests(unittest.TestCase):
             indicators={"rsi": 35.0, "sma20": 178.0, "sma60": 175.0, "rt": 1.25},
             exchange_rate=1300.0,
         )
-        fields = payload["attachments"][0]["blocks"][1]["fields"]
+        text = payload["attachments"][0]["blocks"][0]["text"]["text"]
         self.assertEqual(payload["attachments"][0]["color"], "#36a64f")
-        self.assertEqual(fields[0]["text"], "*수량*\n2.5000주")
-        self.assertEqual(fields[1]["text"], "*가격*\n$180.00 (₩234,000원)")
-        self.assertEqual(fields[2]["text"], "*금액*\n$450.00 (₩585,000원)")
-        self.assertEqual(fields[3]["text"], "*RSI*\n35.0")
-        self.assertEqual(fields[5]["text"], "*수익률*\n+1.25%")
+        self.assertIn("2.5000주", text)
+        self.assertIn("$180.00 (₩234,000원)", text)
+        self.assertIn("$450.00 (₩585,000원)", text)
+        self.assertIn("RSI: 35.0", text)
+        self.assertIn("수익률: +1.25%", text)
 
     def test_build_order_summary_payload_uses_two_line_summary_for_kr_stock(self):
         payload = build_order_summary_payload(
@@ -179,9 +179,9 @@ class NotificationTests(unittest.TestCase):
             })
         payload = build_candidates_payload(candidates)
         blocks = payload["attachments"][0]["blocks"]
-        # It should have a header block and at least two section blocks due to chunking
+        # It should have a section block and at least two section blocks due to chunking
         self.assertGreaterEqual(len(blocks), 3)
-        self.assertEqual(blocks[0]["type"], "header")
+        self.assertEqual(blocks[0]["type"], "section")
         self.assertEqual(blocks[1]["type"], "section")
         self.assertEqual(blocks[2]["type"], "section")
 
@@ -198,11 +198,11 @@ class NotificationTests(unittest.TestCase):
             now=datetime(2026, 4, 26, 10, 0, tzinfo=timezone.utc),
         )
         attachment = payload["attachments"][0]
-        fields = attachment["blocks"][1]["fields"]
-        orders = attachment["blocks"][2]["text"]["text"]
+        text = attachment["blocks"][0]["text"]["text"]
+        orders = attachment["blocks"][1]["text"]["text"]
         self.assertEqual(attachment["color"], "#e74c3c")
-        self.assertEqual(fields[4]["text"], "*매수 성공*\n1건")
-        self.assertEqual(fields[6]["text"], "*승인대기*\n1건")
+        self.assertIn("매수성공: 1건", text)
+        self.assertIn("승인대기: 1건", text)
         self.assertIn("승인대기 Naver 3주 - queue", orders)
 
     def test_build_session_end_payload_chunks_long_lists(self):
@@ -219,13 +219,11 @@ class NotificationTests(unittest.TestCase):
             })
         payload = build_session_end_payload(results, cash=1000, total=2000, pnl=100)
         blocks = payload["attachments"][0]["blocks"]
-        # Header, Info Fields, and at least two section blocks for chunked order history + 1 context
-        self.assertGreaterEqual(len(blocks), 5)
-        self.assertEqual(blocks[0]["type"], "header")
+        # Summary section and at least two section blocks for chunked order history
+        self.assertGreaterEqual(len(blocks), 3)
+        self.assertEqual(blocks[0]["type"], "section")
         self.assertEqual(blocks[1]["type"], "section")
         self.assertEqual(blocks[2]["type"], "section")
-        self.assertEqual(blocks[3]["type"], "section")
-        self.assertEqual(blocks[-1]["type"], "context")
 
     def test_build_session_end_payload_handles_empty_results(self):
         payload = build_session_end_payload(results=[], cash=1, total=2, pnl=3)

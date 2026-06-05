@@ -88,18 +88,14 @@ def build_session_start_payload(
     trading_env: str,
 ) -> dict[str, Any]:
     ts = format_kst_timestamp(now)
+    text = (
+        f"*세븐 스플릿 자동매매 시작* | {ts}\n"
+        f"모드: {mode} | 환경: {trading_env} | 예수금: {cash:,}원 | 평가금액: {total:,}원 | 보유종목: {stock_count}개"
+    )
     return build_slack_payload(
-        text=f"세븐 스플릿 자동매매 시작 - {ts}",
+        text=text.replace("*", ""),
         blocks=[
-            {"type": "header", "text": {"type": "plain_text", "text": "세븐 스플릿 자동매매 시작"}},
-            {"type": "section", "fields": [
-                {"type": "mrkdwn", "text": f"*시간*\n{ts}"},
-                {"type": "mrkdwn", "text": f"*실행 모드*\n{mode}"},
-                {"type": "mrkdwn", "text": f"*API 환경*\n{trading_env}"},
-                {"type": "mrkdwn", "text": f"*예수금*\n{cash:,}원"},
-                {"type": "mrkdwn", "text": f"*총 평가금액*\n{total:,}원"},
-                {"type": "mrkdwn", "text": f"*보유 종목*\n{stock_count}개"},
-            ]},
+            {"type": "section", "text": {"type": "mrkdwn", "text": text}}
         ],
         color="#2196F3",
     )
@@ -140,19 +136,16 @@ def build_order_payload(
 
     rsi_value = details.get("rsi", "-")
     rsi_str = f"{rsi_value:.1f}" if isinstance(rsi_value, float) else str(rsi_value)
+    rt_value = details.get("rt", 0)
+    rt_str = f"{rt_value:+.2f}%" if isinstance(rt_value, (int, float)) else str(rt_value)
+    summary_text = (
+        f"*{action_label} {status}* | {name} (`{symbol}`) | {qty_str} @ {price_str} (총 {amount_str})\n"
+        f"└ 사유: {reason} | RSI: {rsi_str} | 수익률: {rt_str}"
+    )
     return build_slack_payload(
-        text=f"{action_label} {name} {qty_str} {status}",
+        text=summary_text.replace("*", ""),
         blocks=[
-            {"type": "section", "text": {"type": "mrkdwn", "text": f"*{action_label}* {name} (`{symbol}`) {status}"}},
-            {"type": "section", "fields": [
-                {"type": "mrkdwn", "text": f"*수량*\n{qty_str}"},
-                {"type": "mrkdwn", "text": f"*가격*\n{price_str}"},
-                {"type": "mrkdwn", "text": f"*금액*\n{amount_str}"},
-                {"type": "mrkdwn", "text": f"*RSI*\n{rsi_str}"},
-                {"type": "mrkdwn", "text": f"*SMA20/60*\n{details.get('sma20', 0):.0f} / {details.get('sma60', 0):.0f}"},
-                {"type": "mrkdwn", "text": f"*수익률*\n{details.get('rt', 0):+.2f}%"},
-            ]},
-            {"type": "context", "elements": [{"type": "mrkdwn", "text": f"사유: {reason}"}]},
+            {"type": "section", "text": {"type": "mrkdwn", "text": summary_text}}
         ],
         color="#36a64f" if ok else "#e74c3c",
     )
@@ -209,7 +202,7 @@ def build_candidates_payload(candidates: list[dict[str, Any]]) -> dict[str, Any]
     if not candidates:
         return None
     
-    blocks = [{"type": "header", "text": {"type": "plain_text", "text": "매수 후보 종목"}}]
+    blocks = [{"type": "section", "text": {"type": "mrkdwn", "text": f"*매수 후보 종목 ({len(candidates)}개)*"}}]
     current_chunk = []
     current_length = 0
     
@@ -258,28 +251,24 @@ def build_session_end_payload(
     sell_count = sum(1 for item in executed if item["action"] == "sell" and item["ok"])
     fail_count = sum(1 for item in executed if not item["ok"])
     
+    summary_text = (
+        f"*세븐 스플릿 자동매매 종료* | {ts}\n"
+        f"평가: {total:,}원 | 예수금: {cash:,}원 | 손익: {pnl:+,}원\n"
+        f"매수성공: {buy_count}건 | 매도성공: {sell_count}건 | 승인대기: {queued_count}건 | 실패: {fail_count}건"
+    )
     blocks = [
-        {"type": "header", "text": {"type": "plain_text", "text": "세븐 스플릿 자동매매 종료"}},
-        {"type": "section", "fields": [
-            {"type": "mrkdwn", "text": f"*시간*\n{ts}"},
-            {"type": "mrkdwn", "text": f"*총 평가금액*\n{total:,}원"},
-            {"type": "mrkdwn", "text": f"*예수금*\n{cash:,}원"},
-            {"type": "mrkdwn", "text": f"*당일 손익*\n{pnl:+,}원"},
-            {"type": "mrkdwn", "text": f"*매수 성공*\n{buy_count}건"},
-            {"type": "mrkdwn", "text": f"*매도 성공*\n{sell_count}건"},
-            {"type": "mrkdwn", "text": f"*승인대기*\n{queued_count}건"},
-        ]}
+        {"type": "section", "text": {"type": "mrkdwn", "text": summary_text}}
     ]
 
-    current_chunk = ["*주문 내역*"]
-    current_length = len(current_chunk[0])
+    current_chunk = []
+    current_length = 0
     
     for item in results:
         if item.get("decision") == "queue":
             prefix = "승인대기"
         else:
             prefix = "매수" if item["action"] == "buy" else "매도"
-        line = f"{prefix} {item['name']} {item['qty']}주 - {item['reason']}"
+        line = f"• {prefix} {item['name']} {item['qty']}주 - {item['reason']}"
         line_len = len(line) + 1
         
         if current_length + line_len > 2800:
@@ -292,8 +281,6 @@ def build_session_end_payload(
             
     if current_chunk:
         blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": "\n".join(current_chunk)}})
-
-    blocks.append({"type": "context", "elements": [{"type": "mrkdwn", "text": f"실패 건수: {fail_count}건"}]})
 
     return build_slack_payload(
         text=f"세븐 스플릿 자동매매 종료 - {ts}",

@@ -155,20 +155,17 @@ def run_mistock_scheduled_cycle(mode: str = "execute") -> dict:
     # 슬랙 알림 발송
     if os.environ.get("MISTOCK_SCHEDULER_SLACK", "true").lower() not in {"0", "false", "no", "off"}:
         status_str = "성공"
-        lines = [
-            f"*상태*: {status_str}",
-            f"*스캔 대상*: {scan['scanned']}개 종목",
-            f"*보유종목 매도 집행*: {len(sold_items)}건",
-            f"*매수 집행*: {len(bought_items)}건 / 계획 {len(orders)}건",
-            f"*현재 현금 잔고*: ${balance['cash']:,.2f}",
-            f"*총 평가 금액*: ${balance['total_eval']:,.2f}",
-            f"*환경*: {mistock_config.trading_env}, dry_run={mistock_config.dry_run}",
-        ]
+        status_line = f"*[미스톡 VM] 미국주식 자동매매 {status_str}*"
+        details_line = (
+            f"스캔: {scan['scanned']}개 | 매도: {len(sold_items)}건 | "
+            f"매수: {len(bought_items)}건(계획: {len(orders)}건)\n"
+            f"잔고: ${balance['cash']:,.2f} | 평가: ${balance['total_eval']:,.2f} | "
+            f"환경: {mistock_config.trading_env}(dry={mistock_config.dry_run})"
+        )
         send_mistock_slack(
             text=f"[미스톡 VM] 미장 자동매매 {status_str}",
             blocks=[
-                {"type": "header", "text": {"type": "plain_text", "text": "미스톡 미국주식 자동매매"}},
-                {"type": "section", "text": {"type": "mrkdwn", "text": "\n".join(lines)}},
+                {"type": "section", "text": {"type": "mrkdwn", "text": f"{status_line}\n{details_line}"}},
             ],
             color="#36a64f"
         )

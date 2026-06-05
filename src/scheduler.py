@@ -180,26 +180,24 @@ def _slack_cycle_result(result: dict, *, mode: str) -> None:
     failed_approval_count = sum(1 for row in approved if row.get("status") == "failed") + len(approval_errors)
     retry_count = int(result.get("retry_count", 0) or 0)
 
-    lines = [
-        f"*상태*: {status}",
-        f"*계획/승인대기/승인완료*: {plan_count} / {queued_count} / {approved_count}",
-        f"*승인 실패*: {failed_approval_count}",
-        f"*재시도*: {retry_count}",
-        f"*환경*: {trader.TRADING_ENV}, dry_run={trader.DRY_RUN}, order_submission={trader.ORDER_SUBMISSION_ENABLED}",
-    ]
+    status_line = f"*[한스톡 VM] AI 자동매매 {status}*"
+    details_line = (
+        f"계획/승인대기/완료: {plan_count} / {queued_count} / {approved_count} | "
+        f"실패: {failed_approval_count} | 재시도: {retry_count}\n"
+        f"환경: {trader.TRADING_ENV}(dry={trader.DRY_RUN}, order_sub={trader.ORDER_SUBMISSION_ENABLED})"
+    )
 
     if approval_errors:
         first = approval_errors[0]
-        lines.append(f"*승인 오류*: approval={first.get('approval_id', '-')} {first.get('message', '')}")
+        details_line += f"\n*승인 오류*: approval={first.get('approval_id', '-')} {first.get('message', '')}"
     elif run_errors:
         first = run_errors[-1]
-        lines.append(f"*실행 오류*: {first.get('type', 'Error')} {first.get('message', '')}")
+        details_line += f"\n*실행 오류*: {first.get('type', 'Error')} {first.get('message', '')}"
 
     send_slack(
         text=f"[한스톡 VM] AI 자동매매 {status}",
         blocks=[
-            {"type": "header", "text": {"type": "plain_text", "text": "한스톡 AI 자동매매"}},
-            {"type": "section", "text": {"type": "mrkdwn", "text": "\n".join(lines)}},
+            {"type": "section", "text": {"type": "mrkdwn", "text": f"{status_line}\n{details_line}"}},
         ],
         color=color,
     )
