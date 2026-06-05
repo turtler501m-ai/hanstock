@@ -658,6 +658,7 @@ class KISClient:
             "ORD_DVSN": "00",
             "ORD_QTY": str(int(qty)),
             "OVRS_ORD_UNPR": f"{price:.2f}",
+            "ORD_SVR_DVSN_CD": "0",
         }
         headers = self.headers(tr_id)
         hashkey = self.create_hashkey(body)
@@ -671,9 +672,37 @@ class KISClient:
                 json=body,
                 timeout=self.config.request_timeout_seconds,
             )
-            response.raise_for_status()
+            try:
+                data = response.json()
+            except Exception:
+                data = {}
+            status_code = getattr(response, "status_code", 0)
+            if status_code and status_code >= 400:
+                self.mark_failure()
+                raw_text = getattr(response, "text", "")
+                return {
+                    "rt_cd": "1",
+                    "msg_cd": data.get("msg_cd") if isinstance(data, dict) else None,
+                    "msg1": (
+                        data.get("msg1")
+                        if isinstance(data, dict) and data.get("msg1")
+                        else f"HTTP {status_code} from KIS overseas order API"
+                    ),
+                    "status_code": status_code,
+                    "output": data.get("output") if isinstance(data, dict) else None,
+                    "raw": data if isinstance(data, dict) else raw_text,
+                    "request": {
+                        "tr_id": tr_id,
+                        "OVRS_EXCG_CD": ovrs_excg_cd,
+                        "PDNO": clean_symbol,
+                        "ORD_DVSN": body["ORD_DVSN"],
+                        "ORD_QTY": body["ORD_QTY"],
+                        "OVRS_ORD_UNPR": body["OVRS_ORD_UNPR"],
+                        "ORD_SVR_DVSN_CD": body["ORD_SVR_DVSN_CD"],
+                    },
+                }
             self.mark_success()
-            return response.json()
+            return data
         except Exception as exc:
             self.mark_failure()
             return {"rt_cd": "1", "msg1": str(exc)}

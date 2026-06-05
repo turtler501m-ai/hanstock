@@ -86,14 +86,29 @@ def run_mistock_scheduled_cycle(mode: str = "execute") -> dict:
                     (now, now, ord["symbol"], symbol_name(ord["symbol"]), "buy", qty, price, ord.get("reason") or "매수 계획", "scheduler"),
                 )
             
+    order_failures = [
+        item
+        for item in sold_items + bought_items
+        if not (item.get("result") or {}).get("ok", False)
+    ]
     result = {
-        "status": "success",
-        "ok": True,
+        "status": "success" if not order_failures else "failed",
+        "ok": not order_failures,
         "scanned": scan["scanned"],
         "candidates": len(candidates),
         "sold": sold_items,
         "bought": bought_items,
         "plan": orders,
+        "errors": [
+            {
+                "symbol": item.get("symbol"),
+                "action": "sell" if item in sold_items else "buy",
+                "message": (item.get("result") or {}).get("msg1")
+                or (item.get("result") or {}).get("message")
+                or "order failed",
+            }
+            for item in order_failures
+        ],
     }
     
     # 결과 파일 저장

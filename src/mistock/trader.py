@@ -10,6 +10,76 @@ from src.mistock.strategy import NASDAQ_UNIVERSE, fetch_history, normalize_symbo
 
 _kis_client_cache = None
 
+
+def _to_float(value: Any, default: float = 0.0) -> float:
+    try:
+        if value is None or value == "":
+            return default
+        return float(str(value).replace(",", ""))
+    except (TypeError, ValueError):
+        return default
+
+
+def _first_dict(value: Any) -> dict[str, Any]:
+    if isinstance(value, dict):
+        return value
+    if isinstance(value, list):
+        return next((item for item in value if isinstance(item, dict)), {})
+    return {}
+
+
+def _first_positive(mapping: dict[str, Any], keys: list[str]) -> float:
+    for key in keys:
+        value = _to_float(mapping.get(key))
+        if value > 0:
+            return value
+    return 0.0
+
+
+def _holdings_from_overseas_balance(balance_data: dict[str, Any]) -> list[dict[str, Any]]:
+    if not isinstance(balance_data, dict):
+        from src.utils.logger import logger
+        logger.error(f"Invalid balance_data type in get_holdings: {type(balance_data)}, expected dict. Value: {balance_data}")
+        balance_data = {"output1": [], "output2": {}, "output3": {}}
+
+    output1 = balance_data.get("output1", [])
+    if not isinstance(output1, list):
+        output1 = [output1] if isinstance(output1, dict) else []
+
+    holdings = []
+    for item in output1:
+        if not isinstance(item, dict):
+            continue
+        symbol = str(item.get("pdno", "")).strip()
+        if not symbol:
+            continue
+        name = item.get("prdt_name", symbol)
+        qty = _to_float(item.get("cblc_qty13") or item.get("cblc_qty"))
+        if qty <= 0:
+            continue
+        avg = _to_float(item.get("avg_unpr3") or item.get("avg_unpr"))
+        price = _to_float(item.get("ovrs_now_pric1") or item.get("ovrs_now_pric"))
+        if price <= 0:
+            price = _to_float(quote(symbol).get("current"))
+        value = _to_float(item.get("frcr_evlu_amt2") or item.get("frcr_evlu_amt"), qty * price)
+        pnl = _to_float(item.get("evlu_pfls_amt2") or item.get("evlu_pfls_amt"), (price - avg) * qty)
+        rt = _to_float(
+            item.get("evlu_pfls_rt1") or item.get("evlu_pfls_rt"),
+            ((price - avg) / avg * 100.0) if avg > 0 else 0.0,
+        )
+        holdings.append({
+            "symbol": symbol,
+            "name": name,
+            "qty": qty,
+            "price": price,
+            "avg_price": avg,
+            "value": value,
+            "pnl": pnl,
+            "rt": rt,
+        })
+    return holdings
+
+
 def _get_kis_client():
     global _kis_client_cache
     if _kis_client_cache is None:
@@ -91,47 +161,7 @@ def get_holdings() -> list[dict[str, Any]]:
         try:
             client = _get_kis_client()
             balance_data = client.get_overseas_balance()
-            if not isinstance(balance_data, dict):
-                from src.utils.logger import logger
-                logger.error(f"Invalid balance_data type in get_holdings: {type(balance_data)}, expected dict. Value: {balance_data}")
-                balance_data = {"output1": [], "output2": {}, "output3": {}}
-            
-            output1 = balance_data.get("output1", [])
-            if not isinstance(output1, list):
-                if isinstance(output1, dict):
-                    output1 = [output1]
-                else:
-                    output1 = []
-            
-            holdings = []
-            for item in output1:
-                if not isinstance(item, dict):
-                    continue
-                symbol = item.get("pdno", "").strip()
-                if not symbol:
-                    continue
-                name = item.get("prdt_name", symbol)
-                qty = float(item.get("cblc_qty13") or item.get("cblc_qty") or 0.0)
-                if qty <= 0:
-                    continue
-                avg = float(item.get("avg_unpr3") or item.get("avg_unpr") or 0.0)
-                price = float(item.get("ovrs_now_pric1") or item.get("ovrs_now_pric") or 0.0)
-                if price <= 0:
-                    price = quote(symbol)["current"]
-                value = float(item.get("frcr_evlu_amt2") or item.get("frcr_evlu_amt") or (qty * price))
-                pnl = float(item.get("evlu_pfls_amt2") or item.get("evlu_pfls_amt") or ((price - avg) * qty))
-                rt = float(item.get("evlu_pfls_rt1") or item.get("evlu_pfls_rt") or (((price - avg) / avg * 100.0) if avg > 0 else 0.0))
-                holdings.append({
-                    "symbol": symbol,
-                    "name": name,
-                    "qty": qty,
-                    "price": price,
-                    "avg_price": avg,
-                    "value": value,
-                    "pnl": pnl,
-                    "rt": rt,
-                })
-            return holdings
+            return _holdings_from_overseas_balance(balance_data)
         except Exception as e:
             from src.utils.logger import logger
             logger.error(f"Failed to fetch KIS US holdings: {e}")
@@ -173,7 +203,13 @@ def get_balance() -> dict[str, Any]:
                     summary = {}
             
             # KIS 외화 예수금 파싱
-            cash = float(summary.get("frcr_dncl_amt") or summary.get("frcr_dncl_amt_2") or 0.0)
+            cash = _first_positive(summary, [
+                "frcr_dncl_amt",
+                "frcr_dncl_amt_2",
+                "frcr_buy_amt_smtl",
+                "frcr_drwg_psbl_amt",
+                "frcr_drwg_psbl_amt_1",
+            ])
             
             # 통합증거금 원화 가용 자원 파싱 및 합산
             output3 = balance_data.get("output3", {})
@@ -183,26 +219,35 @@ def get_balance() -> dict[str, Any]:
                 else:
                     output3 = {}
                     
-            exchange_rate = float(summary.get("frst_rt") or output3.get("frst_rt") or 1380.0)
+            exchange_rate = _to_float(summary.get("frst_rt") or output3.get("frst_rt"), 1380.0)
             if exchange_rate <= 0:
                 exchange_rate = 1380.0
                 
-            krw_cash = float(output3.get("tot_dncl_amt") or output3.get("dncl_amt") or 0.0)
+            krw_cash = _first_positive(output3, ["tot_dncl_amt", "dncl_amt"])
             if krw_cash > 0:
                 # 98% 마진율을 적용해 달러 가용 금액에 합산 (통합증거금)
                 cash += (krw_cash / exchange_rate) * 0.98
 
-            if cash <= 0:
-                cash = float(db.get_setting("cash", str(config.total_capital)) or 0.0)
-                
-            holdings = get_holdings()
+            holdings = _holdings_from_overseas_balance(balance_data)
             stock_eval = sum(float(item["value"] or 0.0) for item in holdings)
             pnl = sum(float(item["pnl"] or 0.0) for item in holdings)
+            broker_total_eval = _first_positive(summary, [
+                "tot_asst_amt",
+                "tot_evlu_amt",
+                "frcr_evlu_tota",
+            ]) or _first_positive(output3, [
+                "tot_asst_amt",
+                "tot_evlu_amt",
+                "evlu_amt_smtl",
+                "frcr_evlu_tota",
+            ])
+            if cash <= 0 and broker_total_eval > stock_eval:
+                cash = broker_total_eval - stock_eval
             total_eval = cash + stock_eval
             return {
                 "cash": cash,
                 "total_eval": total_eval,
-                "broker_total_eval": total_eval,
+                "broker_total_eval": broker_total_eval or total_eval,
                 "calculated_total_eval": total_eval,
                 "stock_eval": stock_eval,
                 "cash_ratio": cash / total_eval if total_eval > 0 else 0.0,
@@ -213,17 +258,17 @@ def get_balance() -> dict[str, Any]:
         except Exception as e:
             from src.utils.logger import logger
             logger.error(f"Failed to fetch KIS US balance: {e}")
-            cash = float(db.get_setting("cash", str(config.total_capital)) or 0.0)
             return {
-                "cash": cash,
-                "total_eval": cash,
-                "broker_total_eval": cash,
-                "calculated_total_eval": cash,
+                "cash": 0.0,
+                "total_eval": 0.0,
+                "broker_total_eval": 0.0,
+                "calculated_total_eval": 0.0,
                 "stock_eval": 0.0,
-                "cash_ratio": 1.0,
+                "cash_ratio": 0.0,
                 "stock_ratio": 0.0,
                 "pnl": 0.0,
                 "holdings": [],
+                "_error": str(e),
             }
 
 

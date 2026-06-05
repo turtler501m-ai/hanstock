@@ -270,6 +270,31 @@ class KISClientTests(unittest.TestCase):
         self.assertEqual(order_call.kwargs["headers"]["hashkey"], "hash-value")
         self.assertEqual(order_call.kwargs["json"]["OVRS_EXCG_CD"], "NYSE")
         self.assertEqual(order_call.kwargs["json"]["PDNO"], "BRK.B")
+        self.assertEqual(order_call.kwargs["json"]["ORD_SVR_DVSN_CD"], "0")
+
+    def test_place_overseas_order_preserves_kis_error_payload(self):
+        session = Mock()
+        session.post.side_effect = [
+            _FakeResponse({"HASH": "hash-value"}),
+            _FakeResponse(
+                {"rt_cd": "1", "msg_cd": "EGW00123", "msg1": "mock trading rejected"},
+                status_code=500,
+            ),
+        ]
+        client = KISClient(
+            self.make_config(),
+            session=session,
+            access_token="token",
+        )
+
+        result = client.place_overseas_order("AAPL", "buy", 123.45, 1)
+
+        self.assertEqual(result["rt_cd"], "1")
+        self.assertEqual(result["msg_cd"], "EGW00123")
+        self.assertEqual(result["msg1"], "mock trading rejected")
+        self.assertEqual(result["status_code"], 500)
+        self.assertEqual(result["request"]["tr_id"], "VTTT1002U")
+        self.assertEqual(result["request"]["ORD_SVR_DVSN_CD"], "0")
 
     def test_cancel_overseas_order_uses_revise_cancel_endpoint(self):
         session = Mock()

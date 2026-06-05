@@ -7,6 +7,7 @@ from src.dashboard import app
 from src.dashboard.routes import mistock
 from src.mistock.config import config as mistock_config
 from src.mistock import db as mistock_db
+from src.mistock import scheduler as mistock_scheduler
 from src.mistock import trader as mistock_trader
 
 
@@ -14,10 +15,12 @@ class MistockDashboardTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.original_db_path = mistock_config.trade_db_path
+        self.original_trading_env = mistock_config.trading_env
         object.__setattr__(mistock_config, "trade_db_path", Path(self.tmp.name) / "mistock.sqlite")
 
     def tearDown(self):
         object.__setattr__(mistock_config, "trade_db_path", self.original_db_path)
+        object.__setattr__(mistock_config, "trading_env", self.original_trading_env)
         self.tmp.cleanup()
 
     def test_mistock_routes_are_registered(self):
@@ -61,6 +64,60 @@ class MistockDashboardTests(unittest.TestCase):
         self.assertEqual(balance["cash"], mistock_config.total_capital - 200)
         self.assertEqual(balance["holdings"][0]["symbol"], "AAPL")
         self.assertEqual(len(trades["trades"]), 1)
+
+    def test_demo_balance_does_not_mix_paper_cash_when_kis_cash_is_missing(self):
+        class FakeClient:
+            def get_overseas_balance(self):
+                return {
+                    "output1": [
+                        {
+                            "pdno": "AAPL",
+                            "prdt_name": "Apple",
+                            "cblc_qty13": "2",
+                            "avg_unpr3": "100",
+                            "ovrs_now_pric1": "150",
+                            "frcr_evlu_amt2": "300",
+                            "evlu_pfls_amt2": "100",
+                        }
+                    ],
+                    "output2": {},
+                    "output3": {},
+                }
+
+        object.__setattr__(mistock_config, "trading_env", "demo")
+        with patch.object(mistock_trader, "_get_kis_client", return_value=FakeClient()):
+            balance = mistock_trader.get_balance()
+
+        self.assertEqual(balance["cash"], 0.0)
+        self.assertEqual(balance["stock_eval"], 300.0)
+        self.assertEqual(balance["total_eval"], 300.0)
+
+    def test_demo_balance_derives_cash_from_broker_total_when_cash_is_missing(self):
+        class FakeClient:
+            def get_overseas_balance(self):
+                return {
+                    "output1": [
+                        {
+                            "pdno": "MSFT",
+                            "prdt_name": "Microsoft",
+                            "cblc_qty13": "1",
+                            "avg_unpr3": "200",
+                            "ovrs_now_pric1": "250",
+                            "frcr_evlu_amt2": "250",
+                        }
+                    ],
+                    "output2": {"tot_asst_amt": "1,000"},
+                    "output3": {},
+                }
+
+        object.__setattr__(mistock_config, "trading_env", "demo")
+        with patch.object(mistock_trader, "_get_kis_client", return_value=FakeClient()):
+            balance = mistock_trader.get_balance()
+
+        self.assertEqual(balance["cash"], 750.0)
+        self.assertEqual(balance["stock_eval"], 250.0)
+        self.assertEqual(balance["total_eval"], 1000.0)
+        self.assertEqual(balance["broker_total_eval"], 1000.0)
 
     def test_mistock_settings_and_action_endpoints_are_available(self):
         env_result = mistock.mistock_update_env({"values": {"MISTOCK_TOTAL_CAPITAL": "100000"}})
@@ -122,6 +179,29 @@ class MistockDashboardTests(unittest.TestCase):
             self.assertTrue(result_true["ok"])
             self.assertEqual(result_true["dry_run"], initial_val)
             self.assertEqual(mistock_config.dry_run, initial_val)
+
+    def test_scheduler_marks_broker_order_failure(self):
+        order = {
+            "symbol": "AAPL",
+            "quantity": 1,
+            "price": 100.0,
+            "reason": "unit test",
+        }
+        failed_order = {"ok": False, "status": "failed", "msg1": "broker rejected"}
+
+        with patch.object(mistock_trader, "scan_candidates", return_value={"scanned": 1, "candidates": [{"symbol": "AAPL"}]}), \
+                patch.object(mistock_trader, "get_balance", return_value={"cash": 1000.0, "total_eval": 1000.0}), \
+                patch.object(mistock_trader, "signals", return_value=[]), \
+                patch.object(mistock_trader, "build_orders", return_value=[order]), \
+                patch.object(mistock_trader, "place_paper_order", return_value=failed_order), \
+                patch.object(mistock_db, "get_setting", return_value="true"), \
+                patch.object(mistock_scheduler, "send_mistock_slack"):
+            result = mistock_scheduler.run_mistock_scheduled_cycle(mode="execute")
+
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["status"], "failed")
+        self.assertEqual(result["errors"][0]["symbol"], "AAPL")
+        self.assertEqual(result["errors"][0]["message"], "broker rejected")
 
 
 if __name__ == "__main__":

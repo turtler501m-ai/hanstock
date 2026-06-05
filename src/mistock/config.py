@@ -4,6 +4,11 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
+from dotenv import load_dotenv
+
+
+load_dotenv(override=True)
+
 
 @dataclass
 class MistockConfig:
@@ -29,4 +34,3 @@ class MistockConfig:
 
 
 config = MistockConfig()
-
