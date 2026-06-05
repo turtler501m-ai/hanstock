@@ -1195,6 +1195,16 @@
                                 </tbody>
                             </table>
                         </div>
+                        <!-- 상세 결과 패널 -->
+                        <div id="pb-sched-detail-panel" style="margin-top: 1.5rem; display: none; padding: 16px; border-radius: 8px; background: rgba(255, 255, 255, 0.02); border: 1px solid rgba(255, 255, 255, 0.05);">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; border-bottom: 1px solid rgba(255, 255, 255, 0.05); padding-bottom: 8px;">
+                                <h3 style="margin: 0; font-size: 1rem; color: #60a5fa;">선택한 스케쥴 실행 상세 결과</h3>
+                                <button type="button" class="button-ghost compact-button" onclick="document.getElementById('pb-sched-detail-panel').style.display = 'none';" style="padding: 2px 8px; font-size: 0.75rem;">닫기</button>
+                            </div>
+                            <div id="pb-sched-detail-content" style="font-size: 0.85rem; line-height: 1.6;">
+                                <!-- content will be generated here -->
+                            </div>
+                        </div>
                     </section>
 
                     <!-- 최근 스캔 기록 로그 (Scan History) -->
@@ -1509,6 +1519,7 @@
                     const planCount = (resultData.plan || []).length;
                     const resultsCount = (resultData.results || []).length;
                     const autoApprovedCount = (resultData.auto_approved || []).length;
+                    const scannedCount = resultData.candidate_scan && resultData.candidate_scan.scanned !== undefined ? resultData.candidate_scan.scanned : '-';
                     
                     let statusClass = 'status-ok';
                     let statusText = '정상 완료';
@@ -1531,7 +1542,7 @@
                         <td style="font-family:'JetBrains Mono'; font-size:0.8rem;">${escapeHtml(recordTime)}</td>
                         <td><code>${escapeHtml(item.mode)}</code></td>
                         <td><span class="badge ${statusClass}">${statusText}</span></td>
-                        <td>계획: ${planCount} | 결과: ${resultsCount} (승인: ${autoApprovedCount})</td>
+                        <td>스캔: ${scannedCount} | 계획: ${planCount} | 결과: ${resultsCount} (승인: ${autoApprovedCount})</td>
                         <td style="font-size:0.75rem; color:rgba(255,255,255,0.5); max-width: 200px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${escapeHtml(errorMsg)}">${escapeHtml(errorMsg)}</td>
                         <td>
                             <button type="button" class="button-ghost compact-button" onclick="showScheduleDetail(this)">상세보기</button>
@@ -1584,9 +1595,119 @@
         function showScheduleDetail(button) {
             try {
                 const detail = JSON.parse(button.dataset.detail);
-                alert("상세 결과 JSON (콘솔 확인 가능):\n" + JSON.stringify(detail, null, 2).slice(0, 1000) + "\n...");
                 console.log("Schedule run detail result:", detail);
+                
+                const panel = document.getElementById('pb-sched-detail-panel');
+                const content = document.getElementById('pb-sched-detail-content');
+                if (!panel || !content) return;
+
+                let html = '';
+
+                const plan = detail.plan || [];
+                const results = detail.results || [];
+                const autoApproved = detail.auto_approved || [];
+                const errors = detail.errors || [];
+                const candidateScan = detail.candidate_scan || {};
+                
+                html += `
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px; background: rgba(255,255,255,0.01); padding: 12px; border-radius: 6px;">
+                        <div>
+                            <strong>총 분석 대상:</strong> ${candidateScan.scanned || 0} 개 종목<br>
+                            <strong>조건 포착 후보:</strong> ${(candidateScan.candidates || []).length} 개 종목
+                        </div>
+                        <div>
+                            <strong>생성된 계획:</strong> ${plan.length} 건<br>
+                            <strong>최종 집행 결과:</strong> ${results.length} 건 (자동 승인: ${autoApproved.length} 건)
+                        </div>
+                    </div>
+                `;
+
+                if (errors.length > 0) {
+                    html += `<div style="background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.2); color: #fca5a5; padding: 10px; border-radius: 6px; margin-bottom: 16px;">`;
+                    html += `<strong>⚠️ 에러 발생:</strong>`;
+                    html += `<ul style="margin: 4px 0 0 16px; padding: 0;">`;
+                    errors.forEach(err => {
+                        html += `<li>${escapeHtml(err.type || 'Error')}: ${escapeHtml(err.message || '')}</li>`;
+                    });
+                    html += `</ul></div>`;
+                }
+
+                const appErrors = detail.auto_approval_errors || [];
+                if (appErrors.length > 0) {
+                    html += `<div style="background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.2); color: #fca5a5; padding: 10px; border-radius: 6px; margin-bottom: 16px;">`;
+                    html += `<strong>⚠️ 자동 승인 에러:</strong>`;
+                    html += `<ul style="margin: 4px 0 0 16px; padding: 0;">`;
+                    appErrors.forEach(err => {
+                        html += `<li>${escapeHtml(err.type || 'Error')}: ${escapeHtml(err.message || '')}</li>`;
+                    });
+                    html += `</ul></div>`;
+                }
+
+                if (plan.length === 0) {
+                    html += `<p style="color: rgba(255,255,255,0.4); text-align: center; margin: 12px 0;">계획된 주문이나 포착된 대상이 없습니다.</p>`;
+                } else {
+                    html += `
+                        <h4 style="margin: 0 0 8px 0; font-size: 0.9rem; color: #60a5fa;">📋 매매 계획 및 집행 상세 내역</h4>
+                        <table style="width: 100%; border-collapse: collapse; font-size: 0.8rem; text-align: left; margin-bottom: 12px;">
+                            <thead>
+                                <tr style="border-bottom: 1px solid rgba(255,255,255,0.1); color: rgba(255,255,255,0.5);">
+                                    <th style="padding: 6px 4px;">종목</th>
+                                    <th style="padding: 6px 4px;">구분</th>
+                                    <th style="padding: 6px 4px; text-align: right;">수량</th>
+                                    <th style="padding: 6px 4px; text-align: right;">가격</th>
+                                    <th style="padding: 6px 4px;">결정 상태</th>
+                                    <th style="padding: 6px 4px;">판단 및 오류 메세지</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                    `;
+
+                    plan.forEach((p, idx) => {
+                        const res = results[idx] || {};
+                        const actionText = p.action === 'buy' ? '<span class="badge buy" style="padding: 1px 4px;">매수</span>' : '<span class="badge sell" style="padding: 1px 4px;">매도</span>';
+                        let decisionText = '';
+                        let decisionClass = '';
+                        
+                        const decision = res.decision || 'skip';
+                        const isOk = res.ok !== false;
+
+                        if (decision === 'execute' && isOk) {
+                            decisionText = '체결/주문완료';
+                            decisionClass = 'status-ok';
+                        } else if (decision === 'queue') {
+                            decisionText = '승인대기';
+                            decisionClass = 'status-ok';
+                        } else if (decision === 'skip') {
+                            decisionText = '제외/패스';
+                            decisionClass = 'status-fail';
+                        } else {
+                            decisionText = '실패';
+                            decisionClass = 'status-fail';
+                        }
+
+                        html += `
+                            <tr style="border-bottom: 1px solid rgba(255,255,255,0.03);">
+                                <td style="padding: 8px 4px;"><strong>${escapeHtml(p.name)}</strong><br><span style="font-family: 'JetBrains Mono'; color: rgba(255,255,255,0.4); font-size: 0.75rem;">${escapeHtml(p.symbol)}</span></td>
+                                <td style="padding: 8px 4px;">${actionText}</td>
+                                <td style="padding: 8px 4px; text-align: right; font-family: 'JetBrains Mono';">${(p.qty || 0).toLocaleString()}</td>
+                                <td style="padding: 8px 4px; text-align: right; font-family: 'JetBrains Mono';">${(p.price || 0).toLocaleString()}원</td>
+                                <td style="padding: 8px 4px;"><span class="badge ${decisionClass}" style="padding: 2px 6px; font-size: 0.75rem;">${decisionText}</span></td>
+                                <td style="padding: 8px 4px; font-size: 0.75rem; color: rgba(255,255,255,0.7); max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${escapeHtml(p.reason || '')}">${escapeHtml(p.reason || '-')}</td>
+                            </tr>
+                        `;
+                    });
+
+                    html += `
+                            </tbody>
+                        </table>
+                    `;
+                }
+
+                content.innerHTML = html;
+                panel.style.display = 'block';
+                panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
             } catch (e) {
+                console.error("Detail parse error:", e);
                 alert("상세를 불러올 수 없습니다.");
             }
         }
@@ -1648,7 +1769,11 @@
             const items = showOnlyCandidates ? lastScanData.candidates : lastScanData.scan_summary;
 
             if (items.length === 0) {
-                tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; color:rgba(255,255,255,0.4); padding: 3rem 0;">데이터가 없습니다.</td></tr>`;
+                const scannedText = lastScanData.scanned_count !== undefined ? lastScanData.scanned_count : (lastScanData.scanned !== undefined ? lastScanData.scanned : 0);
+                const msg = showOnlyCandidates 
+                    ? `현재 포착된 급락반등 조건 충족 종목이 없습니다. (총 ${scannedText}개 종목 진단 완료)`
+                    : `스캔된 종목이 없습니다. (총 ${scannedText}개 종목 진단 완료)`;
+                tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; color:rgba(255,255,255,0.4); padding: 3rem 0;">${msg}</td></tr>`;
                 return;
             }
 
@@ -1716,7 +1841,7 @@
             try {
                 const res = await postJson('/api/strategy/plunge_bounce/run-trader', { mode: mode, auto_approve: true });
                 if (res.status === 'started') {
-                    alert(`급락반등 전략이 백그라운드에서 실행되었습니다. (모드: ${mode})`);
+                    // Alert deleted per request
                     setTimeout(loadScheduleHistoryData, 3000);
                     setTimeout(loadScheduleHistoryData, 8000);
                     setTimeout(loadScanHistoryData, 8000);

@@ -748,10 +748,13 @@ def run(
         slack_session_end(results=[], cash=cash, total=total_eval, pnl=pnl)
         return {"plan": [], "results": []}
 
+    bp_kwargs = {}
     if include_ai_rebalance:
-        runtime_bundle = build_runtime_plan(api, balance, include_ai_rebalance=True, force_strategy_id=force_strategy_id)
-    else:
-        runtime_bundle = build_runtime_plan(api, balance, force_strategy_id=force_strategy_id)
+        bp_kwargs["include_ai_rebalance"] = True
+    if force_strategy_id is not None:
+        bp_kwargs["force_strategy_id"] = force_strategy_id
+
+    runtime_bundle = build_runtime_plan(api, balance, **bp_kwargs)
 
     candidates = runtime_bundle.get("candidate_scan", {}).get("candidates", [])
     if candidates:

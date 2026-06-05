@@ -244,7 +244,10 @@ def calc_strategy_profile(prices: list[float], highs: list[float] | None = None,
         }
         try:
             score = float(custom_inst.calculate_score(prices, indicators))
-            reasons.append(f"Custom Rule: {strategy_model} (score={score:.2f})")
+            if "pb_reasons" in indicators:
+                reasons.extend(indicators["pb_reasons"])
+            else:
+                reasons.append(f"Custom Rule: {strategy_model} (score={score:.2f})")
         except Exception as e:
             logger.warning(f"Error calculating score with custom strategy {strategy_model}: {e}")
             custom_inst = None
@@ -923,6 +926,7 @@ def find_candidates(
     return {
         "candidates": candidates,
         "scan_summary": scan_summary,
+        "universe_size": len(scan_list),
         "scanned": len(scan_summary),
         "min_score": min_score,
         "scan_error": None,

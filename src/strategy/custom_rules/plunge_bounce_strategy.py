@@ -63,26 +63,30 @@ class PlungeBounceStrategy:
         Calculates a score. Returns 5.0 (highly recommended buy) if all entry rules and 
         yield-maximizing filters are met; otherwise returns 0.0.
         """
+        pb_reasons = []
+        
         if len(prices) < 22:
+            pb_reasons.append("데이터 부족 (22일 미만)")
+            indicators["pb_reasons"] = pb_reasons
             return 0.0
             
         current_price = prices[-1]
         symbol = indicators.get("symbol", "")
         
-        # 1. Technical Indicators Calculation
+        # 1. Technical Indicators Calculation (Disparity)
         sma22 = calc_sma(prices, 22)
         disparity = ((current_price - sma22) / sma22) * 100
-        
-        # Check disparity trigger (e.g. disparity <= -15.0%)
-        if disparity > self.deviation_threshold:
-            return 0.0
+        disparity_passed = disparity <= self.deviation_threshold
+        if not disparity_passed:
+            pb_reasons.append(f"이격도 초과 ({disparity:.1f}% > {self.deviation_threshold:.1f}%)")
             
-        # 2. RSI Oversold Filter (RSI < 30)
+        # 2. RSI Oversold Filter
         rsi = indicators.get("rsi", 50.0)
-        if rsi >= self.rsi_threshold:
-            return 0.0
+        rsi_passed = rsi < self.rsi_threshold
+        if not rsi_passed:
+            pb_reasons.append(f"RSI 기준 미달 ({rsi:.1f} >= {self.rsi_threshold:.1f})")
             
-        # 3. Volume Spike Filter (Volume >= 1.4x 20-period average volume)
+        # 3. Volume Spike Filter
         volumes = indicators.get("volumes", [])
         if volumes and len(volumes) >= 21:
             avg_vol_20 = sum(volumes[-21:-1]) / 20
@@ -90,11 +94,11 @@ class PlungeBounceStrategy:
         else:
             vol_ratio = 1.0
             
-        if vol_ratio < self.vol_ratio_threshold:
-            return 0.0
+        vol_passed = vol_ratio >= self.vol_ratio_threshold
+        if not vol_passed:
+            pb_reasons.append(f"거래량 비율 미달 ({vol_ratio:.2f}x < {self.vol_ratio_threshold:.2f}x)")
             
-        # 4. Transaction Value Filter (Liquidity and "Falling Knife" mitigation)
-        # Avoid illiquid stocks, but also avoid catastrophic news dumps (huge volume crash)
+        # 4. Transaction Value Filter
         is_kr = False
         if symbol:
             code = symbol.split(".")[0]
@@ -104,18 +108,27 @@ class PlungeBounceStrategy:
         latest_volume = volumes[-1] if volumes else 0
         latest_val = latest_volume * current_price
         
+        val_passed = False
         if is_kr:
-            # KRW: Dynamic values
-            if not (self.min_val_krw <= latest_val <= self.max_val_krw):
-                return 0.0
+            val_passed = self.min_val_krw <= latest_val <= self.max_val_krw
+            if not val_passed:
+                pb_reasons.append(f"거래대금 범위 초과 ({latest_val:,.0f} KRW)")
         else:
-            # USD: $800 to $400,000
-            if not (800 <= latest_val <= 400_000):
-                return 0.0
+            val_passed = 800 <= latest_val <= 400_000
+            if not val_passed:
+                pb_reasons.append(f"거래대금 범위 초과 ({latest_val:,.0f} USD)")
                 
         # 5. Market Index Trend Filter
-        if self.index_filter_enabled and not self._is_index_above_sma(symbol):
-            return 0.0
+        index_passed = True
+        if self.index_filter_enabled:
+            index_passed = self._is_index_above_sma(symbol)
+            if not index_passed:
+                pb_reasons.append("지수 200일선 하회")
+                
+        indicators["pb_reasons"] = pb_reasons
+        
+        if disparity_passed and rsi_passed and vol_passed and val_passed and index_passed:
+            logger.info(f"[PlungeBounce] ALL triggers & filters PASSED for {symbol}: disparity={disparity:.2f}%, RSI={rsi:.1f}, vol_ratio={vol_ratio:.1f}x, val={latest_val:,.1f}")
+            return 5.0
             
-        logger.info(f"[PlungeBounce] ALL triggers & filters PASSED for {symbol}: disparity={disparity:.2f}%, RSI={rsi:.1f}, vol_ratio={vol_ratio:.1f}x, val={latest_val:,.1f}")
-        return 5.0
+        return 0.0

@@ -230,21 +230,26 @@ def run_scheduled_cycle(
     _slack_cycle_start(mode=mode)
 
     if include_ai_rebalance:
+        trader_kwargs = {
+            "mode": run_mode,
+            "include_ai_rebalance": True,
+            "execution_categories": execution_categories,
+        }
+        if force_strategy_id is not None:
+            trader_kwargs["force_strategy_id"] = force_strategy_id
         result = _run_trader_with_retries(
             attempts=run_attempts,
             delay_seconds=retry_delay_seconds,
-            kwargs={
-                "mode": run_mode,
-                "include_ai_rebalance": True,
-                "execution_categories": execution_categories,
-                "force_strategy_id": force_strategy_id,
-            },
+            kwargs=trader_kwargs,
         )
     else:
+        trader_kwargs = {"mode": run_mode}
+        if force_strategy_id is not None:
+            trader_kwargs["force_strategy_id"] = force_strategy_id
         result = _run_trader_with_retries(
             attempts=run_attempts,
             delay_seconds=retry_delay_seconds,
-            kwargs={"mode": run_mode, "force_strategy_id": force_strategy_id},
+            kwargs=trader_kwargs,
         )
 
     approval_result = (
@@ -295,12 +300,14 @@ def main() -> int:
         help="force a specific active strategy model for this scheduler run",
     )
     args = parser.parse_args()
-    result = run_scheduled_cycle(
-        mode=args.mode,
-        include_ai_rebalance=args.include_ai_rebalance,
-        auto_approve=args.auto_approve,
-        force_strategy_id=args.force_strategy_id,
-    )
+    cycle_kwargs = {
+        "mode": args.mode,
+        "include_ai_rebalance": args.include_ai_rebalance,
+        "auto_approve": args.auto_approve,
+    }
+    if args.force_strategy_id is not None:
+        cycle_kwargs["force_strategy_id"] = args.force_strategy_id
+    result = run_scheduled_cycle(**cycle_kwargs)
     if result.get("status") == "failed" or result.get("ok") is False:
         return 1
     return 0
