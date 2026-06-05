@@ -28,18 +28,18 @@ class OrderRouter:
                     return 0
         return 0
 
-    def route(self, symbol: str, name: str, action: str, qty: int, price: int, reason: str, indicators: dict) -> dict:
+    def route(self, symbol: str, name: str, action: str, qty: int, price: int, reason: str, indicators: dict, strategy_id: str = None) -> dict:
         # Decision Log 기록
         save_decision_log(symbol, name, action, qty, price, reason, indicators, True)
         
         if not self.submission_enabled:
             logger.info(f"[ROUTER] Paper Trading: {action} {name} qty={qty}")
-            save_trade(symbol, name, action, qty, price, reason, True, False)
+            save_trade(symbol, name, action, qty, price, reason, True, False, strategy_id=strategy_id)
             return {"ok": True, "msg": "Paper trading executed", "status": "paper"}
 
         if self.require_approval:
             # 대기열(approvals)에 넣기
-            self._insert_approval(symbol, name, action, qty, price, reason)
+            self._insert_approval(symbol, name, action, qty, price, reason, strategy_id=strategy_id)
             logger.info(f"[ROUTER] Pending Approval: {action} {name} qty={qty}")
             return {"ok": True, "msg": "Added to approval queue", "status": "pending"}
             
@@ -63,10 +63,11 @@ class OrderRouter:
             filled_qty=0,
             filled_price=0,
             pre_order_qty=pre_order_qty,
+            strategy_id=strategy_id,
         )
         return {"ok": ok, "msg": result.get("msg1", ""), "status": "live"}
 
-    def _insert_approval(self, symbol: str, name: str, action: str, qty: int, price: int, reason: str) -> None:
+    def _insert_approval(self, symbol: str, name: str, action: str, qty: int, price: int, reason: str, strategy_id: str = None) -> None:
         from src.db.repository import connect_db
         from datetime import datetime, timezone, timedelta
         
@@ -91,13 +92,19 @@ class OrderRouter:
                         response_msg TEXT
                     )
                 """)
+                # Ensure strategy_id column exists
+                try:
+                    from src.db.repository import _ensure_column
+                    _ensure_column(conn, "approvals", "strategy_id", "TEXT")
+                except Exception:
+                    pass
                 conn.execute(
                     """
                     INSERT INTO approvals
-                    (created_at, updated_at, symbol, name, action, qty, price, reason, source, status, response_msg)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', '')
+                    (created_at, updated_at, symbol, name, action, qty, price, reason, source, status, response_msg, strategy_id)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', '', ?)
                     """,
-                    (now, now, symbol, name, action, qty, price, reason, 'auto_trader'),
+                    (now, now, symbol, name, action, qty, price, reason, 'auto_trader', strategy_id),
                 )
         except Exception as e:
             logger.error(f"[ROUTER] Failed to insert approval: {e}")

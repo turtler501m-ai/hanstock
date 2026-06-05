@@ -477,6 +477,7 @@ def execute_plan_row(api, context: dict, row: dict) -> dict:
         row["price"],
         row.get("reason", ""),
         row.get("indicators", {}),
+        strategy_id=row.get("strategy_id") or row.get("source"),
     )
     ok = result.get("ok", False)
     decision = "execute" if ok else "failed"
@@ -552,6 +553,15 @@ def build_ai_rebalance_rows(api, balance_data: dict, total_eval: int) -> list[di
 
 
 def build_runtime_plan(api, balance_data: dict, *, include_ai_rebalance: bool = False, read_cached_candidates: bool = False) -> dict:
+    active_strategy_id = "seven_split"
+    try:
+        from src.db.repository import load_ai_strategies
+        active = next((s for s in load_ai_strategies() if s.get("selected")), None)
+        if active:
+            active_strategy_id = active.get("model") or "seven_split"
+    except Exception:
+        pass
+
     stocks = balance_data.get("output1", [])
     summary = (balance_data.get("output2") or [{}])[0]
     cash = int(summary.get("dnca_tot_amt", 0) or 0)
@@ -572,6 +582,7 @@ def build_runtime_plan(api, balance_data: dict, *, include_ai_rebalance: bool = 
             source="holding_signal",
             include_hold=True,
             metadata={"return_pct": rt},
+            strategy_id=active_strategy_id,
         )
         if row is not None:
             position_rows.append(row)
@@ -617,7 +628,7 @@ def build_runtime_plan(api, balance_data: dict, *, include_ai_rebalance: bool = 
 
         for candidate in candidates:
             order = order_by_ticker.get(candidate["ticker"], {})
-            row = candidate_order_to_plan_row(candidate, order, source="candidate_order")
+            row = candidate_order_to_plan_row(candidate, order, source="candidate_order", strategy_id=active_strategy_id)
             indicators = {
                 k: v
                 for k, v in candidate.items()

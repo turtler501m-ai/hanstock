@@ -9,9 +9,10 @@ import src.dashboard.routes.quantconnect as quantconnect
 import src.dashboard.routes.settings as settings
 import src.dashboard.routes.stock as stock
 import src.dashboard.routes.mistock as mistock
+import src.dashboard.routes.plunge_bounce as plunge_bounce
 
 # Dynamically expose all names from core and all route files for backward compatibility
 import src.dashboard.core as _core
 
-for mod in [_core, pages, account, futures, quantconnect, settings, stock, mistock]:
+for mod in [_core, pages, account, futures, quantconnect, settings, stock, mistock, plunge_bounce]:
     globals().update({k: v for k, v in mod.__dict__.items() if not k.startswith("__")})

@@ -21,6 +21,7 @@ class PlanRow:
     reasons: list[str] = field(default_factory=list)
     estimated_cost: float | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
+    strategy_id: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -34,6 +35,7 @@ def signal_to_plan_row(
     source: str = "holding_signal",
     include_hold: bool = False,
     metadata: dict[str, Any] | None = None,
+    strategy_id: str | None = None,
 ) -> dict[str, Any] | None:
     action = str(signal.get("action", "hold"))
     if action == "hold" and not include_hold:
@@ -50,6 +52,7 @@ def signal_to_plan_row(
         category="position",
         indicators=dict(signal.get("indicators") or {}),
         metadata=dict(metadata or {}),
+        strategy_id=strategy_id,
     )
     return row.to_dict()
 
@@ -60,6 +63,7 @@ def candidate_order_to_plan_row(
     *,
     source: str = "candidate_order",
     metadata: dict[str, Any] | None = None,
+    strategy_id: str | None = None,
 ) -> dict[str, Any]:
     score = order.get("score", candidate.get("score"))
     reasons = list(order.get("reasons") or candidate.get("reasons") or [])
@@ -78,6 +82,7 @@ def candidate_order_to_plan_row(
         reasons=reasons,
         estimated_cost=float(order.get("estimated_cost", 0) or 0),
         metadata=dict(metadata or {}),
+        strategy_id=strategy_id,
     )
     return row.to_dict()
 

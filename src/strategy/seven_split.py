@@ -188,7 +188,7 @@ def get_yfinance_ticker(code: str) -> str:
     return f"{code}.KS"
 
 def calc_strategy_profile(prices: list[float], highs: list[float] | None = None,
-                          volumes: list[float] | None = None, strategy_model: str = "") -> dict:
+                          volumes: list[float] | None = None, strategy_model: str = "", symbol: str = "") -> dict:
     highs = highs or prices
     volumes = volumes or []
     current = prices[-1] if prices else 0
@@ -238,6 +238,9 @@ def calc_strategy_profile(prices: list[float], highs: list[float] | None = None,
             "macd_hist": macd["hist"],
             "macd_bull_cross": macd["bull_cross"],
             "macd_bear_cross": macd["bear_cross"],
+            "volumes": volumes,
+            "highs": highs,
+            "symbol": symbol,
         }
         try:
             score = float(custom_inst.calculate_score(prices, indicators))
@@ -347,7 +350,7 @@ def generate_ai_weight_plan(holdings: list[dict], total_eval: int) -> dict:
         prices = item.get("prices", [])
         highs = item.get("highs", [])
         volumes = item.get("volumes", [])
-        profile = calc_strategy_profile(prices, highs, volumes) if prices else calc_strategy_profile([])
+        profile = calc_strategy_profile(prices, highs, volumes, symbol=item.get("symbol", "")) if prices else calc_strategy_profile([], symbol=item.get("symbol", ""))
         current_price = float(item.get("price", 0) or (prices[-1] if prices else 0))
         sma60 = profile.get("sma60", 0) or current_price
         trend = ((current_price / sma60) - 1) if sma60 > 0 else 0
@@ -528,7 +531,7 @@ def generate_portfolio_optimizer_plan(holdings: list[dict], total_eval: int) -> 
     weighted = []
     for item in holdings:
         prices = item.get("prices", [])
-        profile = calc_strategy_profile(prices, item.get("highs", []), item.get("volumes", [])) if prices else calc_strategy_profile([])
+        profile = calc_strategy_profile(prices, item.get("highs", []), item.get("volumes", []), symbol=item.get("symbol", "")) if prices else calc_strategy_profile([], symbol=item.get("symbol", ""))
         vol = calc_volatility(prices) or 0.02
         expected_score = max(0.1, 1 + profile["score"])
         weight_signal = expected_score / vol
@@ -621,6 +624,7 @@ def find_candidates(
     min_score: int = 2,
     ranker: str = "gpt_5_mini",
     api = None,
+    strategy_model: str = "",
 ) -> list[dict]:
     """universe 종목 전체를 기술분석 스코어링해 매수 후보를 반환한다.
 
@@ -714,7 +718,7 @@ def find_candidates(
                 volume_series = [float(c["volume"]) for c in db_charts]
                 current = price_series[-1]
                 
-                profile = calc_strategy_profile(price_series, high_series, volume_series)
+                profile = calc_strategy_profile(price_series, high_series, volume_series, strategy_model=strategy_model, symbol=code)
                 feature_payload = build_strategy_features(
                     price_series,
                     high_series,
@@ -827,7 +831,7 @@ def find_candidates(
             price_series = closes.tolist()
             high_series = highs.tolist()
             volume_series = volumes.tolist()
-            profile = calc_strategy_profile(price_series, high_series, volume_series)
+            profile = calc_strategy_profile(price_series, high_series, volume_series, strategy_model=strategy_model, symbol=code)
             feature_payload = build_strategy_features(
                 price_series,
                 high_series,
@@ -1053,7 +1057,7 @@ def generate_signal(stock: dict, daily_data: list) -> dict:
     rt = float(stock.get("evlu_pfls_rt", 0))
     split_qty = max(1, qty // config.split_n)
 
-    profile = calc_strategy_profile(prices, highs, volumes) if prices else calc_strategy_profile([])
+    profile = calc_strategy_profile(prices, highs, volumes, symbol=stock.get("pdno", "")) if prices else calc_strategy_profile([], symbol=stock.get("pdno", ""))
     rsi = profile["rsi"]
     rsi2 = profile["rsi2"]
     sma20 = profile["sma20"]
