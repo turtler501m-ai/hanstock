@@ -16,11 +16,13 @@ class MistockDashboardTests(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.original_db_path = mistock_config.trade_db_path
         self.original_trading_env = mistock_config.trading_env
+        self.original_total_capital = mistock_config.total_capital
         object.__setattr__(mistock_config, "trade_db_path", Path(self.tmp.name) / "mistock.sqlite")
 
     def tearDown(self):
         object.__setattr__(mistock_config, "trade_db_path", self.original_db_path)
         object.__setattr__(mistock_config, "trading_env", self.original_trading_env)
+        object.__setattr__(mistock_config, "total_capital", self.original_total_capital)
         self.tmp.cleanup()
 
     def test_mistock_routes_are_registered(self):
@@ -118,6 +120,56 @@ class MistockDashboardTests(unittest.TestCase):
         self.assertEqual(balance["stock_eval"], 250.0)
         self.assertEqual(balance["total_eval"], 1000.0)
         self.assertEqual(balance["broker_total_eval"], 1000.0)
+
+    def test_demo_balance_uses_config_capital_when_kis_account_is_empty(self):
+        class FakeClient:
+            def get_overseas_balance(self):
+                return {
+                    "output1": [],
+                    "output2": [],
+                    "output3": {
+                        "dncl_amt": "0",
+                        "tot_dncl_amt": "0",
+                        "tot_asst_amt": "0",
+                        "frcr_use_psbl_amt": "0.00",
+                    },
+                    "rt_cd": "0",
+                    "msg1": "mock account has no rows",
+                }
+
+        object.__setattr__(mistock_config, "trading_env", "demo")
+        object.__setattr__(mistock_config, "total_capital", 5000.0)
+        with patch.object(mistock_trader, "_get_kis_client", return_value=FakeClient()):
+            balance = mistock_trader.get_balance()
+
+        self.assertEqual(balance["cash"], 5000.0)
+        self.assertEqual(balance["total_eval"], 5000.0)
+        self.assertEqual(balance["balance_source"], "demo_config_fallback")
+
+    def test_mistock_candidates_include_planned_order_quantity(self):
+        scan = {
+            "candidates": [
+                {
+                    "ticker": "AAPL",
+                    "symbol": "AAPL",
+                    "name": "Apple",
+                    "score": 5.0,
+                    "price": 100.0,
+                    "reasons": ["unit"],
+                }
+            ],
+            "scan_summary": {"scanned": 1, "matched": 1, "scan_error": ""},
+            "scanned": 1,
+        }
+
+        with patch.object(mistock_trader, "scan_candidates", return_value=scan), \
+                patch.object(mistock_trader, "get_balance", return_value={"cash": 1000.0, "balance_source": "test"}):
+            result = mistock.mistock_candidates()
+
+        candidate = result["candidates"][0]
+        self.assertEqual(candidate["planned_qty"], 8)
+        self.assertEqual(candidate["estimated_cost"], 800.0)
+        self.assertEqual(result["balance_source"], "test")
 
     def test_mistock_settings_and_action_endpoints_are_available(self):
         env_result = mistock.mistock_update_env({"values": {"MISTOCK_TOTAL_CAPITAL": "100000"}})

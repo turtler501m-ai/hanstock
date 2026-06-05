@@ -615,7 +615,16 @@ def mistock_signals():
 @app.get("/api/mistock/candidates")
 def mistock_candidates(min_score: int = 2, limit: int = 60, ranker: str = "mistock_rule", optimizer: str = "equal_weight"):
     scan = mistock_trader.scan_candidates(min_score=min_score, limit=limit)
-    return {"candidates": scan["candidates"], "scan_summary": scan["scan_summary"], "scanned": scan["scanned"], "min_score": min_score}
+    balance = mistock_trader.get_balance()
+    candidates = mistock_trader.annotate_candidates_with_order_plan(scan["candidates"], balance["cash"])
+    return {
+        "candidates": candidates,
+        "scan_summary": scan["scan_summary"],
+        "scanned": scan["scanned"],
+        "min_score": min_score,
+        "cash": balance["cash"],
+        "balance_source": balance.get("balance_source", "kis"),
+    }
 
 
 @app.get("/api/mistock/candidates/history")

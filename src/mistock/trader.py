@@ -243,12 +243,17 @@ def get_balance() -> dict[str, Any]:
             ])
             if cash <= 0 and broker_total_eval > stock_eval:
                 cash = broker_total_eval - stock_eval
+            balance_source = "kis"
+            if config.trading_env == "demo" and cash <= 0 and stock_eval <= 0 and broker_total_eval <= 0:
+                cash = float(config.total_capital or 0.0)
+                balance_source = "demo_config_fallback"
             total_eval = cash + stock_eval
             return {
                 "cash": cash,
                 "total_eval": total_eval,
                 "broker_total_eval": broker_total_eval or total_eval,
                 "calculated_total_eval": total_eval,
+                "balance_source": balance_source,
                 "stock_eval": stock_eval,
                 "cash_ratio": cash / total_eval if total_eval > 0 else 0.0,
                 "stock_ratio": stock_eval / total_eval if total_eval > 0 else 0.0,
@@ -347,6 +352,36 @@ def build_orders(candidates: list[dict[str, Any]], cash: float) -> list[dict[str
             "strategy_score": candidate.get("score", 0),
         })
     return orders
+
+
+def annotate_candidates_with_order_plan(candidates: list[dict[str, Any]], cash: float) -> list[dict[str, Any]]:
+    orders_by_symbol = {item["symbol"]: item for item in build_orders(candidates, cash)}
+    annotated = []
+    for candidate in candidates:
+        row = dict(candidate)
+        order = orders_by_symbol.get(row["symbol"])
+        if order:
+            row.update({
+                "planned_qty": order["qty"],
+                "quantity": order["qty"],
+                "qty": order["qty"],
+                "limit_price": order["price"],
+                "estimated_cost": order["estimated_cost"],
+                "order_reason": order["reason"],
+            })
+        else:
+            row.update({
+                "planned_qty": 0,
+                "quantity": 0,
+                "qty": 0,
+                "limit_price": row.get("price") or 0,
+                "estimated_cost": 0,
+            })
+        return_price = row.get("current_price")
+        if return_price is None:
+            row["current_price"] = row.get("price") or 0
+        annotated.append(row)
+    return annotated
 
 
 def signals() -> list[dict[str, Any]]:
