@@ -17,12 +17,14 @@ class MistockDashboardTests(unittest.TestCase):
         self.original_db_path = mistock_config.trade_db_path
         self.original_trading_env = mistock_config.trading_env
         self.original_total_capital = mistock_config.total_capital
+        self.original_currency = mistock_config.currency
         object.__setattr__(mistock_config, "trade_db_path", Path(self.tmp.name) / "mistock.sqlite")
 
     def tearDown(self):
         object.__setattr__(mistock_config, "trade_db_path", self.original_db_path)
         object.__setattr__(mistock_config, "trading_env", self.original_trading_env)
         object.__setattr__(mistock_config, "total_capital", self.original_total_capital)
+        object.__setattr__(mistock_config, "currency", self.original_currency)
         self.tmp.cleanup()
 
     def test_mistock_routes_are_registered(self):
@@ -139,11 +141,32 @@ class MistockDashboardTests(unittest.TestCase):
 
         object.__setattr__(mistock_config, "trading_env", "demo")
         object.__setattr__(mistock_config, "total_capital", 5000.0)
+        object.__setattr__(mistock_config, "currency", "USD")
         with patch.object(mistock_trader, "_get_kis_client", return_value=FakeClient()):
             balance = mistock_trader.get_balance()
 
         self.assertEqual(balance["cash"], 5000.0)
         self.assertEqual(balance["total_eval"], 5000.0)
+        self.assertEqual(balance["balance_source"], "demo_config_fallback")
+
+    def test_demo_balance_converts_krw_config_capital_to_usd(self):
+        class FakeClient:
+            def get_overseas_balance(self):
+                return {
+                    "output1": [],
+                    "output2": [],
+                    "output3": {"tot_asst_amt": "0", "frcr_use_psbl_amt": "0.00"},
+                    "rt_cd": "0",
+                    "msg1": "mock account has no rows",
+                }
+
+        object.__setattr__(mistock_config, "trading_env", "demo")
+        object.__setattr__(mistock_config, "total_capital", 100000000.0)
+        object.__setattr__(mistock_config, "currency", "KRW")
+        with patch.object(mistock_trader, "_get_kis_client", return_value=FakeClient()):
+            balance = mistock_trader.get_balance()
+
+        self.assertAlmostEqual(balance["cash"], 72463.7681, places=3)
         self.assertEqual(balance["balance_source"], "demo_config_fallback")
 
     def test_mistock_candidates_include_planned_order_quantity(self):

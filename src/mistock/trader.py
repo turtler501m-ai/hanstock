@@ -36,6 +36,14 @@ def _first_positive(mapping: dict[str, Any], keys: list[str]) -> float:
     return 0.0
 
 
+def _configured_capital_usd(exchange_rate: float = 1380.0) -> float:
+    capital = float(config.total_capital or 0.0)
+    if str(config.currency or "").upper() == "KRW":
+        rate = exchange_rate if exchange_rate > 0 else 1380.0
+        return capital / rate
+    return capital
+
+
 def _holdings_from_overseas_balance(balance_data: dict[str, Any]) -> list[dict[str, Any]]:
     if not isinstance(balance_data, dict):
         from src.utils.logger import logger
@@ -245,7 +253,7 @@ def get_balance() -> dict[str, Any]:
                 cash = broker_total_eval - stock_eval
             balance_source = "kis"
             if config.trading_env == "demo" and cash <= 0 and stock_eval <= 0 and broker_total_eval <= 0:
-                cash = float(config.total_capital or 0.0)
+                cash = _configured_capital_usd(exchange_rate)
                 balance_source = "demo_config_fallback"
             total_eval = cash + stock_eval
             return {

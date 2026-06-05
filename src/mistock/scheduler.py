@@ -17,6 +17,13 @@ from src.mistock.strategy import symbol_name
 
 KST = timezone(timedelta(hours=9))
 
+
+def _order_delay_seconds() -> float:
+    try:
+        return max(0.0, float(os.environ.get("MISTOCK_ORDER_DELAY_SECONDS", "1.2")))
+    except ValueError:
+        return 1.2
+
 def run_mistock_scheduled_cycle(mode: str = "execute") -> dict:
     """
     [미장 자동매매 스케줄러]
@@ -66,12 +73,14 @@ def run_mistock_scheduled_cycle(mode: str = "execute") -> dict:
     
     if mode == "execute":
         if auto_approve or flags["order_submission_enabled"]:
-            for ord in orders:
+            for idx, ord in enumerate(orders):
                 qty = float(ord["quantity"])
                 price = float(ord["price"])
                 logger.info(f"[MISTOCK SCHEDULER] Placing buy order for {ord['symbol']}. Qty={qty}, Price={price}")
                 res = mistock_trader.place_paper_order(ord["symbol"], "buy", qty, price, reason=ord["reason"])
                 bought_items.append({"symbol": ord["symbol"], "qty": qty, "price": price, "result": res})
+                if idx < len(orders) - 1:
+                    time.sleep(_order_delay_seconds())
         else:
             logger.info("[MISTOCK SCHEDULER] Order submission and auto-approval are disabled. Queuing buy plans as pending approvals.")
             for ord in orders:
