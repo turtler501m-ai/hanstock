@@ -48,6 +48,7 @@
                 <button type="button" class="dashboard-tab" data-dashboard-tab="ai">AI/최적화</button>
                 <button type="button" class="dashboard-tab" data-dashboard-tab="performance">성과</button>
                 <button type="button" class="dashboard-tab" data-dashboard-tab="plunge-bounce">급락반등</button>
+                <button type="button" class="dashboard-tab" data-dashboard-tab="heikin-ashi">알파 하이킨아시</button>
             </nav>
 
             <section class="dashboard-section active" id="dashboard-tab-overview">
@@ -1329,6 +1330,201 @@
                     </section>
                 </section>
             </section>
+
+            <!-- 알파 하이킨아시 탭 섹션 -->
+            <section class="dashboard-section" id="dashboard-tab-heikin-ashi">
+                <nav class="pb-tabs-container" aria-label="알파 하이킨아시 상세 탭">
+                    <button type="button" class="pb-tab active" data-ha-tab="trading">자동매매 & 실시간 스캔</button>
+                    <button type="button" class="pb-tab" data-ha-tab="performance">전략 성과분석</button>
+                </nav>
+
+                <section class="pb-section active" id="ha-tab-trading">
+                    <div class="pb-grid">
+                        <section class="card glass">
+                            <h2>알파 하이킨아시 전략 실행</h2>
+                            <p class="section-help">두 번 평균 처리한 하이킨아시 색상 전환을 EMA와 RSI로 확인해 매수 후보를 찾습니다.</p>
+                            <div style="display: flex; gap: 12px; margin-top: 1.5rem; margin-bottom: 1rem;">
+                                <button type="button" class="button-primary" id="btn-ha-run-execute" style="flex: 1;">
+                                    <span class="loading-spinner" id="spin-ha-run-execute" style="display:none;"></span>실전 자동매매 실행
+                                </button>
+                                <button type="button" class="button-secondary" id="btn-ha-run-analysis" style="flex: 1;">
+                                    <span class="loading-spinner" id="spin-ha-run-analysis" style="display:none;"></span>분석만 실행
+                                </button>
+                            </div>
+                            <div id="ha-schedule-status-box" style="margin-bottom: 2rem; padding: 12px; border-radius: 6px; display: flex; align-items: center; gap: 10px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.05);">
+                                <span class="dot" id="ha-schedule-status-dot" style="width: 8px; height: 8px; border-radius: 50%; background-color: #9ca3af;"></span>
+                                <span id="ha-schedule-status-text" style="font-size: 0.85rem; color: rgba(255,255,255,0.85);">스케줄 상태를 조회하는 중...</span>
+                            </div>
+                        </section>
+
+                        <section class="card glass">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                                <h2 style="margin: 0;">전략 파라미터</h2>
+                                <button type="button" class="button-ghost compact-button" id="btn-save-ha-settings">설정 저장</button>
+                            </div>
+                            <p class="section-help">영상의 EMA10/EMA20, RSI 50선, 거래량 확인 조건을 조정합니다.</p>
+                            <div class="settings-grid" style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 1.25rem;">
+                                <div>
+                                    <span style="font-size:0.75rem; color:rgba(255,255,255,0.4); display:block; margin-bottom:4px;">빠른 EMA</span>
+                                    <input type="number" id="ha-input-fast-ema" value="10" min="1" style="width:100%; padding: 6px; border-radius: 4px; border:1px solid rgba(255,255,255,0.1); background:rgba(0,0,0,0.3); color:white; font-family:'JetBrains Mono';">
+                                </div>
+                                <div>
+                                    <span style="font-size:0.75rem; color:rgba(255,255,255,0.4); display:block; margin-bottom:4px;">느린 EMA</span>
+                                    <input type="number" id="ha-input-slow-ema" value="20" min="2" style="width:100%; padding: 6px; border-radius: 4px; border:1px solid rgba(255,255,255,0.1); background:rgba(0,0,0,0.3); color:white; font-family:'JetBrains Mono';">
+                                </div>
+                                <div>
+                                    <span style="font-size:0.75rem; color:rgba(255,255,255,0.4); display:block; margin-bottom:4px;">RSI 기간</span>
+                                    <input type="number" id="ha-input-rsi-period" value="14" min="2" style="width:100%; padding: 6px; border-radius: 4px; border:1px solid rgba(255,255,255,0.1); background:rgba(0,0,0,0.3); color:white; font-family:'JetBrains Mono';">
+                                </div>
+                                <div>
+                                    <span style="font-size:0.75rem; color:rgba(255,255,255,0.4); display:block; margin-bottom:4px;">최소 후보 점수</span>
+                                    <input type="number" step="0.1" id="ha-input-min-score" value="3.5" min="0" max="5" style="width:100%; padding: 6px; border-radius: 4px; border:1px solid rgba(255,255,255,0.1); background:rgba(0,0,0,0.3); color:white; font-family:'JetBrains Mono';">
+                                </div>
+                                <div style="grid-column: span 2;">
+                                    <span style="font-size:0.75rem; color:rgba(255,255,255,0.4); display:block; margin-bottom:4px;">거래량 확인 배수</span>
+                                    <input type="number" step="0.1" id="ha-input-volume-ratio" value="1.2" min="0.1" style="width:100%; padding: 6px; border-radius: 4px; border:1px solid rgba(255,255,255,0.1); background:rgba(0,0,0,0.3); color:white; font-family:'JetBrains Mono';">
+                                </div>
+                            </div>
+                        </section>
+                    </div>
+
+                    <section class="card glass" style="margin-top: 1.5rem;">
+                        <div class="panel-header split-header">
+                            <div>
+                                <h2>실시간 스캔 & 진단</h2>
+                                <p class="section-help">알파 하이킨아시 상승 전환, EMA 추세, RSI 50선, 거래량 조건을 전체 후보군에 적용합니다.</p>
+                            </div>
+                            <button type="button" class="button-primary" id="btn-ha-realtime-scan">
+                                <span class="loading-spinner" id="spin-ha-realtime-scan" style="display:none;"></span>실시간 스캔 시작
+                            </button>
+                        </div>
+                        <div style="margin-top: 1.5rem; display: flex; gap: 12px; align-items: center; border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 12px;">
+                            <button type="button" class="button-ghost compact-button active" id="btn-ha-show-candidates">후보 종목 (<span id="count-ha-candidates">0</span>)</button>
+                            <button type="button" class="button-ghost compact-button" id="btn-ha-show-all-scanned">전체 스캔 (<span id="count-ha-scanned">0</span>)</button>
+                        </div>
+                        <div class="table-responsive" style="margin-top: 1rem; max-height: 500px; overflow-y: auto;">
+                            <table id="table-ha-scan" style="width:100%;">
+                                <thead>
+                                    <tr>
+                                        <th>종목코드</th>
+                                        <th>종목명</th>
+                                        <th>현재가</th>
+                                        <th>RSI</th>
+                                        <th>EMA20</th>
+                                        <th>점수</th>
+                                        <th>판단 사유</th>
+                                        <th>작업</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr><td colspan="8" style="text-align:center; color:rgba(255,255,255,0.4); padding: 3rem 0;">실시간 스캔 시작 버튼을 눌러 주세요.</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </section>
+
+                    <section class="card glass" style="margin-top: 1.5rem;">
+                        <div class="panel-header split-header">
+                            <div>
+                                <h2>알파 하이킨아시 스케줄 실행 이력</h2>
+                                <p class="section-help">전략 자동/수동 실행과 주문 결과 이력을 확인합니다.</p>
+                            </div>
+                            <button type="button" class="button-secondary compact-button" id="btn-refresh-ha-sched-history">새로고침</button>
+                        </div>
+                        <div class="table-responsive" style="margin-top: 1rem; max-height: 350px; overflow-y: auto;">
+                            <table id="table-ha-sched-history" style="width:100%;">
+                                <thead>
+                                    <tr>
+                                        <th>실행 일시</th>
+                                        <th>모드</th>
+                                        <th>상태</th>
+                                        <th>계획/결과 수</th>
+                                        <th>오류 메시지</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr><td colspan="5" style="text-align:center; color:rgba(255,255,255,0.4); padding: 2rem 0;">이력이 없습니다.</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </section>
+
+                    <section class="card glass" style="margin-top: 1.5rem;">
+                        <div class="panel-header split-header">
+                            <div>
+                                <h2>최근 후보 및 스캔 기록</h2>
+                                <p class="section-help">알파 하이킨아시 스캔 결과를 최신순으로 표시합니다.</p>
+                            </div>
+                            <button type="button" class="button-secondary compact-button" id="btn-refresh-ha-scan-history">새로고침</button>
+                        </div>
+                        <div class="table-responsive" style="margin-top: 1rem; max-height: 350px; overflow-y: auto;">
+                            <table id="table-ha-scan-history" style="width:100%;">
+                                <thead>
+                                    <tr>
+                                        <th>스캔 일시</th>
+                                        <th>종목코드</th>
+                                        <th>종목명</th>
+                                        <th>현재가</th>
+                                        <th>RSI</th>
+                                        <th>EMA20</th>
+                                        <th>점수</th>
+                                        <th>판단 사유</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr><td colspan="8" style="text-align:center; color:rgba(255,255,255,0.4); padding: 2rem 0;">기록이 없습니다.</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </section>
+                </section>
+
+                <section class="pb-section" id="ha-tab-performance">
+                    <section class="summary-grid" style="margin-bottom: 2rem;">
+                        <div class="card glass"><h3>누적 실현 손익</h3><div class="value" id="ha-perf-pnl">-</div></div>
+                        <div class="card glass"><h3>승률</h3><div class="value" id="ha-perf-winrate">-</div></div>
+                        <div class="card glass"><h3>총 체결 주문</h3><div class="value" id="ha-perf-trades">-</div></div>
+                        <div class="card glass"><h3>매매당 평균 손익</h3><div class="value" id="ha-perf-avg">-</div></div>
+                    </section>
+                    <div class="dashboard-two-column">
+                        <section class="card glass panel-chart">
+                            <h2>전략 누적 손익 추이</h2>
+                            <p class="section-help">알파 하이킨아시 전략으로 확정 체결된 실현 손익 추세입니다.</p>
+                            <div class="chart-container" style="height: 300px;"><canvas id="haChart"></canvas></div>
+                        </section>
+                        <section class="card glass">
+                            <h2>월별 손익 분석</h2>
+                            <div class="table-responsive" style="margin-top: 1rem;">
+                                <table id="table-ha-monthly" style="width:100%;">
+                                    <thead><tr><th>기준월</th><th style="text-align: right;">실현 손익</th></tr></thead>
+                                    <tbody><tr><td colspan="2" style="text-align:center; color:rgba(255,255,255,0.4); padding:2rem 0;">데이터가 없습니다.</td></tr></tbody>
+                                </table>
+                            </div>
+                        </section>
+                    </div>
+                    <section class="card glass" style="margin-top: 2rem;">
+                        <h2>전략 매매 히스토리</h2>
+                        <p class="section-help">알파 하이킨아시 전략의 실전 및 시뮬레이션 체결 이력입니다.</p>
+                        <div class="table-responsive" style="margin-top: 1.5rem; max-height: 400px; overflow-y: auto;">
+                            <table id="table-ha-trades" style="width:100%;">
+                                <thead>
+                                    <tr>
+                                        <th>일시</th>
+                                        <th>종목명</th>
+                                        <th>구분</th>
+                                        <th>수량</th>
+                                        <th>가격</th>
+                                        <th>환경</th>
+                                        <th>상태</th>
+                                        <th>상세 사유</th>
+                                    </tr>
+                                </thead>
+                                <tbody><tr><td colspan="8" style="text-align:center; color:rgba(255,255,255,0.4); padding:3rem 0;">체결 이력이 없습니다.</td></tr></tbody>
+                            </table>
+                        </div>
+                    </section>
+                </section>
+            </section>
         </main>
     </div>
 
@@ -1373,9 +1569,16 @@
                     if (target === 'plunge-bounce') {
                         if (typeof checkIndexTrend === 'function') checkIndexTrend();
                         if (typeof loadEnvConfig === 'function') loadEnvConfig();
-                        const activePbTab = document.querySelector('.pb-tab.active');
+                        const activePbTab = document.querySelector('[data-pb-tab].active');
                         if (activePbTab && activePbTab.dataset.pbTab === 'performance' && typeof loadPerformanceData === 'function') {
                             loadPerformanceData();
+                        }
+                    }
+                    if (target === 'heikin-ashi') {
+                        if (typeof loadHeikinAshiConfig === 'function') loadHeikinAshiConfig();
+                        const activeHaTab = document.querySelector('[data-ha-tab].active');
+                        if (activeHaTab && activeHaTab.dataset.haTab === 'performance' && typeof loadHeikinAshiPerformance === 'function') {
+                            loadHeikinAshiPerformance();
                         }
                     }
                 });
@@ -1979,8 +2182,8 @@
 
         // Initialize setup for PB sub-navigation tabs
         document.addEventListener('DOMContentLoaded', () => {
-            const pbTabButtons = document.querySelectorAll('.pb-tab');
-            const pbSections = document.querySelectorAll('.pb-section');
+            const pbTabButtons = document.querySelectorAll('.pb-tab[data-pb-tab]');
+            const pbSections = document.querySelectorAll('#dashboard-tab-plunge-bounce .pb-section');
 
             pbTabButtons.forEach(button => {
                 button.addEventListener('click', () => {
@@ -2027,6 +2230,296 @@
 
             const btnSavePbSettings = document.getElementById('btn-save-pb-settings');
             if (btnSavePbSettings) btnSavePbSettings.addEventListener('click', savePlungeBounceSettings);
+        });
+    </script>
+
+    <!-- Alpha Heikin Ashi Strategy Scripts -->
+    <script>
+        let haChartObj = null;
+        let lastHaScanData = null;
+        let showOnlyHaCandidates = true;
+
+        function haMoney(value) {
+            const n = Number(value || 0);
+            return `${n >= 0 ? '+' : ''}${n.toLocaleString()} 원`;
+        }
+
+        async function loadHeikinAshiConfig() {
+            try {
+                const res = await fetchJson('/api/strategy/heikin_ashi_scalping/settings');
+                if (res && res.ok && res.settings) {
+                    const s = res.settings;
+                    document.getElementById('ha-input-fast-ema').value = s.HEIKIN_FAST_EMA;
+                    document.getElementById('ha-input-slow-ema').value = s.HEIKIN_SLOW_EMA;
+                    document.getElementById('ha-input-rsi-period').value = s.HEIKIN_RSI_PERIOD;
+                    document.getElementById('ha-input-min-score').value = s.HEIKIN_MIN_SCORE;
+                    document.getElementById('ha-input-volume-ratio').value = s.HEIKIN_VOLUME_RATIO;
+                }
+                await loadHeikinAshiScheduleHistory();
+                await loadHeikinAshiScanHistory();
+            } catch (err) {
+                console.error('Failed to load Heikin Ashi config', err);
+            }
+        }
+
+        async function saveHeikinAshiSettings() {
+            const payload = {
+                HEIKIN_FAST_EMA: Number(document.getElementById('ha-input-fast-ema').value),
+                HEIKIN_SLOW_EMA: Number(document.getElementById('ha-input-slow-ema').value),
+                HEIKIN_RSI_PERIOD: Number(document.getElementById('ha-input-rsi-period').value),
+                HEIKIN_MIN_SCORE: Number(document.getElementById('ha-input-min-score').value),
+                HEIKIN_VOLUME_RATIO: Number(document.getElementById('ha-input-volume-ratio').value),
+            };
+            const res = await postJson('/api/strategy/heikin_ashi_scalping/settings', payload);
+            if (!res.ok) {
+                alert(res.error || '알파 하이킨아시 설정 저장에 실패했습니다.');
+                return;
+            }
+            alert('알파 하이킨아시 설정이 저장되었습니다.');
+        }
+
+        async function runHeikinAshiScan() {
+            const spinner = document.getElementById('spin-ha-realtime-scan');
+            const button = document.getElementById('btn-ha-realtime-scan');
+            try {
+                if (spinner) spinner.style.display = 'inline-block';
+                if (button) button.disabled = true;
+                const data = await fetchJson('/api/strategy/heikin_ashi_scalping/scan', 120000);
+                lastHaScanData = data;
+                renderHeikinAshiScanTable();
+                await loadHeikinAshiScanHistory();
+            } catch (err) {
+                alert(`알파 하이킨아시 스캔 실패: ${err.message}`);
+            } finally {
+                if (spinner) spinner.style.display = 'none';
+                if (button) button.disabled = false;
+            }
+        }
+
+        function renderHeikinAshiScanTable() {
+            const tbody = document.querySelector('#table-ha-scan tbody');
+            if (!tbody) return;
+            tbody.innerHTML = '';
+            const candidates = lastHaScanData?.candidates || [];
+            const scanSummary = lastHaScanData?.scan_summary || [];
+            const rows = showOnlyHaCandidates ? candidates : scanSummary;
+            document.getElementById('count-ha-candidates').textContent = String(candidates.length);
+            document.getElementById('count-ha-scanned').textContent = String(scanSummary.length);
+
+            if (!rows.length) {
+                const scanned = lastHaScanData ? `${scanSummary.length}` : '-';
+                tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; color:rgba(255,255,255,0.4); padding: 3rem 0;">현재 알파 하이킨아시 조건 충족 종목이 없습니다. (스캔 ${scanned}개)</td></tr>`;
+                return;
+            }
+
+            rows.forEach((item) => {
+                const symbol = item.ticker || item.symbol || '-';
+                const name = item.name || symbol;
+                const price = Number(item.current_price || item.price || 0);
+                const score = Number(item.score || item.final_score || 0);
+                const reasons = Array.isArray(item.reasons) ? item.reasons : String(item.reasons || '').split(',').filter(Boolean);
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td style="font-family:'JetBrains Mono'; font-weight:600;">${escapeHtml(symbol)}</td>
+                    <td>${escapeHtml(name)}</td>
+                    <td style="text-align:right; font-family:'JetBrains Mono';">${price ? price.toLocaleString() : '-'}</td>
+                    <td style="font-family:'JetBrains Mono';">${item.rsi !== undefined && item.rsi !== null ? Number(item.rsi).toFixed(1) : '-'}</td>
+                    <td style="font-family:'JetBrains Mono';">${item.sma20 !== undefined && item.sma20 !== null ? Number(item.sma20).toLocaleString() : '-'}</td>
+                    <td><span class="badge ${score >= 3.5 ? 'status-ok' : 'status-fail'}">${score.toFixed(2)}</span></td>
+                    <td><ul class="scan-reason-list">${reasons.slice(0, 4).map(r => `<li>${escapeHtml(r.trim())}</li>`).join('')}</ul></td>
+                    <td><button type="button" class="button-ghost compact-button queue-order" data-symbol="${escapeHtml(symbol)}" data-name="${escapeHtml(name)}" data-action="buy" data-qty="1" data-price="${price}" data-reason="알파 하이킨아시 후보" data-source="heikin_ashi_scalping" data-strategy-id="heikin_ashi_scalping_strategy">승인요청</button></td>
+                `;
+                tbody.appendChild(tr);
+            });
+            if (typeof bindQueueButtons === 'function') bindQueueButtons();
+        }
+
+        async function runHeikinAshiTraderCycle(mode) {
+            const spinner = document.getElementById(mode === 'execute' ? 'spin-ha-run-execute' : 'spin-ha-run-analysis');
+            try {
+                if (spinner) spinner.style.display = 'inline-block';
+                const res = await postJson('/api/strategy/heikin_ashi_scalping/run-trader', { mode, auto_approve: true });
+                alert(res.status === 'started' ? '알파 하이킨아시 실행을 시작했습니다.' : JSON.stringify(res));
+                setTimeout(loadHeikinAshiScheduleHistory, 3000);
+            } catch (err) {
+                alert(`알파 하이킨아시 실행 실패: ${err.message}`);
+            } finally {
+                if (spinner) spinner.style.display = 'none';
+            }
+        }
+
+        async function loadHeikinAshiScheduleHistory() {
+            const data = await fetchJson('/api/strategy/heikin_ashi_scalping/schedule-history');
+            const tbody = document.querySelector('#table-ha-sched-history tbody');
+            if (!tbody) return;
+            tbody.innerHTML = '';
+            const rows = data.history || [];
+            const statusText = document.getElementById('ha-schedule-status-text');
+            const statusDot = document.getElementById('ha-schedule-status-dot');
+            if (!rows.length) {
+                tbody.innerHTML = `<tr><td colspan="5" style="text-align:center; color:rgba(255,255,255,0.4); padding: 2rem 0;">이력이 없습니다.</td></tr>`;
+                if (statusText) statusText.textContent = '아직 실행 이력이 없습니다.';
+                if (statusDot) statusDot.style.backgroundColor = '#9ca3af';
+                return;
+            }
+            const latest = rows[0];
+            const latestResult = latest.result?.result || latest.result || {};
+            const latestOk = latestResult.ok !== false && latestResult.status !== 'failed';
+            if (statusText) statusText.textContent = `최근 실행: ${latest.recorded_at} · ${latestOk ? '정상' : '실패'}`;
+            if (statusDot) statusDot.style.backgroundColor = latestOk ? '#10b981' : '#ef4444';
+            rows.forEach((row) => {
+                const result = row.result?.result || row.result || {};
+                const plans = result.plans?.length || result.results?.length || result.orders?.length || 0;
+                const errors = result.errors || [];
+                const ok = result.ok !== false && result.status !== 'failed';
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td style="font-family:'JetBrains Mono'; font-size:0.8rem;">${escapeHtml(row.recorded_at || '-')}</td>
+                    <td>${escapeHtml(row.mode || '-')}</td>
+                    <td><span class="badge ${ok ? 'status-ok' : 'status-fail'}">${ok ? '정상' : '실패'}</span></td>
+                    <td style="font-family:'JetBrains Mono';">${plans}</td>
+                    <td style="font-size:0.78rem; color:rgba(255,255,255,0.55);">${escapeHtml(errors[0]?.message || result.error || '-')}</td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        async function loadHeikinAshiScanHistory() {
+            const data = await fetchJson('/api/strategy/heikin_ashi_scalping/scans-history');
+            const tbody = document.querySelector('#table-ha-scan-history tbody');
+            if (!tbody) return;
+            tbody.innerHTML = '';
+            const rows = data.history || [];
+            if (!rows.length) {
+                tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; color:rgba(255,255,255,0.4); padding: 2rem 0;">기록이 없습니다.</td></tr>`;
+                return;
+            }
+            rows.forEach((row) => {
+                const reasons = String(row.reasons || '').split(',').filter(Boolean);
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td style="font-family:'JetBrains Mono'; font-size:0.8rem;">${escapeHtml(row.scanned_at || '-')}</td>
+                    <td style="font-family:'JetBrains Mono';">${escapeHtml(row.symbol || '-')}</td>
+                    <td>${escapeHtml(row.name || row.symbol || '-')}</td>
+                    <td style="text-align:right; font-family:'JetBrains Mono';">${Number(row.price || 0).toLocaleString()}</td>
+                    <td style="font-family:'JetBrains Mono';">${row.rsi !== null && row.rsi !== undefined ? Number(row.rsi).toFixed(1) : '-'}</td>
+                    <td style="font-family:'JetBrains Mono';">${row.sma20 !== null && row.sma20 !== undefined ? Number(row.sma20).toLocaleString() : '-'}</td>
+                    <td><span class="badge ${Number(row.score || 0) >= 3.5 ? 'status-ok' : 'status-fail'}">${Number(row.score || 0).toFixed(2)}</span></td>
+                    <td><ul class="scan-reason-list">${reasons.slice(0, 3).map(r => `<li>${escapeHtml(r.trim())}</li>`).join('')}</ul></td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        async function loadHeikinAshiPerformance() {
+            const data = await fetchJson('/api/strategy/heikin_ashi_scalping/performance');
+            if (!data.ok) return;
+            const metrics = data.metrics || {};
+            document.getElementById('ha-perf-pnl').textContent = haMoney(metrics.realized_pnl);
+            document.getElementById('ha-perf-pnl').className = `value ${Number(metrics.realized_pnl || 0) >= 0 ? 'positive' : 'negative'}`;
+            document.getElementById('ha-perf-winrate').textContent = `${metrics.win_rate || 0}%`;
+            document.getElementById('ha-perf-trades').textContent = String(metrics.total_trades || 0);
+            document.getElementById('ha-perf-avg').textContent = haMoney(metrics.avg_profit_per_trade);
+
+            const monthlyTbody = document.querySelector('#table-ha-monthly tbody');
+            if (monthlyTbody) {
+                monthlyTbody.innerHTML = '';
+                if (!data.monthly_pnl.length) {
+                    monthlyTbody.innerHTML = `<tr><td colspan="2" style="text-align:center; color:rgba(255,255,255,0.4); padding:2rem 0;">데이터가 없습니다.</td></tr>`;
+                } else {
+                    data.monthly_pnl.forEach((item) => {
+                        const tr = document.createElement('tr');
+                        tr.innerHTML = `<td>${escapeHtml(item.month)}</td><td style="text-align:right; font-weight:600; font-family:'JetBrains Mono';" class="${item.pnl >= 0 ? 'positive' : 'negative'}">${haMoney(item.pnl)}</td>`;
+                        monthlyTbody.appendChild(tr);
+                    });
+                }
+            }
+
+            const tradesTbody = document.querySelector('#table-ha-trades tbody');
+            if (tradesTbody) {
+                tradesTbody.innerHTML = '';
+                if (!data.trades.length) {
+                    tradesTbody.innerHTML = `<tr><td colspan="8" style="text-align:center; color:rgba(255,255,255,0.4); padding:3rem 0;">체결 이력이 없습니다.</td></tr>`;
+                } else {
+                    data.trades.forEach((t) => {
+                        const tr = document.createElement('tr');
+                        tr.innerHTML = `
+                            <td style="font-family:'JetBrains Mono'; font-size:0.8rem;">${escapeHtml(t.ts)}</td>
+                            <td style="font-weight:600;">${escapeHtml(t.name || t.symbol)}</td>
+                            <td><span class="badge ${escapeHtml(t.action)}">${t.action === 'buy' ? '매수' : '매도'}</span></td>
+                            <td style="font-family:'JetBrains Mono';">${t.qty}</td>
+                            <td style="text-align:right; font-family:'JetBrains Mono';">${Number(t.price || 0).toLocaleString()} 원</td>
+                            <td>${escapeHtml(t.env || '-')}</td>
+                            <td><span class="badge ${t.ok ? 'status-ok' : 'status-fail'}">${escapeHtml(t.order_status || (t.ok ? '체결완료' : '실패'))}</span></td>
+                            <td style="font-size:0.75rem; color:rgba(255,255,255,0.5); max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${escapeHtml(t.reason || t.response_msg || '')}">${escapeHtml(t.reason || t.response_msg || '-')}</td>
+                        `;
+                        tradesTbody.appendChild(tr);
+                    });
+                }
+            }
+            renderHeikinAshiChart(data.daily_pnl || []);
+        }
+
+        function renderHeikinAshiChart(dailyData) {
+            const canvas = document.getElementById('haChart');
+            if (!canvas) return;
+            const ctx = canvas.getContext('2d');
+            if (haChartObj) haChartObj.destroy();
+            haChartObj = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: dailyData.map(d => d.date),
+                    datasets: [{
+                        label: '누적 손익',
+                        data: dailyData.map(d => d.pnl),
+                        borderColor: '#a78bfa',
+                        backgroundColor: 'rgba(167, 139, 250, 0.12)',
+                        borderWidth: 2,
+                        tension: 0.2,
+                        fill: true
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        x: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: 'rgba(255,255,255,0.5)', font: { size: 10 } } },
+                        y: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: 'rgba(255,255,255,0.5)', font: { size: 10 } } }
+                    }
+                }
+            });
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            const haTabButtons = document.querySelectorAll('.pb-tab[data-ha-tab]');
+            const haSections = document.querySelectorAll('#dashboard-tab-heikin-ashi .pb-section');
+            haTabButtons.forEach((button) => {
+                button.addEventListener('click', () => {
+                    const target = button.dataset.haTab;
+                    haTabButtons.forEach(btn => btn.classList.toggle('active', btn === button));
+                    haSections.forEach(sec => sec.classList.toggle('active', sec.id === `ha-tab-${target}`));
+                    if (target === 'performance') loadHeikinAshiPerformance();
+                });
+            });
+            document.getElementById('btn-ha-realtime-scan')?.addEventListener('click', runHeikinAshiScan);
+            document.getElementById('btn-ha-run-execute')?.addEventListener('click', () => runHeikinAshiTraderCycle('execute'));
+            document.getElementById('btn-ha-run-analysis')?.addEventListener('click', () => runHeikinAshiTraderCycle('analysis_only'));
+            document.getElementById('btn-save-ha-settings')?.addEventListener('click', saveHeikinAshiSettings);
+            document.getElementById('btn-refresh-ha-sched-history')?.addEventListener('click', loadHeikinAshiScheduleHistory);
+            document.getElementById('btn-refresh-ha-scan-history')?.addEventListener('click', loadHeikinAshiScanHistory);
+            document.getElementById('btn-ha-show-candidates')?.addEventListener('click', () => {
+                showOnlyHaCandidates = true;
+                document.getElementById('btn-ha-show-candidates').classList.add('active');
+                document.getElementById('btn-ha-show-all-scanned').classList.remove('active');
+                renderHeikinAshiScanTable();
+            });
+            document.getElementById('btn-ha-show-all-scanned')?.addEventListener('click', () => {
+                showOnlyHaCandidates = false;
+                document.getElementById('btn-ha-show-all-scanned').classList.add('active');
+                document.getElementById('btn-ha-show-candidates').classList.remove('active');
+                renderHeikinAshiScanTable();
+            });
         });
     </script>
 

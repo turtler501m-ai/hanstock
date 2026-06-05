@@ -244,7 +244,9 @@ def calc_strategy_profile(prices: list[float], highs: list[float] | None = None,
         }
         try:
             score = float(custom_inst.calculate_score(prices, indicators))
-            if "pb_reasons" in indicators:
+            if "custom_reasons" in indicators:
+                reasons.extend(indicators["custom_reasons"])
+            elif "pb_reasons" in indicators:
                 reasons.extend(indicators["pb_reasons"])
             else:
                 reasons.append(f"Custom Rule: {strategy_model} (score={score:.2f})")

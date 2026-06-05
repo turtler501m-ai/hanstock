@@ -1,9 +1,10 @@
 # -*- coding: utf-8 -*-
+import json
 import sqlite3
 import threading
 from datetime import datetime
-from fastapi import Body, HTTPException, Request
-from fastapi.responses import FileResponse, RedirectResponse
+from fastapi import Body, HTTPException
+from fastapi.responses import RedirectResponse
 
 from src.dashboard.core import (
     app,
@@ -15,101 +16,238 @@ from src.dashboard.core import (
 from src import trader
 from src.utils.logger import logger
 
+STRATEGY_META = {
+    "plunge_bounce": {
+        "id": "plunge_bounce_strategy",
+        "label": "급락반등",
+        "last_result_path": ".runtime/plunge_bounce_last_result.json",
+    },
+    "heikin_ashi_scalping": {
+        "id": "heikin_ashi_scalping_strategy",
+        "label": "알파 하이킨아시",
+        "last_result_path": ".runtime/heikin_ashi_scalping_last_result.json",
+    },
+}
+
+
+def _strategy_meta(key: str) -> dict:
+    meta = STRATEGY_META.get(key)
+    if not meta:
+        raise HTTPException(status_code=404, detail="Strategy not found")
+    return meta
+
+
+def _strategy_performance(strategy_id: str) -> dict:
+    trades = []
+    with trader.connect_db() as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            "SELECT * FROM trades WHERE strategy_id = ? AND ok = 1 ORDER BY ts ASC",
+            (strategy_id,),
+        ).fetchall()
+        trades = [dict(row) for row in rows]
+
+    holdings = {}
+    realized_pnl = 0.0
+    winning_trades = 0
+    losing_trades = 0
+    pnl_by_date = {}
+    pnl_by_month = {}
+    total_sell_trades = 0
+
+    for t in trades:
+        symbol = t["symbol"]
+        qty = t["qty"]
+        price = t["price"]
+        action = t["action"]
+        date_str = t["ts"][:10]
+        month_str = t["ts"][:7]
+
+        if symbol not in holdings:
+            holdings[symbol] = {"qty": 0, "cost": 0.0}
+
+        if action == "buy":
+            current_qty = holdings[symbol]["qty"]
+            new_qty = current_qty + qty
+            if new_qty > 0:
+                holdings[symbol]["cost"] = (
+                    (current_qty * holdings[symbol]["cost"]) + (qty * price)
+                ) / new_qty
+            holdings[symbol]["qty"] = new_qty
+        elif action == "sell":
+            current_qty = holdings[symbol]["qty"]
+            sell_qty = min(qty, current_qty)
+            if sell_qty > 0:
+                profit = (price - holdings[symbol]["cost"]) * sell_qty
+                realized_pnl += profit
+                pnl_by_month[month_str] = pnl_by_month.get(month_str, 0.0) + profit
+                total_sell_trades += 1
+                if profit > 0:
+                    winning_trades += 1
+                elif profit < 0:
+                    losing_trades += 1
+
+                holdings[symbol]["qty"] -= sell_qty
+                if holdings[symbol]["qty"] <= 0:
+                    holdings[symbol]["qty"] = 0
+                    holdings[symbol]["cost"] = 0.0
+
+        pnl_by_date[date_str] = realized_pnl
+
+    total_trades = len(trades)
+    win_rate = (winning_trades / total_sell_trades * 100) if total_sell_trades > 0 else 0
+    avg_profit = (realized_pnl / total_sell_trades) if total_sell_trades > 0 else 0
+
+    return {
+        "ok": True,
+        "metrics": {
+            "total_trades": total_trades,
+            "sell_trades": total_sell_trades,
+            "winning_trades": winning_trades,
+            "losing_trades": losing_trades,
+            "win_rate": round(win_rate, 2),
+            "realized_pnl": round(realized_pnl, 2),
+            "avg_profit_per_trade": round(avg_profit, 2),
+        },
+        "daily_pnl": [
+            {"date": d, "pnl": round(pnl, 2)}
+            for d, pnl in sorted(pnl_by_date.items())
+        ],
+        "monthly_pnl": [
+            {"month": m, "pnl": round(pnl, 2)}
+            for m, pnl in sorted(pnl_by_month.items())
+        ],
+        "trades": trades[::-1],
+    }
+
+
+def _strategy_scan(strategy_id: str, *, min_score: float = 1.0) -> dict:
+    from src.trader import KIStockAPI
+    from src.strategy.seven_split import build_scan_universe, find_candidates
+    from src.db.repository import save_scanned_candidate
+
+    api = KIStockAPI()
+    balance = api.get_balance()
+    stocks = balance.get("output1", []) or []
+    held_symbols = {s.get("pdno", "") for s in stocks}
+    scan_list = [code for code in build_scan_universe() if code not in held_symbols]
+
+    logger.info(f"[StrategyRoute] {strategy_id} scan initiated for {len(scan_list)} symbols")
+    scan_result = find_candidates(
+        held_symbols,
+        universe=scan_list,
+        min_score=min_score,
+        ranker="rule_only",
+        api=api,
+        strategy_model=strategy_id,
+    )
+
+    candidates = scan_result.get("candidates", [])
+    scan_summary = scan_result.get("scan_summary", [])
+
+    for s in scan_summary:
+        save_scanned_candidate(
+            symbol=s.get("ticker", ""),
+            name=s.get("name", ""),
+            score=s.get("score", 0.0),
+            reasons=s.get("reasons", []),
+            price=s.get("current_price", 0.0),
+            env=trader.TRADING_ENV,
+            indicators={
+                "rsi": s.get("rsi"),
+                "rsi2": s.get("rsi2"),
+                "sma20": s.get("sma20"),
+                "sma60": s.get("sma60"),
+                "macd_hist": s.get("macd_hist"),
+            },
+            strategy={"id": strategy_id},
+            scoring={"final_score": s.get("score")},
+        )
+
+    summary_clean = []
+    for s in scan_summary:
+        summary_clean.append({
+            "symbol": s.get("ticker"),
+            "name": s.get("name"),
+            "price": s.get("current_price"),
+            "score": s.get("score"),
+            "reasons": s.get("reasons"),
+            "rsi": s.get("rsi"),
+            "rsi2": s.get("rsi2"),
+            "sma20": s.get("sma20"),
+            "sma60": s.get("sma60"),
+            "bb_lo": s.get("bb_lo"),
+        })
+
+    return {
+        "ok": True,
+        "candidates": candidates,
+        "scan_summary": summary_clean,
+        "scanned_count": len(scan_summary),
+        "candidates_count": len(candidates),
+    }
+
+
+def _strategy_scans_history(strategy_id: str, limit: int = 100) -> dict:
+    from src.db.repository import connect_db
+    with connect_db() as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            """
+            SELECT scanned_at, symbol, name, score, reasons, price, env, rsi, rsi2, sma20
+            FROM scanned_candidates
+            WHERE strategy_id = ?
+            ORDER BY scanned_at DESC
+            LIMIT ?
+            """,
+            (strategy_id, limit),
+        ).fetchall()
+        return {"ok": True, "history": [dict(row) for row in rows]}
+
+
+def _strategy_schedule_history(strategy_id: str, limit: int = 50) -> dict:
+    from src.db.repository import connect_db
+    with connect_db() as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            """
+            SELECT recorded_at, mode, result
+            FROM scheduler_results
+            WHERE strategy_id = ?
+            ORDER BY recorded_at DESC
+            LIMIT ?
+            """,
+            (strategy_id, limit),
+        ).fetchall()
+
+        parsed_history = []
+        for row in rows:
+            row_dict = dict(row)
+            if row_dict.get("result"):
+                try:
+                    row_dict["result"] = json.loads(row_dict["result"])
+                except Exception:
+                    pass
+            parsed_history.append(row_dict)
+        return {"ok": True, "history": parsed_history}
+
 @app.get("/plunge-bounce")
 def read_plunge_bounce_dashboard():
     """Redirects to the main dashboard with plunge-bounce tab active."""
     return RedirectResponse(url="/?tab=plunge-bounce")
 
 
+@app.get("/heikin-ashi-scalping")
+def read_heikin_ashi_dashboard():
+    """Redirects to the main dashboard with alpha Heikin Ashi tab active."""
+    return RedirectResponse(url="/?tab=heikin-ashi")
+
+
 @app.get("/api/strategy/plunge_bounce/performance")
 def get_strategy_performance():
     """Calculates daily, monthly, and overall performance for plunge_bounce_strategy."""
     try:
-        trades = []
-        with trader.connect_db() as conn:
-            conn.row_factory = sqlite3.Row
-            rows = conn.execute(
-                "SELECT * FROM trades WHERE strategy_id = 'plunge_bounce_strategy' AND ok = 1 ORDER BY ts ASC"
-            ).fetchall()
-            trades = [dict(row) for row in rows]
-
-        holdings = {}
-        realized_pnl = 0.0
-        winning_trades = 0
-        losing_trades = 0
-        pnl_by_date = {}   # {date_str: cumulative_pnl}
-        pnl_by_month = {}  # {month_str: realized_pnl}
-        total_sell_trades = 0
-
-        for t in trades:
-            symbol = t["symbol"]
-            qty = t["qty"]
-            price = t["price"]
-            action = t["action"]
-            date_str = t["ts"][:10]  # "YYYY-MM-DD"
-            month_str = t["ts"][:7]  # "YYYY-MM"
-
-            if symbol not in holdings:
-                holdings[symbol] = {"qty": 0, "cost": 0.0}
-
-            if action == "buy":
-                current_qty = holdings[symbol]["qty"]
-                new_qty = current_qty + qty
-                if new_qty > 0:
-                    holdings[symbol]["cost"] = (
-                        (current_qty * holdings[symbol]["cost"]) + (qty * price)
-                    ) / new_qty
-                holdings[symbol]["qty"] = new_qty
-            elif action == "sell":
-                current_qty = holdings[symbol]["qty"]
-                sell_qty = min(qty, current_qty)
-                if sell_qty > 0:
-                    profit = (price - holdings[symbol]["cost"]) * sell_qty
-                    realized_pnl += profit
-                    pnl_by_month[month_str] = pnl_by_month.get(month_str, 0.0) + profit
-                    total_sell_trades += 1
-                    if profit > 0:
-                        winning_trades += 1
-                    elif profit < 0:
-                        losing_trades += 1
-
-                    holdings[symbol]["qty"] -= sell_qty
-                    if holdings[symbol]["qty"] <= 0:
-                        holdings[symbol]["qty"] = 0
-                        holdings[symbol]["cost"] = 0.0
-            
-            pnl_by_date[date_str] = realized_pnl
-
-        # Calculate metrics
-        total_trades = len(trades)
-        win_rate = (winning_trades / total_sell_trades * 100) if total_sell_trades > 0 else 0
-        avg_profit = (realized_pnl / total_sell_trades) if total_sell_trades > 0 else 0
-
-        # Format charts series
-        daily_pnl_list = [
-            {"date": d, "pnl": round(pnl, 2)}
-            for d, pnl in sorted(pnl_by_date.items())
-        ]
-        monthly_pnl_list = [
-            {"month": m, "pnl": round(pnl, 2)}
-            for m, pnl in sorted(pnl_by_month.items())
-        ]
-
-        return {
-            "ok": True,
-            "metrics": {
-                "total_trades": total_trades,
-                "sell_trades": total_sell_trades,
-                "winning_trades": winning_trades,
-                "losing_trades": losing_trades,
-                "win_rate": round(win_rate, 2),
-                "realized_pnl": round(realized_pnl, 2),
-                "avg_profit_per_trade": round(avg_profit, 2),
-            },
-            "daily_pnl": daily_pnl_list,
-            "monthly_pnl": monthly_pnl_list,
-            "trades": trades[::-1],  # latest first
-        }
+        return _strategy_performance("plunge_bounce_strategy")
     except Exception as e:
         logger.error(f"[PlungeBounceRoute] Performance calculation failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -335,3 +473,111 @@ def save_plunge_bounce_settings(payload: dict = Body(...)):
         return {"ok": False, "error": str(e)}
 
 
+@app.get("/api/strategy/heikin_ashi_scalping/performance")
+def get_heikin_ashi_performance():
+    try:
+        return _strategy_performance("heikin_ashi_scalping_strategy")
+    except Exception as e:
+        logger.error(f"[HeikinAshiRoute] Performance calculation failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/strategy/heikin_ashi_scalping/scan")
+def run_heikin_ashi_scan():
+    try:
+        from src.db.repository import get_watchlist_setting
+
+        min_score = float(get_watchlist_setting("HEIKIN_MIN_SCORE", "3.5"))
+        return _strategy_scan("heikin_ashi_scalping_strategy", min_score=min_score)
+    except Exception as e:
+        logger.error(f"[HeikinAshiRoute] Scan failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/strategy/heikin_ashi_scalping/run-trader")
+def run_heikin_ashi_trader(payload: dict = Body(...)):
+    global _scheduler_run_state
+    mode = str(payload.get("mode", "execute")).lower()
+    include_ai_rebalance = False
+    auto_approve = bool(payload.get("auto_approve", True))
+
+    with _scheduler_running_lock:
+        if _scheduler_run_state["is_running"]:
+            raise HTTPException(status_code=409, detail="스케줄러가 이미 실행 중입니다.")
+
+        _scheduler_run_state["is_running"] = True
+        _scheduler_run_state["mode"] = mode
+        _scheduler_run_state["started_at"] = trader.datetime.now(trader.KST).isoformat()
+        _scheduler_run_state["completed_at"] = None
+        _scheduler_run_state["result"] = None
+        _scheduler_run_state["error"] = None
+
+    t = threading.Thread(
+        target=_bg_run_scheduled_cycle,
+        args=(mode, include_ai_rebalance, auto_approve, "heikin_ashi_scalping_strategy"),
+        daemon=True,
+    )
+    t.start()
+    return {"status": "started", "mode": mode}
+
+
+@app.get("/api/strategy/heikin_ashi_scalping/scans-history")
+def get_heikin_ashi_scans_history(limit: int = 100):
+    try:
+        return _strategy_scans_history("heikin_ashi_scalping_strategy", limit=limit)
+    except Exception as e:
+        logger.error(f"[HeikinAshiRoute] Failed to fetch scan history: {e}")
+        return {"ok": False, "error": str(e)}
+
+
+@app.get("/api/strategy/heikin_ashi_scalping/schedule-history")
+def get_heikin_ashi_schedule_history(limit: int = 50):
+    try:
+        return _strategy_schedule_history("heikin_ashi_scalping_strategy", limit=limit)
+    except Exception as e:
+        logger.error(f"[HeikinAshiRoute] Failed to fetch schedule history: {e}")
+        return {"ok": False, "error": str(e)}
+
+
+@app.get("/api/strategy/heikin_ashi_scalping/settings")
+def get_heikin_ashi_settings():
+    try:
+        from src.db.repository import get_watchlist_setting
+        return {
+            "ok": True,
+            "settings": {
+                "HEIKIN_FAST_EMA": int(float(get_watchlist_setting("HEIKIN_FAST_EMA", "10"))),
+                "HEIKIN_SLOW_EMA": int(float(get_watchlist_setting("HEIKIN_SLOW_EMA", "20"))),
+                "HEIKIN_RSI_PERIOD": int(float(get_watchlist_setting("HEIKIN_RSI_PERIOD", "14"))),
+                "HEIKIN_MIN_SCORE": float(get_watchlist_setting("HEIKIN_MIN_SCORE", "3.5")),
+                "HEIKIN_VOLUME_RATIO": float(get_watchlist_setting("HEIKIN_VOLUME_RATIO", "1.2")),
+            },
+        }
+    except Exception as e:
+        logger.error(f"[HeikinAshiRoute] Failed to get settings: {e}")
+        return {"ok": False, "error": str(e)}
+
+
+@app.post("/api/strategy/heikin_ashi_scalping/settings")
+def save_heikin_ashi_settings(payload: dict = Body(...)):
+    try:
+        from src.db.repository import save_watchlist_setting
+
+        numeric_keys = {
+            "HEIKIN_FAST_EMA": int,
+            "HEIKIN_SLOW_EMA": int,
+            "HEIKIN_RSI_PERIOD": int,
+            "HEIKIN_MIN_SCORE": float,
+            "HEIKIN_VOLUME_RATIO": float,
+        }
+        for key, caster in numeric_keys.items():
+            if key in payload and payload[key] is not None:
+                value = caster(float(payload[key])) if caster is int else caster(payload[key])
+                if value <= 0:
+                    raise ValueError(f"{key} must be positive")
+                save_watchlist_setting(key, str(value))
+
+        return {"ok": True, "message": "알파 하이킨아시 설정이 저장되었습니다."}
+    except Exception as e:
+        logger.error(f"[HeikinAshiRoute] Failed to save settings: {e}")
+        return {"ok": False, "error": str(e)}
