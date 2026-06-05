@@ -15,10 +15,14 @@ class PlungeBounceStrategy:
     _last_cache_time = None
 
     def __init__(self):
-        # Allow customization via environment variables
-        self.deviation_threshold = float(os.environ.get("PLUNGE_DEVIATION_THRESHOLD", "-15.0"))
-        self.rsi_threshold = float(os.environ.get("PLUNGE_RSI_THRESHOLD", "30.0"))
-        self.vol_ratio_threshold = float(os.environ.get("PLUNGE_VOL_RATIO_THRESHOLD", "1.4"))
+        # Allow customization via database settings with env fallback
+        from src.db.repository import get_watchlist_setting
+        self.deviation_threshold = float(get_watchlist_setting("PLUNGE_DEVIATION_THRESHOLD", os.environ.get("PLUNGE_DEVIATION_THRESHOLD", "-15.0")))
+        self.rsi_threshold = float(get_watchlist_setting("PLUNGE_RSI_THRESHOLD", os.environ.get("PLUNGE_RSI_THRESHOLD", "30.0")))
+        self.vol_ratio_threshold = float(get_watchlist_setting("PLUNGE_VOL_RATIO_THRESHOLD", os.environ.get("PLUNGE_VOL_RATIO_THRESHOLD", "1.4")))
+        self.min_val_krw = float(get_watchlist_setting("PLUNGE_MIN_VAL_KRW", "1000000.0"))
+        self.max_val_krw = float(get_watchlist_setting("PLUNGE_MAX_VAL_KRW", "500000000.0"))
+        self.index_filter_enabled = get_watchlist_setting("PLUNGE_INDEX_FILTER_ENABLED", "1") == "1"
 
     def _is_index_above_sma(self, symbol: str) -> bool:
         """Determines if the relevant market index is trading above its 200-day SMA."""
@@ -101,8 +105,8 @@ class PlungeBounceStrategy:
         latest_val = latest_volume * current_price
         
         if is_kr:
-            # KRW: 1M KRW (1백만원) to 500M KRW (5억원)
-            if not (1_000_000 <= latest_val <= 500_000_000):
+            # KRW: Dynamic values
+            if not (self.min_val_krw <= latest_val <= self.max_val_krw):
                 return 0.0
         else:
             # USD: $800 to $400,000
@@ -110,7 +114,7 @@ class PlungeBounceStrategy:
                 return 0.0
                 
         # 5. Market Index Trend Filter
-        if not self._is_index_above_sma(symbol):
+        if self.index_filter_enabled and not self._is_index_above_sma(symbol):
             return 0.0
             
         logger.info(f"[PlungeBounce] ALL triggers & filters PASSED for {symbol}: disparity={disparity:.2f}%, RSI={rsi:.1f}, vol_ratio={vol_ratio:.1f}x, val={latest_val:,.1f}")

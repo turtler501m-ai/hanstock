@@ -2008,3 +2008,30 @@ def get_custom_strategy_instance(strategy_id: str):
     except Exception as e:
         logger.warning(f"Failed to load custom strategy instance for {strategy_id}: {e}")
     return None
+
+
+def get_watchlist_setting(key: str, default: str) -> str:
+    try:
+        init_db()
+        with connect_db() as conn:
+            c = conn.execute("SELECT value FROM watchlist_settings WHERE key = ?", (key,))
+            row = c.fetchone()
+            if row:
+                return row[0]
+    except Exception as e:
+        logger.warning(f"Failed to load watchlist setting {key}: {e}")
+    return default
+
+
+def save_watchlist_setting(key: str, value: str) -> None:
+    try:
+        init_db()
+        with connect_db() as conn:
+            conn.execute(
+                "INSERT OR REPLACE INTO watchlist_settings (key, value) VALUES (?, ?)",
+                (key, str(value))
+            )
+            conn.commit()
+    except Exception as e:
+        logger.warning(f"Failed to save watchlist setting {key}: {e}")
+

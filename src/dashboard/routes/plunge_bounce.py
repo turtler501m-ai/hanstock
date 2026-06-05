@@ -280,3 +280,58 @@ def get_plunge_bounce_schedule_history(limit: int = 50):
         logger.error(f"[PlungeBounceRoute] Failed to fetch schedule history: {e}")
         return {"ok": False, "error": str(e)}
 
+
+@app.get("/api/strategy/plunge_bounce/settings")
+def get_plunge_bounce_settings():
+    """Retrieves the custom rule filters for the Plunge Bounce strategy from DB."""
+    try:
+        from src.db.repository import get_watchlist_setting
+        return {
+            "ok": True,
+            "settings": {
+                "PLUNGE_DEVIATION_THRESHOLD": float(get_watchlist_setting("PLUNGE_DEVIATION_THRESHOLD", "-15.0")),
+                "PLUNGE_RSI_THRESHOLD": float(get_watchlist_setting("PLUNGE_RSI_THRESHOLD", "30.0")),
+                "PLUNGE_VOL_RATIO_THRESHOLD": float(get_watchlist_setting("PLUNGE_VOL_RATIO_THRESHOLD", "1.4")),
+                "PLUNGE_MIN_VAL_KRW": float(get_watchlist_setting("PLUNGE_MIN_VAL_KRW", "1000000.0")),
+                "PLUNGE_MAX_VAL_KRW": float(get_watchlist_setting("PLUNGE_MAX_VAL_KRW", "500000000.0")),
+                "PLUNGE_INDEX_FILTER_ENABLED": get_watchlist_setting("PLUNGE_INDEX_FILTER_ENABLED", "1") == "1",
+            }
+        }
+    except Exception as e:
+        logger.error(f"[PlungeBounceRoute] Failed to get settings: {e}")
+        return {"ok": False, "error": str(e)}
+
+
+@app.post("/api/strategy/plunge_bounce/settings")
+def save_plunge_bounce_settings(payload: dict = Body(...)):
+    """Saves the custom rule filters for the Plunge Bounce strategy to DB."""
+    try:
+        from src.db.repository import save_watchlist_setting
+        
+        # Validation and parsing
+        deviation = payload.get("PLUNGE_DEVIATION_THRESHOLD")
+        rsi = payload.get("PLUNGE_RSI_THRESHOLD")
+        vol = payload.get("PLUNGE_VOL_RATIO_THRESHOLD")
+        min_val = payload.get("PLUNGE_MIN_VAL_KRW")
+        max_val = payload.get("PLUNGE_MAX_VAL_KRW")
+        idx_enabled = payload.get("PLUNGE_INDEX_FILTER_ENABLED")
+
+        if deviation is not None:
+            save_watchlist_setting("PLUNGE_DEVIATION_THRESHOLD", str(float(deviation)))
+        if rsi is not None:
+            save_watchlist_setting("PLUNGE_RSI_THRESHOLD", str(float(rsi)))
+        if vol is not None:
+            save_watchlist_setting("PLUNGE_VOL_RATIO_THRESHOLD", str(float(vol)))
+        if min_val is not None:
+            save_watchlist_setting("PLUNGE_MIN_VAL_KRW", str(float(min_val)))
+        if max_val is not None:
+            save_watchlist_setting("PLUNGE_MAX_VAL_KRW", str(float(max_val)))
+        if idx_enabled is not None:
+            save_watchlist_setting("PLUNGE_INDEX_FILTER_ENABLED", "1" if bool(idx_enabled) else "0")
+
+        return {"ok": True, "message": "성공적으로 설정이 저장되었습니다."}
+    except Exception as e:
+        logger.error(f"[PlungeBounceRoute] Failed to save settings: {e}")
+        return {"ok": False, "error": str(e)}
+
+
