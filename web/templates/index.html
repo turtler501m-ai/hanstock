@@ -379,6 +379,10 @@
                                 <span class="label">거래 환경</span>
                                 <strong id="sched-trading-env">-</strong>
                             </div>
+                            <div class="setting-item" style="grid-column: span 2;">
+                                <span class="label">현재 활성화된 매매 전략</span>
+                                <strong id="sched-active-strategy" style="color: #60a5fa; font-weight: bold;">-</strong>
+                            </div>
                         </div>
                     </section>
 
@@ -1040,13 +1044,21 @@
                             <h2>전략 실행 및 파라미터 제어</h2>
                             <p class="section-help">급락반등 5중 필터 매매 엔진을 수동으로 즉시 구동하거나 설정을 점검합니다.</p>
                             
-                            <div style="display: flex; gap: 12px; margin-top: 1.5rem; margin-bottom: 2rem;">
+                            <div style="display: flex; gap: 12px; margin-top: 1.5rem; margin-bottom: 1rem;">
                                 <button type="button" class="button-primary" id="btn-run-execute" style="flex: 1;">
                                     <span class="loading-spinner" id="spin-run-execute" style="display:none;"></span>실전 자동매매 강제 실행
                                 </button>
                                 <button type="button" class="button-secondary" id="btn-run-analysis" style="flex: 1;">
                                     <span class="loading-spinner" id="spin-run-analysis" style="display:none;"></span>스캔 분석 (시뮬레이션)
                                 </button>
+                            </div>
+
+                            <!-- 스케쥴 연결 상태 표시 카드 -->
+                            <div id="pb-schedule-status-box" style="margin-bottom: 2rem; padding: 12px; border-radius: 6px; display: flex; align-items: center; gap: 10px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.05);">
+                                <span class="dot" id="pb-schedule-status-dot" style="width: 8px; height: 8px; border-radius: 50%; background-color: #9ca3af;"></span>
+                                <span id="pb-schedule-status-text" style="font-size: 0.85rem; color: rgba(255,255,255,0.85);">
+                                    스케쥴 상태를 조회하는 중...
+                                </span>
                             </div>
 
                             <div style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.05); padding: 16px; border-radius: 8px;">
@@ -1304,6 +1316,28 @@
                     document.getElementById('pb-val-rsi').innerText = `30.0`;
                     document.getElementById('pb-val-vol').innerText = `1.4 배`;
                     document.getElementById('pb-val-val').innerText = `100만 ~ 5억 원`;
+                }
+
+                // Fetch scheduler status to render status card
+                const schedData = await fetchJson('/api/scheduler/status');
+                const statusBox = document.getElementById('pb-schedule-status-box');
+                const statusDot = document.getElementById('pb-schedule-status-dot');
+                const statusText = document.getElementById('pb-schedule-status-text');
+
+                if (statusBox && statusDot && statusText) {
+                    if (schedData.active_strategy_id === 'plunge_bounce_strategy') {
+                        statusBox.style.background = 'rgba(16, 185, 129, 0.1)';
+                        statusBox.style.border = '1px solid rgba(16, 185, 129, 0.2)';
+                        statusDot.style.backgroundColor = '#10b981';
+                        statusDot.className = 'dot live';
+                        statusText.innerHTML = `<strong>자동 매매 스케쥴 활성 상태:</strong> 급락반등 전략이 스케쥴에 적용되어 매주 월~금 09:00 ~ 15:00 KST (정각)마다 실행 중입니다.`;
+                    } else {
+                        statusBox.style.background = 'rgba(245, 158, 11, 0.1)';
+                        statusBox.style.border = '1px solid rgba(245, 158, 11, 0.2)';
+                        statusDot.style.backgroundColor = '#f59e0b';
+                        statusDot.className = 'dot';
+                        statusText.innerHTML = `<strong>스케쥴 대기 상태:</strong> 현재 활성화된 전략은 <em>${escapeHtml(schedData.active_strategy_name)}</em>입니다. 급락반등 스케쥴을 가동하려면 <strong>'AI 전략'</strong> 탭에서 <code>plunge_bounce_strategy</code> 전략을 활성화(선택)해 주세요.`;
+                    }
                 }
             } catch (err) {
                 console.error("Failed to load configs", err);

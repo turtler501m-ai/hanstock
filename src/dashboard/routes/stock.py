@@ -1493,10 +1493,23 @@ def get_scheduler_status():
             except Exception:
                 pass
             
+    active_strategy_id = "seven_split"
+    active_strategy_name = "기본 룰베이스 (Seven Split)"
+    try:
+        from src.db.repository import load_ai_strategies
+        active = next((s for s in load_ai_strategies() if s.get("selected")), None)
+        if active:
+            active_strategy_id = active.get("model") or "seven_split"
+            active_strategy_name = active.get("name") or active_strategy_id
+    except Exception:
+        pass
+
     return {
         "config": config,
         "last_result": last_result,
-        "run_state": _scheduler_run_state
+        "run_state": _scheduler_run_state,
+        "active_strategy_id": active_strategy_id,
+        "active_strategy_name": active_strategy_name,
     }
 
 

@@ -2922,6 +2922,11 @@ async function renderScheduleInfo() {
         
         const tradingEnvEl = document.getElementById('sched-trading-env');
         if (tradingEnvEl) tradingEnvEl.textContent = data.config.trading_env === 'real' ? '실전투자' : '모의투자';
+
+        const activeStrategyEl = document.getElementById('sched-active-strategy');
+        if (activeStrategyEl) {
+            activeStrategyEl.textContent = `${data.active_strategy_name} (${data.active_strategy_id})`;
+        }
         
         // 2. Dynamic status of current/last execution state
         const runState = data.run_state;
