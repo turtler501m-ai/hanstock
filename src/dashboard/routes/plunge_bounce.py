@@ -3,7 +3,7 @@ import sqlite3
 import threading
 from datetime import datetime
 from fastapi import Body, HTTPException, Request
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, RedirectResponse
 
 from src.dashboard.core import (
     app,
@@ -15,10 +15,10 @@ from src.dashboard.core import (
 from src import trader
 from src.utils.logger import logger
 
-@app.get("/plunge-bounce", response_class=FileResponse)
+@app.get("/plunge-bounce")
 def read_plunge_bounce_dashboard():
-    """Renders the plunge bounce strategy dashboard page."""
-    return FileResponse(WEB_DIR / "templates" / "plunge_bounce.html")
+    """Redirects to the main dashboard with plunge-bounce tab active."""
+    return RedirectResponse(url="/?tab=plunge-bounce")
 
 
 @app.get("/api/strategy/plunge_bounce/performance")
