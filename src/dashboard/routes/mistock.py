@@ -670,7 +670,10 @@ def mistock_create_approval(payload: dict = Body(...)):
         """,
         (now, now, symbol, name, action, qty, price, str(payload.get("reason") or ""), str(payload.get("source") or "mistock_dashboard")),
     )
-    if mistock_db.get_setting("auto_approval", "false") == "true":
+    if (
+        mistock_db.get_setting("auto_approval", "false") == "true"
+        and mistock_trader.broker_submission_available()
+    ):
         result = _execute_approval(approval_id, approve=True)
         result["auto_approved"] = True
         return result

@@ -123,6 +123,13 @@ def runtime_flags() -> dict[str, Any]:
     }
 
 
+def broker_submission_available(balance: dict[str, Any] | None = None) -> bool:
+    if config.trading_env == "demo":
+        balance = balance or get_balance()
+        return balance.get("balance_source") != "demo_config_fallback"
+    return config.trading_env == "real"
+
+
 def get_watchlist() -> list[dict[str, Any]]:
     return db.rows("SELECT symbol, name, created_at FROM watchlist ORDER BY symbol")
 

@@ -43,6 +43,7 @@ def run_mistock_scheduled_cycle(mode: str = "execute") -> dict:
     # Check auto-approval setting from database
     auto_approve = (mistock_db.get_setting("auto_approval", "false") == "true")
     flags = mistock_trader.runtime_flags()
+    broker_submission_available = mistock_trader.broker_submission_available(balance)
     
     # 3. 매도 신호 처리 및 주문 집행/대기등록
     sigs = mistock_trader.signals()
@@ -52,7 +53,7 @@ def run_mistock_scheduled_cycle(mode: str = "execute") -> dict:
             qty = float(sig["signal_qty"])
             price = float(sig["signal_price"])
             if qty > 0:
-                if mode == "execute" and (auto_approve or flags["order_submission_enabled"]):
+                if mode == "execute" and (auto_approve or flags["order_submission_enabled"]) and broker_submission_available:
                     logger.info(f"[MISTOCK SCHEDULER] Sell signal for {sig['symbol']}. Qty={qty}, Price={price}")
                     res = mistock_trader.place_paper_order(sig["symbol"], "sell", qty, price, reason=sig["reason"])
                     sold_items.append({"symbol": sig["symbol"], "qty": qty, "price": price, "result": res})
@@ -72,7 +73,7 @@ def run_mistock_scheduled_cycle(mode: str = "execute") -> dict:
     bought_items = []
     
     if mode == "execute":
-        if auto_approve or flags["order_submission_enabled"]:
+        if (auto_approve or flags["order_submission_enabled"]) and broker_submission_available:
             for idx, ord in enumerate(orders):
                 qty = float(ord["quantity"])
                 price = float(ord["price"])

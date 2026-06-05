@@ -268,6 +268,7 @@ class MistockDashboardTests(unittest.TestCase):
                 patch.object(mistock_trader, "get_balance", return_value={"cash": 1000.0, "total_eval": 1000.0}), \
                 patch.object(mistock_trader, "signals", return_value=[]), \
                 patch.object(mistock_trader, "build_orders", return_value=[order]), \
+                patch.object(mistock_trader, "broker_submission_available", return_value=True), \
                 patch.object(mistock_trader, "place_paper_order", return_value=failed_order), \
                 patch.object(mistock_db, "get_setting", return_value="true"), \
                 patch.object(mistock_scheduler, "send_mistock_slack"):
@@ -277,6 +278,49 @@ class MistockDashboardTests(unittest.TestCase):
         self.assertEqual(result["status"], "failed")
         self.assertEqual(result["errors"][0]["symbol"], "AAPL")
         self.assertEqual(result["errors"][0]["message"], "broker rejected")
+
+    def test_scheduler_queues_orders_when_demo_broker_balance_is_fallback(self):
+        order = {
+            "symbol": "AAPL",
+            "quantity": 1,
+            "price": 100.0,
+            "reason": "unit test",
+        }
+
+        with patch.object(mistock_trader, "scan_candidates", return_value={"scanned": 1, "candidates": [{"symbol": "AAPL"}]}), \
+                patch.object(mistock_trader, "get_balance", return_value={"cash": 1000.0, "total_eval": 1000.0, "balance_source": "demo_config_fallback"}), \
+                patch.object(mistock_trader, "signals", return_value=[]), \
+                patch.object(mistock_trader, "build_orders", return_value=[order]), \
+                patch.object(mistock_db, "get_setting", return_value="true"), \
+                patch.object(mistock_trader, "place_paper_order") as place_order, \
+                patch.object(mistock_scheduler, "send_mistock_slack"):
+            result = mistock_scheduler.run_mistock_scheduled_cycle(mode="execute")
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["bought"], [])
+        place_order.assert_not_called()
+        pending = mistock_db.rows("SELECT symbol, action, qty, price, status FROM approvals WHERE status = 'pending'")
+        self.assertEqual(len(pending), 1)
+        self.assertEqual(pending[0]["symbol"], "AAPL")
+
+    def test_create_approval_does_not_auto_execute_when_broker_balance_is_fallback(self):
+        mistock_db.set_setting("auto_approval", "true")
+
+        with patch.object(mistock_trader, "broker_submission_available", return_value=False), \
+                patch.object(mistock_trader, "place_paper_order") as place_order:
+            result = mistock.mistock_create_approval({
+                "symbol": "AAPL",
+                "name": "Apple",
+                "action": "buy",
+                "qty": 1,
+                "price": 100,
+                "reason": "fallback balance",
+            })
+
+        self.assertTrue(result["ok"])
+        self.assertFalse(result["auto_approved"])
+        self.assertEqual(result["status"], "pending")
+        place_order.assert_not_called()
 
 
 if __name__ == "__main__":
