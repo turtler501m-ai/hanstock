@@ -257,6 +257,7 @@ def init_db() -> None:
             )
             """
         )
+        _ensure_column(conn, "scheduler_results", "strategy_id", "TEXT")
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS daily_charts (
@@ -1299,11 +1300,12 @@ def save_scheduler_result(mode: str, recorded_at: str, result: dict) -> None:
             return obj
 
         cleaned_result = convert_unserializable(result)
+        strategy_id = cleaned_result.get("strategy_id") or cleaned_result.get("force_strategy_id") or "seven_split"
         
         with connect_db() as conn:
             conn.execute(
-                "INSERT OR REPLACE INTO scheduler_results (recorded_at, mode, result) VALUES (?, ?, ?)",
-                (recorded_at, mode, json.dumps(cleaned_result, ensure_ascii=False, default=str))
+                "INSERT OR REPLACE INTO scheduler_results (recorded_at, mode, result, strategy_id) VALUES (?, ?, ?, ?)",
+                (recorded_at, mode, json.dumps(cleaned_result, ensure_ascii=False, default=str), strategy_id)
             )
             conn.commit()
     except Exception as e:

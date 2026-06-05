@@ -552,15 +552,24 @@ def build_ai_rebalance_rows(api, balance_data: dict, total_eval: int) -> list[di
     return rows
 
 
-def build_runtime_plan(api, balance_data: dict, *, include_ai_rebalance: bool = False, read_cached_candidates: bool = False) -> dict:
-    active_strategy_id = "seven_split"
-    try:
-        from src.db.repository import load_ai_strategies
-        active = next((s for s in load_ai_strategies() if s.get("selected")), None)
-        if active:
-            active_strategy_id = active.get("model") or "seven_split"
-    except Exception:
-        pass
+def build_runtime_plan(
+    api,
+    balance_data: dict,
+    *,
+    include_ai_rebalance: bool = False,
+    read_cached_candidates: bool = False,
+    force_strategy_id: str | None = None,
+) -> dict:
+    active_strategy_id = force_strategy_id
+    if not active_strategy_id:
+        active_strategy_id = "seven_split"
+        try:
+            from src.db.repository import load_ai_strategies
+            active = next((s for s in load_ai_strategies() if s.get("selected")), None)
+            if active:
+                active_strategy_id = active.get("model") or "seven_split"
+        except Exception:
+            pass
 
     stocks = balance_data.get("output1", [])
     summary = (balance_data.get("output2") or [{}])[0]
@@ -620,7 +629,17 @@ def build_runtime_plan(api, balance_data: dict, *, include_ai_rebalance: bool = 
             candidates = sorted(candidates, key=lambda c: (-float(c["final_score"]), c["ticker"]))
         else:
             universe = build_scan_universe(api, held_symbols)
-            scan_result = find_candidates(held_symbols, universe=universe)
+            if active_strategy_id == "plunge_bounce_strategy":
+                scan_result = find_candidates(
+                    held_symbols,
+                    universe=universe,
+                    min_score=1.0,
+                    ranker="rule_only",
+                    api=api,
+                    strategy_model="plunge_bounce_strategy",
+                )
+            else:
+                scan_result = find_candidates(held_symbols, universe=universe)
             candidates = scan_result.get("candidates", [])
 
         orders = build_orders(candidates, api.get_quote, len(held_symbols), cash)
@@ -693,6 +712,7 @@ def run(
     *,
     include_ai_rebalance: bool = False,
     execution_categories: set[str] | None = None,
+    force_strategy_id: str | None = None,
 ) -> dict:
     check_secrets()
     init_db()
@@ -729,9 +749,9 @@ def run(
         return {"plan": [], "results": []}
 
     if include_ai_rebalance:
-        runtime_bundle = build_runtime_plan(api, balance, include_ai_rebalance=True)
+        runtime_bundle = build_runtime_plan(api, balance, include_ai_rebalance=True, force_strategy_id=force_strategy_id)
     else:
-        runtime_bundle = build_runtime_plan(api, balance)
+        runtime_bundle = build_runtime_plan(api, balance, force_strategy_id=force_strategy_id)
 
     candidates = runtime_bundle.get("candidate_scan", {}).get("candidates", [])
     if candidates:

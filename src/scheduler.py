@@ -122,10 +122,17 @@ def _sync_order_status_after_cycle(result: dict) -> dict:
         return {**result, "order_status_sync_error": _error_record(exc)}
 
 
-def _write_cycle_result(result: dict, *, mode: str) -> None:
-    path = Path(os.environ.get("HANSTOCK_SCHEDULER_RESULT_PATH", ".runtime/daily_auto_last_result.json"))
+def _write_cycle_result(result: dict, *, mode: str, strategy_id: str | None = None) -> None:
+    if strategy_id == "plunge_bounce_strategy":
+        path = Path(".runtime/plunge_bounce_last_result.json")
+    else:
+        path = Path(os.environ.get("HANSTOCK_SCHEDULER_RESULT_PATH", ".runtime/daily_auto_last_result.json"))
     path.parent.mkdir(parents=True, exist_ok=True)
     recorded_at = datetime.now(trader.KST).isoformat()
+    
+    # ensure strategy_id is populated in result
+    result["strategy_id"] = strategy_id or "seven_split"
+    
     payload = {
         "mode": mode,
         "recorded_at": recorded_at,
@@ -203,6 +210,7 @@ def run_scheduled_cycle(
     *,
     include_ai_rebalance: bool = False,
     auto_approve: bool = False,
+    force_strategy_id: str | None = None,
 ) -> dict:
     if mode == "daily_auto":
         include_ai_rebalance = True
@@ -229,13 +237,14 @@ def run_scheduled_cycle(
                 "mode": run_mode,
                 "include_ai_rebalance": True,
                 "execution_categories": execution_categories,
+                "force_strategy_id": force_strategy_id,
             },
         )
     else:
         result = _run_trader_with_retries(
             attempts=run_attempts,
             delay_seconds=retry_delay_seconds,
-            kwargs={"mode": run_mode},
+            kwargs={"mode": run_mode, "force_strategy_id": force_strategy_id},
         )
 
     approval_result = (
@@ -249,10 +258,12 @@ def run_scheduled_cycle(
             "auto_approved": approval_result["approved"],
             "auto_approval_errors": approval_result["errors"],
         }
+    result["strategy_id"] = force_strategy_id or "seven_split"
     result = _sync_order_status_after_cycle(result)
-    if mode == "daily_auto":
-        _write_cycle_result(result, mode=mode)
-        _slack_cycle_result(result, mode=mode)
+    if mode == "daily_auto" or force_strategy_id:
+        _write_cycle_result(result, mode=mode, strategy_id=force_strategy_id)
+        if mode == "daily_auto":
+            _slack_cycle_result(result, mode=mode)
     return result
 
 
@@ -277,11 +288,18 @@ def main() -> int:
         action="store_true",
         help="approve only approvals created by this scheduler run",
     )
+    parser.add_argument(
+        "--force-strategy-id",
+        type=str,
+        default=None,
+        help="force a specific active strategy model for this scheduler run",
+    )
     args = parser.parse_args()
     result = run_scheduled_cycle(
         mode=args.mode,
         include_ai_rebalance=args.include_ai_rebalance,
         auto_approve=args.auto_approve,
+        force_strategy_id=args.force_strategy_id,
     )
     if result.get("status") == "failed" or result.get("ok") is False:
         return 1

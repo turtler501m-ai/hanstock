@@ -147,8 +147,27 @@ def run_plunge_bounce_scan():
         candidates = scan_result.get("candidates", [])
         scan_summary = scan_result.get("scan_summary", [])
 
+        from src.db.repository import save_scanned_candidate
+        # Persist scan details to DB for history tracking
+        for s in scan_summary:
+            save_scanned_candidate(
+                symbol=s.get("ticker", ""),
+                name=s.get("name", ""),
+                score=s.get("score", 0.0),
+                reasons=s.get("reasons", []),
+                price=s.get("current_price", 0.0),
+                env=trader.TRADING_ENV,
+                indicators={
+                    "rsi": s.get("rsi"),
+                    "rsi2": s.get("rsi2"),
+                    "sma20": s.get("sma20"),
+                    "sma60": s.get("sma60"),
+                },
+                strategy={"id": "plunge_bounce_strategy"},
+                scoring={"final_score": s.get("score")}
+            )
+
         # Sort summary to show highest-scoring or lowest-disparity first
-        # Filter details out to make it light
         summary_clean = []
         for s in scan_summary:
             summary_clean.append({
@@ -177,26 +196,14 @@ def run_plunge_bounce_scan():
 
 @app.post("/api/strategy/plunge_bounce/run-trader")
 def run_plunge_bounce_trader(payload: dict = Body(...)):
-    """Locks plunge_bounce_strategy as the active model and triggers an execution run cycle in the background."""
+    """Triggers an independent execution run cycle using plunge_bounce_strategy in the background."""
     global _scheduler_run_state
     mode = str(payload.get("mode", "execute")).lower()
-    
-    # 1. Update DB to set plunge_bounce_strategy as the active selected strategy
-    from src.db.repository import connect_db
-    try:
-        with connect_db() as conn:
-            conn.execute("UPDATE ai_strategies SET selected = 0")
-            conn.execute(
-                "UPDATE ai_strategies SET selected = 1 WHERE id = 'plunge_bounce_strategy'"
-            )
-        logger.info("[PlungeBounceRoute] Set plunge_bounce_strategy as active selected model.")
-    except Exception as e:
-        logger.error(f"[PlungeBounceRoute] Failed to update selected strategy in DB: {e}")
 
     include_ai_rebalance = False
     auto_approve = bool(payload.get("auto_approve", True))
 
-    # 2. Trigger scheduler in background thread
+    # 2. Trigger scheduler in background thread forcing plunge_bounce_strategy
     with _scheduler_running_lock:
         if _scheduler_run_state["is_running"]:
             raise HTTPException(status_code=409, detail="스케줄러가 이미 실행 중입니다.")
@@ -210,8 +217,66 @@ def run_plunge_bounce_trader(payload: dict = Body(...)):
 
     t = threading.Thread(
         target=_bg_run_scheduled_cycle,
-        args=(mode, include_ai_rebalance, auto_approve),
+        args=(mode, include_ai_rebalance, auto_approve, "plunge_bounce_strategy"),
         daemon=True,
     )
     t.start()
     return {"status": "started", "mode": mode}
+
+
+@app.get("/api/strategy/plunge_bounce/scans-history")
+def get_plunge_bounce_scans_history(limit: int = 100):
+    """Retrieves the history of scanned candidates for plunge_bounce_strategy."""
+    try:
+        from src.db.repository import connect_db
+        with connect_db() as conn:
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute(
+                """
+                SELECT scanned_at, symbol, name, score, reasons, price, env, rsi, rsi2, sma20
+                FROM scanned_candidates
+                WHERE strategy_id = 'plunge_bounce_strategy'
+                ORDER BY scanned_at DESC
+                LIMIT ?
+                """,
+                (limit,)
+            ).fetchall()
+            return {"ok": True, "history": [dict(row) for row in rows]}
+    except Exception as e:
+        logger.error(f"[PlungeBounceRoute] Failed to fetch scan history: {e}")
+        return {"ok": False, "error": str(e)}
+
+
+@app.get("/api/strategy/plunge_bounce/schedule-history")
+def get_plunge_bounce_schedule_history(limit: int = 50):
+    """Retrieves the execution history of scheduler runs for plunge_bounce_strategy."""
+    try:
+        from src.db.repository import connect_db
+        with connect_db() as conn:
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute(
+                """
+                SELECT recorded_at, mode, result
+                FROM scheduler_results
+                WHERE strategy_id = 'plunge_bounce_strategy'
+                ORDER BY recorded_at DESC
+                LIMIT ?
+                """,
+                (limit,)
+            ).fetchall()
+            
+            # parse the JSON result string for convenience in the frontend
+            parsed_history = []
+            for row in rows:
+                row_dict = dict(row)
+                if row_dict.get("result"):
+                    try:
+                        row_dict["result"] = json.loads(row_dict["result"])
+                    except Exception:
+                        pass
+                parsed_history.append(row_dict)
+            return {"ok": True, "history": parsed_history}
+    except Exception as e:
+        logger.error(f"[PlungeBounceRoute] Failed to fetch schedule history: {e}")
+        return {"ok": False, "error": str(e)}
+

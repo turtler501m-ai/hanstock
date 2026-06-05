@@ -1148,6 +1148,76 @@
                             </table>
                         </div>
                     </section>
+
+                    <!-- 급락반등 스케쥴 실행 이력 (Schedule Execution History) -->
+                    <section class="card glass" style="margin-top: 1.5rem;">
+                        <div class="panel-header split-header">
+                            <div>
+                                <h2>급락반등 스케쥴 실행 이력</h2>
+                                <p class="section-help">전략의 자동/수동 스케쥴 실행 및 주문 결과 히스토리를 모니터링합니다.</p>
+                            </div>
+                            <button type="button" class="button-secondary compact-button" id="btn-refresh-sched-history">
+                                새로고침
+                            </button>
+                        </div>
+                        <div class="table-responsive" style="margin-top: 1rem; max-height: 350px; overflow-y: auto;">
+                            <table id="table-pb-sched-history" style="width:100%;">
+                                <thead>
+                                    <tr>
+                                        <th>실행 일시</th>
+                                        <th>모드</th>
+                                        <th>상태</th>
+                                        <th>계획/결과 수</th>
+                                        <th>오류 메세지</th>
+                                        <th>상세</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr>
+                                        <td colspan="6" style="text-align:center; color:rgba(255,255,255,0.4); padding: 2rem 0;">
+                                            이력이 없습니다.
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </section>
+
+                    <!-- 최근 스캔 기록 로그 (Scan History) -->
+                    <section class="card glass" style="margin-top: 1.5rem;">
+                        <div class="panel-header split-header">
+                            <div>
+                                <h2>최근 포착 및 스캔 기록 로그</h2>
+                                <p class="section-help">스케쥴러나 스캔 엔진이 구동되며 조건에 포착되었던 종목들의 역사적 기록입니다.</p>
+                            </div>
+                            <button type="button" class="button-secondary compact-button" id="btn-refresh-scan-history">
+                                새로고침
+                            </button>
+                        </div>
+                        <div class="table-responsive" style="margin-top: 1rem; max-height: 350px; overflow-y: auto;">
+                            <table id="table-pb-scan-history" style="width:100%;">
+                                <thead>
+                                    <tr>
+                                        <th>스캔 일시</th>
+                                        <th>종목코드</th>
+                                        <th>종목명</th>
+                                        <th>현재가</th>
+                                        <th>이격도 (22일)</th>
+                                        <th>RSI</th>
+                                        <th>스코어</th>
+                                        <th>판단 사유</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr>
+                                        <td colspan="8" style="text-align:center; color:rgba(255,255,255,0.4); padding: 2rem 0;">
+                                            기록이 없습니다.
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </section>
                 </section>
 
                 <!-- 탭 2: 전략 성과분석 -->
@@ -1318,31 +1388,164 @@
                     document.getElementById('pb-val-val').innerText = `100만 ~ 5억 원`;
                 }
 
-                // Fetch scheduler status to render status card
-                const schedData = await fetchJson('/api/scheduler/status');
-                const statusBox = document.getElementById('pb-schedule-status-box');
-                const statusDot = document.getElementById('pb-schedule-status-dot');
-                const statusText = document.getElementById('pb-schedule-status-text');
-
-                if (statusBox && statusDot && statusText) {
-                    if (schedData.active_strategy_id === 'plunge_bounce_strategy') {
-                        statusBox.style.background = 'rgba(16, 185, 129, 0.1)';
-                        statusBox.style.border = '1px solid rgba(16, 185, 129, 0.2)';
-                        statusDot.style.backgroundColor = '#10b981';
-                        statusDot.className = 'dot live';
-                        statusText.innerHTML = `<strong>자동 매매 스케쥴 활성 상태:</strong> 급락반등 전략이 스케쥴에 적용되어 매주 월~금 09:00 ~ 15:00 KST (정각)마다 실행 중입니다.`;
-                    } else {
-                        statusBox.style.background = 'rgba(245, 158, 11, 0.1)';
-                        statusBox.style.border = '1px solid rgba(245, 158, 11, 0.2)';
-                        statusDot.style.backgroundColor = '#f59e0b';
-                        statusDot.className = 'dot';
-                        statusText.innerHTML = `<strong>스케쥴 대기 상태:</strong> 현재 활성화된 전략은 <em>${escapeHtml(schedData.active_strategy_name)}</em>입니다. 급락반등 스케쥴을 가동하려면 <strong>'AI 전략'</strong> 탭에서 <code>plunge_bounce_strategy</code> 전략을 활성화(선택)해 주세요.`;
-                    }
-                }
+                // Trigger schedule history load to update status card
+                await loadScheduleHistoryData();
+                await loadScanHistoryData();
             } catch (err) {
                 console.error("Failed to load configs", err);
             }
         }
+
+        async function loadScanHistoryData() {
+            try {
+                const data = await fetchJson('/api/strategy/plunge_bounce/scans-history');
+                const tbody = document.querySelector('#table-pb-scan-history tbody');
+                if (!tbody) return;
+                tbody.innerHTML = '';
+
+                if (!data.ok || !data.history || data.history.length === 0) {
+                    tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; color:rgba(255,255,255,0.4); padding:2rem 0;">최근 스캔 기록이 없습니다.</td></tr>`;
+                    return;
+                }
+
+                data.history.forEach(item => {
+                    const rsi = item.rsi !== null && item.rsi !== undefined ? Math.round(item.rsi) : '-';
+                    const score = item.score;
+                    const price = item.price !== null && item.price !== undefined ? Number(item.price).toLocaleString() + ' 원' : '-';
+                    
+                    let reasonsHtml = '';
+                    const reasonsList = item.reasons ? item.reasons.split(',') : [];
+                    reasonsList.forEach(r => {
+                        reasonsHtml += `<li>${escapeHtml(r)}</li>`;
+                    });
+
+                    const reasonsContainer = reasonsList.length > 0 
+                        ? `<ul class="scan-reason-list">${reasonsHtml}</ul>` 
+                        : `<span style="color:rgba(255,255,255,0.3); font-size:0.75rem;">기준 충족 (필터 통과 대기)</span>`;
+
+                    const tr = document.createElement('tr');
+                    tr.innerHTML = `
+                        <td style="font-family:'JetBrains Mono'; font-size:0.8rem; color:rgba(255,255,255,0.5);">${escapeHtml(item.scanned_at)}</td>
+                        <td style="font-family:'JetBrains Mono';">${escapeHtml(item.symbol)}</td>
+                        <td style="font-weight:600;">${escapeHtml(item.name)}</td>
+                        <td style="text-align:right; font-family:'JetBrains Mono';">${price}</td>
+                        <td>${item.sma20 ? '체크됨' : '-'}</td>
+                        <td>${rsi}</td>
+                        <td>
+                            <span class="badge ${score >= 1.0 ? 'buy' : 'status-fail'}">${score >= 1.0 ? '포착 (' + score + ')' : '제외 (' + score + ')'}</span>
+                        </td>
+                        <td>${reasonsContainer}</td>
+                    `;
+                    tbody.appendChild(tr);
+                });
+            } catch (err) {
+                console.error("Load scan history error", err);
+            }
+        }
+
+        async function loadScheduleHistoryData() {
+            try {
+                const data = await fetchJson('/api/strategy/plunge_bounce/schedule-history');
+                const tbody = document.querySelector('#table-pb-sched-history tbody');
+                if (!tbody) return;
+                tbody.innerHTML = '';
+
+                if (!data.ok || !data.history || data.history.length === 0) {
+                    tbody.innerHTML = `<tr><td colspan="6" style="text-align:center; color:rgba(255,255,255,0.4); padding:2rem 0;">스케쥴 실행 이력이 없습니다.</td></tr>`;
+                    updateScheduleStatusBox(null);
+                    return;
+                }
+
+                const latestRun = data.history[0];
+                updateScheduleStatusBox(latestRun);
+
+                data.history.forEach(item => {
+                    const resultData = item.result || {};
+                    const planCount = (resultData.plan || []).length;
+                    const resultsCount = (resultData.results || []).length;
+                    const autoApprovedCount = (resultData.auto_approved || []).length;
+                    
+                    let statusClass = 'status-ok';
+                    let statusText = '정상 완료';
+                    let errorMsg = '-';
+
+                    if (resultData.errors && resultData.errors.length > 0) {
+                        statusClass = 'status-fail';
+                        statusText = '오류 발생';
+                        errorMsg = resultData.errors[resultData.errors.length - 1].message || '에러 발생';
+                    } else if (resultData.auto_approval_errors && resultData.auto_approval_errors.length > 0) {
+                        statusClass = 'status-fail';
+                        statusText = '승인 에러';
+                        errorMsg = resultData.auto_approval_errors[0].message || '승인 중 에러';
+                    }
+
+                    const recordTime = item.recorded_at ? item.recorded_at.split('.')[0].replace('T', ' ') : '-';
+
+                    const tr = document.createElement('tr');
+                    tr.innerHTML = `
+                        <td style="font-family:'JetBrains Mono'; font-size:0.8rem;">${escapeHtml(recordTime)}</td>
+                        <td><code>${escapeHtml(item.mode)}</code></td>
+                        <td><span class="badge ${statusClass}">${statusText}</span></td>
+                        <td>계획: ${planCount} | 결과: ${resultsCount} (승인: ${autoApprovedCount})</td>
+                        <td style="font-size:0.75rem; color:rgba(255,255,255,0.5); max-width: 200px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${escapeHtml(errorMsg)}">${escapeHtml(errorMsg)}</td>
+                        <td>
+                            <button type="button" class="button-ghost compact-button" onclick="showScheduleDetail(this)">상세보기</button>
+                        </td>
+                    `;
+                    tr.querySelector('button').dataset.detail = JSON.stringify(resultData);
+                    tbody.appendChild(tr);
+                });
+            } catch (err) {
+                console.error("Load schedule history error", err);
+            }
+        }
+
+        function updateScheduleStatusBox(latestRun) {
+            const statusBox = document.getElementById('pb-schedule-status-box');
+            const statusDot = document.getElementById('pb-schedule-status-dot');
+            const statusText = document.getElementById('pb-schedule-status-text');
+
+            if (!statusBox || !statusDot || !statusText) return;
+
+            if (!latestRun) {
+                statusBox.style.background = 'rgba(245, 158, 11, 0.1)';
+                statusBox.style.border = '1px solid rgba(245, 158, 11, 0.2)';
+                statusDot.style.backgroundColor = '#f59e0b';
+                statusDot.className = 'dot';
+                statusText.innerHTML = `<strong>스케쥴 대기 또는 미작동:</strong> 최근 실행 이력이 확인되지 않습니다. VM 크론 스케쥴 설정을 점검하십시오.`;
+                return;
+            }
+
+            const recordTime = latestRun.recorded_at ? latestRun.recorded_at.split('.')[0].replace('T', ' ') : '-';
+            const resultData = latestRun.result || {};
+            const candidatesCount = (resultData.candidate_scan || {}).candidates_count || 0;
+            const hasError = (resultData.errors && resultData.errors.length > 0) || (resultData.auto_approval_errors && resultData.auto_approval_errors.length > 0);
+
+            if (hasError) {
+                statusBox.style.background = 'rgba(239, 68, 68, 0.1)';
+                statusBox.style.border = '1px solid rgba(239, 68, 68, 0.2)';
+                statusDot.style.backgroundColor = '#ef4444';
+                statusDot.className = 'dot live';
+                statusText.innerHTML = `<strong>스케쥴 실행 오류:</strong> 최근 실행 시각: <em>${escapeHtml(recordTime)}</em> (오류가 감지되었습니다. 로그를 확인하세요)`;
+            } else {
+                statusBox.style.background = 'rgba(16, 185, 129, 0.1)';
+                statusBox.style.border = '1px solid rgba(16, 185, 129, 0.2)';
+                statusDot.style.backgroundColor = '#10b981';
+                statusDot.className = 'dot live';
+                statusText.innerHTML = `<strong>스케쥴 정상 작동 중 (다른 전략과 무관):</strong> 최근 실행 시각: <em>${escapeHtml(recordTime)}</em> (모드: <code>${escapeHtml(latestRun.mode)}</code>, 스캔후보: <strong>${candidatesCount}</strong>개)`;
+            }
+        }
+
+        function showScheduleDetail(button) {
+            try {
+                const detail = JSON.parse(button.dataset.detail);
+                alert("상세 결과 JSON (콘솔 확인 가능):\n" + JSON.stringify(detail, null, 2).slice(0, 1000) + "\n...");
+                console.log("Schedule run detail result:", detail);
+            } catch (e) {
+                alert("상세를 불러올 수 없습니다.");
+            }
+        }
+
 
         async function checkIndexTrend() {
             try {
@@ -1376,6 +1579,8 @@
                     document.getElementById('count-candidates').innerText = data.candidates_count;
                     document.getElementById('count-scanned').innerText = data.scanned_count;
                     renderScanTable();
+                    // Load updated history list
+                    loadScanHistoryData();
                 } else {
                     alert("스캔 분석 중 에러가 발생했습니다.");
                 }
@@ -1467,6 +1672,9 @@
                 const res = await postJson('/api/strategy/plunge_bounce/run-trader', { mode: mode, auto_approve: true });
                 if (res.status === 'started') {
                     alert(`급락반등 전략이 백그라운드에서 실행되었습니다. (모드: ${mode})`);
+                    setTimeout(loadScheduleHistoryData, 3000);
+                    setTimeout(loadScheduleHistoryData, 8000);
+                    setTimeout(loadScanHistoryData, 8000);
                 } else {
                     alert(res.detail || "실행 거부되었습니다.");
                 }
@@ -1640,6 +1848,12 @@
 
             const btnRunAnalysis = document.getElementById('btn-run-analysis');
             if (btnRunAnalysis) btnRunAnalysis.addEventListener('click', () => runTraderCycle('analysis_only'));
+
+            const btnRefreshSchedHistory = document.getElementById('btn-refresh-sched-history');
+            if (btnRefreshSchedHistory) btnRefreshSchedHistory.addEventListener('click', loadScheduleHistoryData);
+
+            const btnRefreshScanHistory = document.getElementById('btn-refresh-scan-history');
+            if (btnRefreshScanHistory) btnRefreshScanHistory.addEventListener('click', loadScanHistoryData);
         });
     </script>
 

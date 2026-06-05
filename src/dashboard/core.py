@@ -3224,14 +3224,15 @@ _scheduler_run_state = {
     "error": None
 }
 
-def _bg_run_scheduled_cycle(mode: str, include_ai_rebalance: bool, auto_approve: bool):
+def _bg_run_scheduled_cycle(mode: str, include_ai_rebalance: bool, auto_approve: bool, force_strategy_id: str | None = None):
     global _scheduler_run_state
     try:
         from src.scheduler import run_scheduled_cycle
         result = run_scheduled_cycle(
             mode=mode,
             include_ai_rebalance=include_ai_rebalance,
-            auto_approve=auto_approve
+            auto_approve=auto_approve,
+            force_strategy_id=force_strategy_id
         )
         with _scheduler_running_lock:
             _scheduler_run_state["is_running"] = False
