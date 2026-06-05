@@ -657,7 +657,7 @@ class KISClient:
             "PDNO": clean_symbol,
             "ORD_DVSN": "00",
             "ORD_QTY": str(int(qty)),
-            "ORD_UNPR": f"{price:.2f}",
+            "OVRS_ORD_UNPR": f"{price:.2f}",
         }
         headers = self.headers(tr_id)
         hashkey = self.create_hashkey(body)
