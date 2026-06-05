@@ -12,6 +12,91 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&family=Noto+Sans+KR:wght@400;500;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/static/css/style.css?v=28">
+    <style>
+        /* Custom Mistock Theme overrides (Cyberpunk Purple / Indigo / Fuchsia) */
+        :root {
+            --space-black: #05020c;
+            --space-dark: #0b0716;
+            --space-navy: #120b22;
+            
+            --electric-blue: #8b5cf6; /* Violet */
+            --electric-cyan: #d946ef; /* Fuchsia */
+            --primary: #8b5cf6;
+            --glass-border-hover: rgba(139, 92, 246, 0.5);
+            
+            --glass-bg: rgba(18, 11, 34, 0.85);
+            --glass-bg-hover: rgba(26, 16, 48, 0.92);
+        }
+
+        body {
+            background: 
+                radial-gradient(circle at 15% 15%, rgba(139, 92, 246, 0.26), transparent 45rem),
+                radial-gradient(circle at 85% 85%, rgba(217, 70, 239, 0.22), transparent 40rem),
+                radial-gradient(circle at 50% 50%, rgba(99, 102, 241, 0.16), transparent 50rem),
+                var(--space-black);
+        }
+
+        /* Highlight gradient (purple to fuchsia/pink) */
+        .app-header h1 .highlight, 
+        .app-header .highlight,
+        .highlight {
+            background: linear-gradient(135deg, #c084fc, #f472b6) !important;
+            -webkit-background-clip: text !important;
+            -webkit-text-fill-color: transparent !important;
+        }
+
+        .app-header .eyebrow {
+            color: #d8b4fe !important;
+        }
+
+        /* Custom Navigation buttons styling */
+        .app-header .nav-button,
+        .app-header .ghost-link,
+        .app-header button.nav-button,
+        .app-header .futures-nav-button {
+            border-color: rgba(139, 92, 246, 0.45) !important;
+            background: rgba(139, 92, 246, 0.16) !important;
+        }
+
+        .app-header .nav-button:hover,
+        .app-header .ghost-link:hover,
+        .app-header button.nav-button:hover,
+        .app-header .futures-nav-button:hover {
+            border-color: rgba(216, 180, 254, 0.55) !important;
+            background: rgba(124, 58, 237, 0.24) !important;
+        }
+
+        /* Active tab styling override */
+        .dashboard-tab.active {
+            border-color: rgba(139, 92, 246, 0.55) !important;
+            background: rgba(139, 92, 246, 0.24) !important;
+        }
+
+        /* Table header, cards border hover and other subtle accents */
+        .card:hover, .panel:hover {
+            border-color: rgba(139, 92, 246, 0.35) !important;
+            box-shadow: 0 0 20px rgba(139, 92, 246, 0.1) !important;
+        }
+
+        /* Form elements focus styling */
+        input:focus, select:focus, textarea:focus {
+            border-color: var(--electric-blue) !important;
+            box-shadow: 0 0 0 2px rgba(139, 92, 246, 0.25) !important;
+        }
+
+        /* Custom scrollbar */
+        ::-webkit-scrollbar-thumb {
+            background: rgba(139, 92, 246, 0.3) !important;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: rgba(139, 92, 246, 0.5) !important;
+        }
+        
+        /* Loading spinner */
+        .spinner {
+            border-top-color: var(--electric-blue) !important;
+        }
+    </style>
 </head>
 
 <body>
@@ -22,7 +107,7 @@
                 <h1>미스톡 <span class="highlight">대시보드</span></h1>
             </div>
             <div class="header-actions">
-                <a class="nav-button" href="/">메인</a>
+                <a class="nav-button" href="/">한스톡</a>
                 <a class="nav-button" href="/mistock">미스톡</a>
                 <a class="nav-button futures-nav-button" href="/futures-signals">해외선물</a>
                 <a class="nav-button" href="/voice-dashboard">음성</a>
@@ -607,8 +692,8 @@
                                 color: #f8fafc;
                             }
                             .dashboard-tab-sub.active {
-                                background: rgba(33, 150, 243, 0.15) !important;
-                                color: #3b82f6 !important;
+                                background: rgba(139, 92, 246, 0.15) !important;
+                                color: #a78bfa !important;
                                 font-weight: 600;
                             }
                         </style>
@@ -816,7 +901,7 @@
                             <textarea name="strat_desc" placeholder="이 전략의 핵심 튜닝 성격이나 의도를 적어주세요." style="background: rgba(30, 41, 59, 0.85); color: #fff; border: 1px solid rgba(255,255,255,0.1); padding: 8px 12px; border-radius: 6px; font-size: 0.85rem; min-height: 60px; resize: vertical; font-family: inherit;"></textarea>
                         </label>
                         <div style="grid-column: span 3; text-align: right; margin-top: 0.5rem;">
-                            <button type="submit" style="background: #3b82f6; color: white; border: none; padding: 10px 24px; border-radius: 6px; font-size: 0.88rem; font-weight: 500; cursor: pointer; transition: background 0.2s;" onmouseover="this.style.background='#2563eb'" onmouseout="this.style.background='#3b82f6'">신규 AI 전략 등록</button>
+                            <button type="submit" style="background: #8b5cf6; color: white; border: none; padding: 10px 24px; border-radius: 6px; font-size: 0.88rem; font-weight: 500; cursor: pointer; transition: background 0.2s;" onmouseover="this.style.background='#7c3aed'" onmouseout="this.style.background='#8b5cf6'">신규 AI 전략 등록</button>
                         </div>
                     </form>
                 </section>
@@ -874,7 +959,7 @@
                         <form id="form-watchlist-add" style="display: flex; gap: 8px; align-items: center; margin-bottom: 0;">
                             <span style="font-size: 0.85rem; color: rgba(255,255,255,0.7); white-space: nowrap; font-weight: 500;">수동 종목 코드 추가</span>
                             <input type="text" name="watchlist_code" placeholder="예: 005930" required maxlength="6" style="width: 110px; background: rgba(30, 41, 59, 0.85); color: #fff; border: 1px solid rgba(255,255,255,0.1); padding: 8px 12px; border-radius: 6px; font-size: 0.85rem;">
-                            <button type="submit" style="background: #3b82f6; color: white; border: none; padding: 8px 16px; border-radius: 6px; font-size: 0.85rem; font-weight: 500; cursor: pointer; transition: background 0.2s;" onmouseover="this.style.background='#2563eb'" onmouseout="this.style.background='#3b82f6'">추가</button>
+                            <button type="submit" style="background: #8b5cf6; color: white; border: none; padding: 8px 16px; border-radius: 6px; font-size: 0.85rem; font-weight: 500; cursor: pointer; transition: background 0.2s;" onmouseover="this.style.background='#7c3aed'" onmouseout="this.style.background='#8b5cf6'">추가</button>
                         </form>
 
                         <div style="height: 28px; width: 1px; background: rgba(255,255,255,0.08);"></div>
