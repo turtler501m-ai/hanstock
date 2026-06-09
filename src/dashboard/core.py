@@ -446,6 +446,18 @@ def _candidate_strategy_cache_signature(ranker: str) -> dict | None:
     }
 
 
+def _get_candidate_cache_path(ranker: str, optimizer: str):
+    """전략·옵티마이저 조합별로 독립된 캐시 파일 경로를 반환한다.
+
+    CANDIDATE_CACHE가 테스트용 MemoryCachePath로 교체된 경우에는
+    그 객체를 그대로 반환하여 기존 테스트 패턴과의 호환성을 유지한다.
+    """
+    if not isinstance(CANDIDATE_CACHE, Path):
+        return CANDIDATE_CACHE
+    safe = re.sub(r"[^\w-]", "_", f"{ranker}__{optimizer}")
+    return CANDIDATE_CACHE.parent / f"candidate_snapshot_{safe}.json"
+
+
 def _load_candidate_cache(
     min_score: int,
     ranker: str = "gpt_5_mini",
@@ -456,10 +468,11 @@ def _load_candidate_cache(
         if ranker == "gpt_5_mini" and optimizer == "score_tilted_inverse_vol":
             return override(min_score)
         return override(min_score, ranker, optimizer)
-    if not CANDIDATE_CACHE.exists():
+    cache_path = _get_candidate_cache_path(ranker, optimizer)
+    if not cache_path.exists():
         return None
     try:
-        cached = json.loads(CANDIDATE_CACHE.read_text(encoding="utf-8"))
+        cached = json.loads(cache_path.read_text(encoding="utf-8"))
     except Exception:
         return None
     expected_ai_signature = {
@@ -511,8 +524,9 @@ def _save_candidate_cache(
         if ranker == "gpt_5_mini" and optimizer == "score_tilted_inverse_vol":
             return override(min_score, rows, scan_summary, scanned)
         return override(min_score, rows, scan_summary, scanned, ranker, optimizer)
-    CANDIDATE_CACHE.parent.mkdir(parents=True, exist_ok=True)
-    CANDIDATE_CACHE.write_text(
+    cache_path = _get_candidate_cache_path(ranker, optimizer)
+    cache_path.parent.mkdir(parents=True, exist_ok=True)
+    cache_path.write_text(
         json.dumps({
             "cached_at": trader.datetime.now(trader.KST).isoformat(),
             "trading_env": trader.TRADING_ENV,
