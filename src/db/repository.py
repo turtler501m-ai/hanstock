@@ -1980,6 +1980,9 @@ def sync_custom_rules_to_db(conn) -> None:
             logger.warning(f"Error loading custom strategy file {py_file.name}: {e}")
 
 
+import functools
+
+@functools.lru_cache(maxsize=128)
 def get_custom_strategy_instance(strategy_id: str):
     import importlib.util
     import inspect

@@ -635,6 +635,14 @@ def find_candidates(
 
     universe가 None이면 WATCHLIST만 스캔한다 (하위 호환).
     """
+    if not strategy_model:
+        try:
+            from src.db.repository import load_ai_strategies
+            active = next((s for s in load_ai_strategies() if s.get("selected")), None)
+            if active:
+                strategy_model = active.get("model") or ""
+        except Exception:
+            pass
     scan_list = [code for code in (universe if universe is not None else WATCHLIST)
                  if code not in held_symbols]
     if not scan_list:
