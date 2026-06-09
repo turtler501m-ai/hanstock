@@ -899,6 +899,11 @@ def _apply_runtime_env_updates(updates: dict[str, str]) -> None:
             trader.KISTOCK_ACCOUNT = value
             _clear_balance_cache()
             try:
+                from pathlib import Path
+                Path("data/kis_token.json").unlink(missing_ok=True)
+            except Exception:
+                pass
+            try:
                 import src.mistock.trader as mistock_trader
                 mistock_trader._kis_client_cache = None
             except Exception:
@@ -906,12 +911,22 @@ def _apply_runtime_env_updates(updates: dict[str, str]) -> None:
         elif key == "KISTOCK_APP_KEY":
             trader.config.kistock_app_key = value
             try:
+                from pathlib import Path
+                Path("data/kis_token.json").unlink(missing_ok=True)
+            except Exception:
+                pass
+            try:
                 import src.mistock.trader as mistock_trader
                 mistock_trader._kis_client_cache = None
             except Exception:
                 pass
         elif key == "KISTOCK_APP_SECRET":
             trader.config.kistock_app_secret = value
+            try:
+                from pathlib import Path
+                Path("data/kis_token.json").unlink(missing_ok=True)
+            except Exception:
+                pass
             try:
                 import src.mistock.trader as mistock_trader
                 mistock_trader._kis_client_cache = None
