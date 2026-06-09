@@ -103,6 +103,8 @@ class KIStockAPI:
                     "expires_at": expires_at.isoformat(),
                     "trading_env": config.trading_env,
                     "app_key_hash": self._app_key_hash(),
+                    "base_url": self.base_url,
+                    "app_key_prefix": config.kistock_app_key[:8]
                 }),
                 encoding="utf-8",
             )

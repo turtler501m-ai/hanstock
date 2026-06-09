@@ -142,6 +142,8 @@ class KIStockAPI:
         token = data.get("access_token", "")
         expires_at = datetime.now() + timedelta(hours=23)
         self.TOKEN_CACHE.parent.mkdir(parents=True, exist_ok=True)
+        import hashlib
+        app_key_hash = hashlib.sha256(KISTOCK_APP_KEY.encode("utf-8")).hexdigest()
         self.TOKEN_CACHE.write_text(
             json.dumps({
                 "token": token,
@@ -149,6 +151,7 @@ class KIStockAPI:
                 "trading_env": TRADING_ENV,
                 "base_url": BASE_URL,
                 "app_key_prefix": KISTOCK_APP_KEY[:8],
+                "app_key_hash": app_key_hash,
             }),
             encoding="utf-8",
         )
@@ -561,15 +564,21 @@ def build_runtime_plan(
     force_strategy_id: str | None = None,
 ) -> dict:
     active_strategy_id = force_strategy_id
-    if not active_strategy_id:
-        active_strategy_id = "seven_split"
-        try:
-            from src.db.repository import load_ai_strategies
-            active = next((s for s in load_ai_strategies() if s.get("selected")), None)
-            if active:
-                active_strategy_id = active.get("model") or "seven_split"
-        except Exception:
-            pass
+    active_strategy = None
+    try:
+        from src.db.repository import load_ai_strategies
+        strategies = load_ai_strategies()
+        if active_strategy_id:
+            active_strategy = next((s for s in strategies if s.get("id") == active_strategy_id or s.get("model") == active_strategy_id), None)
+        else:
+            active_strategy = next((s for s in strategies if s.get("selected")), None)
+            if active_strategy:
+                active_strategy_id = active_strategy.get("id") or "seven_split"
+            else:
+                active_strategy_id = "seven_split"
+    except Exception:
+        if not active_strategy_id:
+            active_strategy_id = "seven_split"
 
     stocks = balance_data.get("output1", [])
     summary = (balance_data.get("output2") or [{}])[0]
@@ -639,7 +648,26 @@ def build_runtime_plan(
                     strategy_model="plunge_bounce_strategy",
                 )
             else:
-                scan_result = find_candidates(held_symbols, universe=universe)
+                ranker = "gpt_5_mini"
+                strategy_model = ""
+                if active_strategy:
+                    model = active_strategy.get("model") or "none"
+                    provider = active_strategy.get("provider") or "none"
+                    profile = active_strategy.get("profile") or {}
+                    weight = float(profile.get("ai_weight", active_strategy.get("weight", 0.0)) or 0.0)
+                    
+                    strategy_model = model
+                    if provider == "none" or model == "none" or weight == 0.0:
+                        ranker = "rule_only"
+                    else:
+                        ranker = model
+                scan_result = find_candidates(
+                    held_symbols,
+                    universe=universe,
+                    ranker=ranker,
+                    strategy_model=strategy_model,
+                    api=api,
+                )
             candidates = scan_result.get("candidates", [])
 
         orders = build_orders(candidates, api.get_quote, len(held_symbols), cash)

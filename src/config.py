@@ -17,6 +17,13 @@ class Settings(BaseSettings):
     kis_condition_seq: str = ""
     kis_condition_name: str = ""
 
+    # LS Securities API
+    ls_api_enabled: bool = False
+    ls_app_key: str = ""
+    ls_app_secret: str = ""
+    ls_account_no: str = ""
+    ls_trading_env: str = "demo"
+
     # KIS 해외선물 모의계좌
     kis_futures_demo_app_key: Optional[str] = None
     kis_futures_demo_app_secret: Optional[str] = None
