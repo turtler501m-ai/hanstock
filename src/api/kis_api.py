@@ -42,7 +42,7 @@ class KISAccountError(RuntimeError):
     """Non-retryable KIS account number/product code error."""
 
 
-NON_RETRYABLE_KIS_ERRORS = (KISConfigError, KISRateLimitError, KISAccountError)
+NON_RETRYABLE_KIS_ERRORS = (KISConfigError, KISAccountError)
 
 
 class KIStockAPI:
