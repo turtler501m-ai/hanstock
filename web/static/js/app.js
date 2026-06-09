@@ -1558,7 +1558,7 @@ async function renderCandidates() {
         const query = strategyId
             ? `/api/candidates?min_score=2&strategy_id=${encodeURIComponent(strategyId)}&optimizer=${encodeURIComponent(optimizer)}`
             : `/api/candidates?min_score=2&ranker=rule_only&optimizer=${encodeURIComponent(optimizer)}`;
-        const data = await fetchJson(query, 45000);
+        const data = await fetchJson(query, 90000);
         const tbody = document.querySelector('#table-candidates tbody');
         if (!tbody) return;
         tbody.innerHTML = '';

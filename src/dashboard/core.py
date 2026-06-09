@@ -2211,8 +2211,13 @@ async def get_candidates(
             ranker_model = cache_ranker
             ranker_weight = 0.4
             
-        payload = build_dashboard_candidates(
-            api, parsed, min_score=min_score, ranker=ranker_model, ranker_weight=ranker_weight, optimizer=optimizer
+        import asyncio
+        loop = asyncio.get_event_loop()
+        payload = await loop.run_in_executor(
+            None,
+            lambda: build_dashboard_candidates(
+                api, parsed, min_score=min_score, ranker=ranker_model, ranker_weight=ranker_weight, optimizer=optimizer
+            ),
         )
         if selected_strat:
             for cand in payload.get("candidates", []):

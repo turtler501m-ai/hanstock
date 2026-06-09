@@ -65,7 +65,7 @@ class Settings(BaseSettings):
     
     # Others
     scan_universe_size: int = 50
-    yfinance_timeout_seconds: int = 8
+    yfinance_timeout_seconds: int = 25
     kis_circuit_cooldown_seconds: int = 60
     trade_db_path: str = ".runtime/trades.sqlite"
     log_file: str = "logs/trader.log"
