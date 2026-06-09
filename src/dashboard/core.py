@@ -894,6 +894,29 @@ def _apply_runtime_env_updates(updates: dict[str, str]) -> None:
         if key == "TRADING_ENV":
             trader.config.trading_env = value
             trader.TRADING_ENV = value
+        elif key == "KISTOCK_ACCOUNT":
+            trader.config.kistock_account = value
+            trader.KISTOCK_ACCOUNT = value
+            _clear_balance_cache()
+            try:
+                import src.mistock.trader as mistock_trader
+                mistock_trader._kis_client_cache = None
+            except Exception:
+                pass
+        elif key == "KISTOCK_APP_KEY":
+            trader.config.kistock_app_key = value
+            try:
+                import src.mistock.trader as mistock_trader
+                mistock_trader._kis_client_cache = None
+            except Exception:
+                pass
+        elif key == "KISTOCK_APP_SECRET":
+            trader.config.kistock_app_secret = value
+            try:
+                import src.mistock.trader as mistock_trader
+                mistock_trader._kis_client_cache = None
+            except Exception:
+                pass
         elif key == "DRY_RUN":
             parsed = _env_bool_value({"value": value}, "value")
             trader.config.dry_run = parsed
