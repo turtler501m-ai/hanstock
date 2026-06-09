@@ -273,7 +273,17 @@ class KISClient:
     def mark_success(self) -> None:
         self.circuit.record_success()
 
-    def mark_failure(self) -> None:
+    def mark_failure(self, error: Any = None) -> None:
+        import sys
+        err_str = ""
+        if error is not None:
+            err_str = str(error)
+        else:
+            exc_type, exc_value, exc_traceback = sys.exc_info()
+            if exc_value is not None:
+                err_str = str(exc_value)
+        if "EGW00201" in err_str or "거래건수를 초과" in err_str:
+            return
         self.circuit.record_failure(self.now(), self.config.circuit_max_errors)
 
     def circuit_status(self) -> dict[str, Any]:
@@ -316,7 +326,7 @@ class KISClient:
                 last_error = str(data.get("msg1", "unknown KIS balance error"))
             except Exception as exc:
                 last_error = str(exc)
-        self.mark_failure()
+        self.mark_failure(last_error)
         return {"output1": [], "output2": [{}], "_error": last_error or "unknown KIS balance error"}
 
     def get_quote(self, symbol: str) -> dict[str, float]:
