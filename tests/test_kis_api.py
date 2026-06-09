@@ -6,7 +6,7 @@ from src.api.kis_api import KIStockAPI, KISAccountError, KISRateLimitError
 
 
 class KIStockAPITests(unittest.TestCase):
-    def test_balance_rate_limit_does_not_retry(self):
+    def test_balance_rate_limit_retries(self):
         api = KIStockAPI.__new__(KIStockAPI)
         api.base_url = "https://example.test"
         api.access_token = "token"
@@ -28,7 +28,7 @@ class KIStockAPITests(unittest.TestCase):
                 with self.assertRaises(KISRateLimitError):
                     api.get_balance()
 
-                self.assertEqual(get.call_count, 1)
+                self.assertEqual(get.call_count, 5)
         finally:
             kis_api._KIS_MIN_INTERVAL = original_interval
 
