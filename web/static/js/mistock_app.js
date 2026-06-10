@@ -3,6 +3,7 @@ let watchlistCache = [];
 let watchlistSortKey = '';
 let watchlistSortAsc = true;
 let activeStrategyAuditId = '';
+let schedulerPollInterval = null;
 
 let currentCurrency = 'USD';
 let exchangeRate = 1380.0;
@@ -2936,14 +2937,13 @@ async function renderScheduleInfo() {
         if (runningPanel) {
             if (runState.is_running) {
                 runningPanel.style.display = 'block';
-                const logBox = document.getElementById('scheduler-running-log');
-                if (logBox) {
-                    logBox.textContent = `[${new Date().toLocaleTimeString()}] ${runState.mode} 모드로 스케쥴러 실행 중...\n(시작 시간: ${formatKstTime(runState.started_at)})`;
-                }
-                // Disable trigger buttons while running
-                disableTriggerButtons(true);
+                startSchedulerPolling(runState.mode);
             } else {
                 runningPanel.style.display = 'none';
+                if (schedulerPollInterval) {
+                    clearInterval(schedulerPollInterval);
+                    schedulerPollInterval = null;
+                }
                 // Enable trigger buttons
                 disableTriggerButtons(false);
             }
@@ -3334,38 +3334,7 @@ async function triggerSchedule(mode) {
             if (logBox) {
                 logBox.textContent += `[${new Date().toLocaleTimeString()}] 스케쥴러 백그라운드 태스크가 성공적으로 등록되었습니다. 실시간 기동 중입니다.\n`;
             }
-            
-            // Poll for status until it's finished
-            let attempts = 0;
-            const interval = setInterval(async () => {
-                attempts++;
-                const data = await fetchJson('/api/mistock/scheduler/status');
-                const runState = data.run_state;
-                
-                if (!runState.is_running) {
-                    clearInterval(interval);
-                    if (logBox) {
-                        logBox.textContent += `[${new Date().toLocaleTimeString()}] 스케쥴러 실행이 완료되었습니다!\n`;
-                        if (runState.error) {
-                            logBox.textContent += `[오류] ${runState.error}\n`;
-                            setStatus(`스케쥴러 실행 오류: ${runState.error}`);
-                        } else {
-                            logBox.textContent += `[성공] 실행이 정상 완료되었습니다.\n`;
-                            setStatus('스케쥴러 구동이 성공적으로 완료되었습니다.', true);
-                        }
-                    }
-                    
-                    // Force refresh schedule UI and other tabs
-                    await renderScheduleInfo();
-                    if (typeof refreshOverview === 'function') refreshOverview();
-                    if (typeof renderSignals === 'function') renderSignals();
-                    if (typeof renderApprovals === 'function') renderApprovals();
-                } else {
-                    if (attempts % 3 === 0 && logBox) {
-                        logBox.textContent += `[${new Date().toLocaleTimeString()}] 실행 중... (통신 및 분석 진행 중)\n`;
-                    }
-                }
-            }, 3000);
+            startSchedulerPolling(mode);
         } else {
             throw new Error(res.detail || '기동 요청 거절됨');
         }
@@ -3378,6 +3347,56 @@ async function triggerSchedule(mode) {
     } finally {
         setButtonBusy(btn, false);
     }
+}
+
+function startSchedulerPolling(mode) {
+    if (schedulerPollInterval) return; // Already polling
+    
+    disableTriggerButtons(true);
+    const runningPanel = document.getElementById('scheduler-running-panel');
+    if (runningPanel) runningPanel.style.display = 'block';
+    
+    const logBox = document.getElementById('scheduler-running-log');
+    
+    let attempts = 0;
+    schedulerPollInterval = setInterval(async () => {
+        attempts++;
+        try {
+            const data = await fetchJson('/api/mistock/scheduler/status');
+            const runState = data.run_state;
+            
+            if (!runState.is_running) {
+                clearInterval(schedulerPollInterval);
+                schedulerPollInterval = null;
+                
+                if (logBox) {
+                    logBox.textContent += `[${new Date().toLocaleTimeString()}] 스케쥴러 실행이 완료되었습니다!\n`;
+                    if (runState.error) {
+                        logBox.textContent += `[오류] ${runState.error}\n`;
+                        setStatus(`스케쥴러 실행 오류: ${runState.error}`);
+                    } else {
+                        logBox.textContent += `[성공] 실행이 정상 완료되었습니다.\n`;
+                        setStatus('스케쥴러 구동이 성공적으로 완료되었습니다.', true);
+                    }
+                }
+                
+                // Force refresh all UI elements across different sections
+                await renderScheduleInfo();
+                if (typeof refreshOverview === 'function') refreshOverview();
+                if (typeof renderSignals === 'function') renderSignals();
+                if (typeof renderApprovals === 'function') renderApprovals();
+            } else {
+                if (logBox) {
+                    if (logBox.textContent.indexOf("스케쥴러 실행 중...") === -1 || attempts % 3 === 0) {
+                        logBox.textContent = `[${new Date().toLocaleTimeString()}] ${runState.mode || mode} 모드로 스케쥴러 실행 중...\n(시작 시간: ${formatKstTime(runState.started_at)})\n`;
+                        logBox.textContent += `[${new Date().toLocaleTimeString()}] 실행 중... (통신 및 분석 진행 중)\n`;
+                    }
+                }
+            }
+        } catch (e) {
+            console.error("Failed to fetch scheduler status", e);
+        }
+    }, 3000);
 }
 
 function copySchedulerLog() {
