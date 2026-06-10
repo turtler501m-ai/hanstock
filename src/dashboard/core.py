@@ -50,6 +50,9 @@ QUANTCONNECT_CLOUD_CACHE = trader.RUNTIME_DIR / "quantconnect_cloud_cache.json"
 ENV_PATH = BASE_DIR / ".env"
 CANDIDATE_CACHE_TTL_SECONDS = int(os.environ.get("CANDIDATE_CACHE_TTL_SECONDS", "180"))
 BALANCE_CACHE_TTL_SECONDS = int(os.environ.get("BALANCE_CACHE_TTL_SECONDS", "30"))
+# 대시보드 탭 read-through 스냅샷의 기본 신선도 TTL(초). 이 시간 안에는 API를
+# 호출하지 않고 DB 스냅샷을 그대로 돌려준다. 만료되면 builder(API)로 재생성한다.
+DASHBOARD_SNAPSHOT_TTL_SECONDS = int(os.environ.get("DASHBOARD_SNAPSHOT_TTL_SECONDS", "20"))
 BALANCE_FETCH_TIMEOUT_SECONDS = float(os.environ.get("BALANCE_FETCH_TIMEOUT_SECONDS", "25"))
 GIT_FETCH_TIMEOUT_SECONDS = float(os.environ.get("GIT_FETCH_TIMEOUT_SECONDS", "3"))
 MIN_ORDER_HISTORY_SYNC_DAYS = 30
@@ -323,16 +326,34 @@ def _account_cache_key() -> str:
 
 
 def _save_balance_cache(balance_data: dict) -> None:
+    envelope = {
+        "cached_at": trader.datetime.now(trader.KST).isoformat(),
+        "trading_env": trader.TRADING_ENV,
+        "account_key": _account_cache_key(),
+        "data": balance_data,
+    }
     BALANCE_CACHE.parent.mkdir(parents=True, exist_ok=True)
-    BALANCE_CACHE.write_text(
-        json.dumps({
-            "cached_at": trader.datetime.now(trader.KST).isoformat(),
-            "trading_env": trader.TRADING_ENV,
-            "account_key": _account_cache_key(),
-            "data": balance_data,
-        }, ensure_ascii=False),
-        encoding="utf-8",
-    )
+    BALANCE_CACHE.write_text(json.dumps(envelope, ensure_ascii=False), encoding="utf-8")
+    # DB write-through: 파일 캐시가 유실되어도 마지막 성공본을 DB에서 복구한다.
+    try:
+        from src.db.repository import save_account_snapshot
+
+        save_account_snapshot(
+            envelope["account_key"], envelope["trading_env"], "balance", envelope, envelope["cached_at"]
+        )
+    except Exception:
+        pass
+
+
+# 잔고(보유/현금)에 의존하는 탭 스냅샷들. 주문/매도 등으로 잔고가 바뀌면 함께 무효화한다.
+_BALANCE_DERIVED_SNAPSHOT_KINDS = (
+    "balance",
+    "risk_status",
+    "ai_allocation",
+    "portfolio_optimizer",
+    "signals",
+    "execution_plan",
+)
 
 
 def _clear_balance_cache() -> None:
@@ -340,14 +361,18 @@ def _clear_balance_cache() -> None:
         BALANCE_CACHE.unlink(missing_ok=True)
     except Exception:
         pass
-
-
-def _load_balance_cache() -> dict | None:
-    if not BALANCE_CACHE.exists():
-        return None
     try:
-        cached = json.loads(BALANCE_CACHE.read_text(encoding="utf-8"))
+        from src.db.repository import delete_account_snapshot
+
+        for kind in _BALANCE_DERIVED_SNAPSHOT_KINDS:
+            delete_account_snapshot(_account_cache_key(), trader.TRADING_ENV, kind)
     except Exception:
+        pass
+
+
+def _balance_envelope_to_data(cached) -> dict | None:
+    """파일/DB 어느 쪽 envelope든 동일하게 검증해 잔고 data를 복원한다."""
+    if not isinstance(cached, dict):
         return None
     if cached.get("trading_env") != trader.TRADING_ENV:
         return None
@@ -358,6 +383,156 @@ def _load_balance_cache() -> dict | None:
         return None
     data["_cache"] = {"stale": True, "cached_at": cached.get("cached_at", "")}
     return data
+
+
+def _load_balance_cache() -> dict | None:
+    # 1) 파일 캐시 우선
+    if BALANCE_CACHE.exists():
+        try:
+            data = _balance_envelope_to_data(json.loads(BALANCE_CACHE.read_text(encoding="utf-8")))
+            if data is not None:
+                return data
+        except Exception:
+            pass
+    # 2) DB 스냅샷 폴백 (.runtime 유실/재배포 등으로 파일이 없을 때)
+    try:
+        from src.db.repository import load_account_snapshot
+
+        snap = load_account_snapshot(_account_cache_key(), trader.TRADING_ENV, "balance")
+        if snap is not None:
+            return _balance_envelope_to_data(snap["payload"])
+    except Exception:
+        pass
+    return None
+
+
+def _snapshot_age_seconds(captured_at: str) -> float | None:
+    if not captured_at:
+        return None
+    try:
+        return (trader.datetime.now(trader.KST) - trader.datetime.fromisoformat(captured_at)).total_seconds()
+    except Exception:
+        return None
+
+
+def snapshot_read_through(
+    kind: str,
+    builder,
+    *,
+    ttl: int | None = None,
+    account_scoped: bool = True,
+    env: str | None = None,
+):
+    """대시보드 탭 데이터의 DB-우선 read-through.
+
+    1) DB 스냅샷이 TTL 안이면 API 없이 그대로 반환(_snapshot.stale=False)
+    2) 만료/부재면 builder()(=API 호출)로 재생성하고 DB에 write-back
+    3) builder 실패 시 마지막 DB 스냅샷을 stale 표시로 반환, 없으면 예외 전파
+
+    builder()는 dict payload를 반환해야 한다. 반환값에는 `_snapshot` 메타를 덧붙인다.
+    """
+    from src.db.repository import load_account_snapshot, save_account_snapshot
+
+    ttl = DASHBOARD_SNAPSHOT_TTL_SECONDS if ttl is None else ttl
+    env = env or trader.TRADING_ENV
+    account_key = _account_cache_key() if account_scoped else "_global_"
+
+    snap = None
+    try:
+        snap = load_account_snapshot(account_key, env, kind)
+    except Exception:
+        snap = None
+
+    if snap is not None:
+        age = _snapshot_age_seconds(snap.get("captured_at", ""))
+        if age is not None and age < ttl:
+            payload = dict(snap["payload"])
+            payload["_snapshot"] = {"stale": False, "captured_at": snap.get("captured_at", ""), "source": "db"}
+            return payload
+
+    try:
+        payload = builder()
+        if not isinstance(payload, dict):
+            return payload
+        captured_at = trader.datetime.now(trader.KST).isoformat()
+        try:
+            save_account_snapshot(account_key, env, kind, payload, captured_at)
+        except Exception:
+            pass
+        result = dict(payload)
+        result["_snapshot"] = {"stale": False, "captured_at": captured_at, "source": "live"}
+        return result
+    except Exception as exc:
+        if snap is not None:
+            payload = dict(snap["payload"])
+            payload["_snapshot"] = {
+                "stale": True,
+                "captured_at": snap.get("captured_at", ""),
+                "source": "db",
+                "error": f"{type(exc).__name__}: {exc}",
+            }
+            return payload
+        raise
+
+
+def invalidate_snapshot(kind: str, *, account_scoped: bool = True, env: str | None = None) -> None:
+    """주문/승인 등 상태 변경 후 해당 탭 스냅샷을 지워 다음 read에서 즉시 재생성되게 한다."""
+    try:
+        from src.db.repository import delete_account_snapshot
+
+        env = env or trader.TRADING_ENV
+        account_key = _account_cache_key() if account_scoped else "_global_"
+        delete_account_snapshot(account_key, env, kind)
+    except Exception:
+        pass
+
+
+# ---------------------------------------------------------------------------
+# (옵션) 백그라운드 스냅샷 리프레셔
+#   대시보드 read가 없어도 DB 스냅샷을 주기적으로 갱신해 항상 따뜻하게 유지한다.
+#   트레이딩 API 부하를 피하기 위해 기본 비활성(opt-in)이며,
+#   DASHBOARD_SNAPSHOT_REFRESH_ENABLED=true 일 때만 동작한다.
+# ---------------------------------------------------------------------------
+SNAPSHOT_REFRESH_ENABLED = str(os.environ.get("DASHBOARD_SNAPSHOT_REFRESH_ENABLED", "false")).lower() in (
+    "1", "true", "yes", "on",
+)
+SNAPSHOT_REFRESH_INTERVAL_SECONDS = int(os.environ.get("DASHBOARD_SNAPSHOT_REFRESH_INTERVAL_SECONDS", "60"))
+_snapshot_refresher_thread: threading.Thread | None = None
+_snapshot_refresher_stop = threading.Event()
+
+
+def _refresh_balance_snapshot_once() -> None:
+    """잔고를 라이브로 한 번 받아 DB 스냅샷에 반영(write-through)한다."""
+    if _required_env_missing():
+        return
+    api = _get_api()
+    balance_data = _get_balance_data(api, allow_cache=False)
+    _parse_balance(balance_data)  # 파싱 검증 (실패 시 저장 안 함)
+    # _get_balance_data 성공 시 내부에서 _save_balance_cache가 DB write-through 수행
+
+
+def _snapshot_refresher_loop() -> None:
+    while not _snapshot_refresher_stop.wait(SNAPSHOT_REFRESH_INTERVAL_SECONDS):
+        try:
+            _refresh_balance_snapshot_once()
+        except Exception as exc:
+            logger.warning(f"snapshot refresher: balance refresh failed: {exc}")
+
+
+def start_snapshot_refresher() -> bool:
+    """백그라운드 리프레셔를 시작한다(이미 켜져 있거나 비활성이면 no-op)."""
+    global _snapshot_refresher_thread
+    if not SNAPSHOT_REFRESH_ENABLED:
+        return False
+    if _snapshot_refresher_thread is not None and _snapshot_refresher_thread.is_alive():
+        return True
+    _snapshot_refresher_stop.clear()
+    _snapshot_refresher_thread = threading.Thread(
+        target=_snapshot_refresher_loop, name="snapshot-refresher", daemon=True
+    )
+    _snapshot_refresher_thread.start()
+    logger.info(f"snapshot refresher started (interval={SNAPSHOT_REFRESH_INTERVAL_SECONDS}s)")
+    return True
 
 
 def _balance_cache_age_seconds(balance_data: dict) -> float | None:
@@ -468,12 +643,42 @@ def _load_candidate_cache(
         if ranker == "gpt_5_mini" and optimizer == "score_tilted_inverse_vol":
             return override(min_score)
         return override(min_score, ranker, optimizer)
+
+    # 1) 파일 캐시 우선 (테스트의 MemoryCachePath 포함)
     cache_path = _get_candidate_cache_path(ranker, optimizer)
-    if not cache_path.exists():
-        return None
     try:
-        cached = json.loads(cache_path.read_text(encoding="utf-8"))
+        if cache_path.exists():
+            result = _candidate_envelope_to_result(
+                json.loads(cache_path.read_text(encoding="utf-8")), min_score, ranker, optimizer
+            )
+            if result is not None:
+                return result
     except Exception:
+        pass
+
+    # 2) DB 스냅샷 폴백 (.runtime 유실/재배포 등으로 파일이 없을 때)
+    try:
+        from src.db.repository import load_account_snapshot
+
+        snap = load_account_snapshot(
+            "_candidates_", trader.TRADING_ENV, _candidate_snapshot_kind(min_score, ranker, optimizer)
+        )
+        if snap is not None:
+            return _candidate_envelope_to_result(snap["payload"], min_score, ranker, optimizer)
+    except Exception:
+        pass
+    return None
+
+
+def _candidate_snapshot_kind(min_score: int, ranker: str, optimizer: str) -> str:
+    return f"candidates:{ranker}:{optimizer}:{min_score}"
+
+
+def _candidate_envelope_to_result(
+    cached, min_score: int, ranker: str, optimizer: str
+) -> dict | None:
+    """파일/DB 어느 쪽 envelope든 동일하게 검증해 후보 결과를 복원한다."""
+    if not isinstance(cached, dict):
         return None
     expected_ai_signature = {
         "enabled": bool(getattr(trader.config, "ai_strategy_enabled", False)),
@@ -524,28 +729,39 @@ def _save_candidate_cache(
         if ranker == "gpt_5_mini" and optimizer == "score_tilted_inverse_vol":
             return override(min_score, rows, scan_summary, scanned)
         return override(min_score, rows, scan_summary, scanned, ranker, optimizer)
+    envelope = {
+        "cached_at": trader.datetime.now(trader.KST).isoformat(),
+        "trading_env": trader.TRADING_ENV,
+        "min_score": min_score,
+        "ranker": ranker,
+        "optimizer": optimizer,
+        "ai_signature": {
+            "enabled": bool(getattr(trader.config, "ai_strategy_enabled", False)),
+            "model": getattr(trader.config, "openai_model", "gpt-5-mini"),
+            "candidate_limit": int(getattr(trader.config, "ai_candidate_limit", 5) or 5),
+            "api_configured": bool(str(getattr(trader.config, "openai_api_key", "") or "").strip()),
+            "strategy": _candidate_strategy_cache_signature(ranker),
+        },
+        "rows": rows,
+        "scan_summary": scan_summary,
+        "scanned": scanned,
+    }
     cache_path = _get_candidate_cache_path(ranker, optimizer)
     cache_path.parent.mkdir(parents=True, exist_ok=True)
-    cache_path.write_text(
-        json.dumps({
-            "cached_at": trader.datetime.now(trader.KST).isoformat(),
-            "trading_env": trader.TRADING_ENV,
-            "min_score": min_score,
-            "ranker": ranker,
-            "optimizer": optimizer,
-            "ai_signature": {
-                "enabled": bool(getattr(trader.config, "ai_strategy_enabled", False)),
-                "model": getattr(trader.config, "openai_model", "gpt-5-mini"),
-                "candidate_limit": int(getattr(trader.config, "ai_candidate_limit", 5) or 5),
-                "api_configured": bool(str(getattr(trader.config, "openai_api_key", "") or "").strip()),
-                "strategy": _candidate_strategy_cache_signature(ranker),
-            },
-            "rows": rows,
-            "scan_summary": scan_summary,
-            "scanned": scanned,
-        }, ensure_ascii=False),
-        encoding="utf-8",
-    )
+    cache_path.write_text(json.dumps(envelope, ensure_ascii=False), encoding="utf-8")
+    # DB write-through: 파일 캐시가 유실되어도 마지막 성공본을 DB에서 복구한다.
+    try:
+        from src.db.repository import save_account_snapshot
+
+        save_account_snapshot(
+            "_candidates_",
+            trader.TRADING_ENV,
+            _candidate_snapshot_kind(min_score, ranker, optimizer),
+            envelope,
+            envelope["cached_at"],
+        )
+    except Exception:
+        pass
 
 
 def build_dashboard_signals(api, parsed: dict) -> list[dict]:
@@ -2216,10 +2432,13 @@ async def get_signals():
     if missing:
         raise HTTPException(status_code=503, detail=f"Missing environment variables: {', '.join(missing)}")
 
-    try:
+    def _build():
         api = _get_api()
         parsed = _parse_balance(_get_balance_data(api))
         return {"signals": build_dashboard_signals(api, parsed)}
+
+    try:
+        return snapshot_read_through("signals", _build)
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"Signal analysis failed: {e}") from e
 
@@ -2427,7 +2646,7 @@ async def get_execution_plan():
     if missing:
         raise HTTPException(status_code=503, detail=f"Missing environment variables: {', '.join(missing)}")
     try:
-        return build_dashboard_execution_plan()
+        return snapshot_read_through("execution_plan", build_dashboard_execution_plan)
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"Execution plan failed: {e}") from e
 
@@ -2580,6 +2799,11 @@ def _approve_pending_approval(approval_id: int, approval_label: str = "수동승
         )
     except Exception:
         pass
+
+    # 주문이 실제 체결/제출되었으면 잔고가 바뀌므로 잔고·파생 탭 스냅샷을 무효화해
+    # 다음 read에서 최신 상태를 다시 받아오게 한다.
+    if status == "executed":
+        _clear_balance_cache()
 
     return {"id": approval_id, "status": status, "response_msg": response_msg}
 

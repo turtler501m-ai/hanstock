@@ -753,7 +753,7 @@ def get_ai_allocation():
     if missing:
         raise HTTPException(status_code=503, detail=f"Missing environment variables: {', '.join(missing)}")
 
-    try:
+    def _build():
         api = _get_api()
         parsed = _parse_balance(_get_balance_data(api))
         from src.db.repository import load_ai_strategies
@@ -787,6 +787,9 @@ def get_ai_allocation():
                 position["profile_hash"] = active_strategy.get("profile_hash")
                 position["ai_strategy_name"] = active_strategy.get("name")
         return plan
+
+    try:
+        return snapshot_read_through("ai_allocation", _build)
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"AI allocation failed: {e}") from e
 
@@ -1344,16 +1347,16 @@ def get_performance():
 
 @app.get("/api/risk/status")
 def get_risk_status():
-    try:
+    def _build():
         api = _get_api()
         balance_data = _get_balance_data(api, allow_cache=True)
         parsed = _parse_balance(balance_data)
-        
+
         total_capital = trader.TOTAL_CAPITAL
         pnl = parsed.get("pnl", 0)
         loss_pct = abs(pnl) / total_capital * 100 if total_capital > 0 and pnl < 0 else 0
         max_daily_loss = getattr(trader.config, "max_daily_loss_pct", 3.0)
-        
+
         return {
             "total_capital": total_capital,
             "current_total": parsed.get("total_eval", 0),
@@ -1364,8 +1367,14 @@ def get_risk_status():
             "daily_pnl": pnl,
             "daily_loss_pct": round(loss_pct, 2),
             "max_daily_loss_pct": max_daily_loss,
-            "halted": loss_pct >= max_daily_loss or Path(".runtime/kill_switch.json").exists()
+            "loss_halt": loss_pct >= max_daily_loss,
         }
+
+    try:
+        result = snapshot_read_through("risk_status", _build)
+        # kill_switch는 로컬 상태라 stale 스냅샷에도 항상 현재값을 덮어쓴다.
+        result["halted"] = bool(result.get("loss_halt")) or Path(".runtime/kill_switch.json").exists()
+        return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

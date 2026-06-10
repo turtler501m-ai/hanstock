@@ -183,11 +183,14 @@ def get_portfolio_optimizer():
     if missing:
         raise HTTPException(status_code=503, detail=f"Missing environment variables: {', '.join(missing)}")
 
-    try:
+    def _build():
         api = _get_api()
         parsed = _parse_balance(_get_balance_data(api))
         holdings = _holding_history(api, parsed, n=120)
         return trader.generate_portfolio_optimizer_plan(holdings, parsed["total_eval"])
+
+    try:
+        return snapshot_read_through("portfolio_optimizer", _build)
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"Portfolio optimizer failed: {e}") from e
 

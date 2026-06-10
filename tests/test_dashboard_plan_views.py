@@ -58,6 +58,10 @@ class DashboardPlanViewRegressionTests(unittest.TestCase):
             stack.enter_context(patch.object(dashboard, "_get_api", return_value=MagicMock()))
             stack.enter_context(patch.object(dashboard, "_get_balance_data", return_value={"output1": [], "output2": [{}]}))
             stack.enter_context(patch.object(dashboard, "_parse_balance", return_value=parsed_balance))
+            # DB-우선 read-through는 별도로 검증한다. 여기서는 builder의 shaping만 본다.
+            stack.enter_context(
+                patch.object(dashboard.core, "snapshot_read_through", side_effect=lambda kind, builder, **kw: builder())
+            )
             build_runtime_plan = stack.enter_context(
                 patch.object(dashboard.trader, "build_runtime_plan", return_value=runtime_bundle)
             )
@@ -127,6 +131,10 @@ class DashboardPlanViewRegressionTests(unittest.TestCase):
                         {"indicators": {"sma20": 100000}},
                     ],
                 )
+            )
+            # DB-우선 read-through는 별도로 검증한다. 여기서는 builder의 shaping만 본다.
+            stack.enter_context(
+                patch.object(dashboard.core, "snapshot_read_through", side_effect=lambda kind, builder, **kw: builder())
             )
 
             body = self._call_route(self.signals_route)

@@ -162,6 +162,8 @@ class DashboardExecutionPlanApiTests(unittest.TestCase):
             patch.object(dashboard.trader, "candidate_order_to_plan_row", return_value=expected_plan[1]),
             patch.object(dashboard.trader, "build_execution_plan", return_value=expected_plan),
             patch.object(dashboard.trader, "run", return_value=expected_response),
+            # DB-우선 read-through는 별도로 검증한다. 여기서는 builder 경로만 본다.
+            patch.object(dashboard.core, "snapshot_read_through", side_effect=lambda kind, builder, **kw: builder()),
             *self._builder_patchers(return_value=expected_response),
         ]
 
@@ -203,6 +205,10 @@ class DashboardExecutionPlanApiTests(unittest.TestCase):
             stack.enter_context(patch.object(dashboard, "_required_env_missing", return_value=[]))
             stack.enter_context(patch.object(dashboard, "_get_api", side_effect=error))
             stack.enter_context(patch.object(dashboard.trader, "run", side_effect=error))
+            # builder 실패가 502로 매핑되는지를 본다(스냅샷 폴백은 별도 검증).
+            stack.enter_context(
+                patch.object(dashboard.core, "snapshot_read_through", side_effect=lambda kind, builder, **kw: builder())
+            )
             for patcher in self._builder_patchers(side_effect=error):
                 stack.enter_context(patcher)
 

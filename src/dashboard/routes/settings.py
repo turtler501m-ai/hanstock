@@ -52,6 +52,15 @@ def start_kis_websocket_if_enabled():
     if bool(getattr(trader.config, "kis_websocket_enabled", False)):
         _start_kis_websocket()
 
+
+@app.on_event("startup")
+def start_snapshot_refresher_if_enabled():
+    # DASHBOARD_SNAPSHOT_REFRESH_ENABLED=true일 때만 백그라운드로 DB 스냅샷을 데운다.
+    try:
+        start_snapshot_refresher()
+    except Exception:
+        pass
+
 ENV_FIELD_TEXT = {
     "KISTOCK_APP_KEY": {"label": "KIS App Key", "hint": "국내주식 KIS API 앱 키입니다."},
     "KISTOCK_APP_SECRET": {"label": "KIS App Secret", "hint": "국내주식 KIS API 앱 시크릿입니다."},

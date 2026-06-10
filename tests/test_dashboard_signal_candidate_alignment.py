@@ -73,6 +73,10 @@ class DashboardSignalCandidateAlignmentTests(unittest.TestCase):
                     ],
                 )
             )
+            # DB-우선 read-through는 별도로 검증한다. 여기서는 builder의 shaping만 본다.
+            stack.enter_context(
+                patch.object(dashboard.core, "snapshot_read_through", side_effect=lambda kind, builder, **kw: builder())
+            )
 
             body = self._call_route(self.signals_route)
 

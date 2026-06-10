@@ -272,7 +272,21 @@ def init_db() -> None:
             )
             """
         )
-        
+        # 대시보드 라이브 데이터(잔고/보유/후보 등)의 마지막 성공본을 DB에 보관해
+        # 불러오기 실패 시 파일 캐시 대신 DB로 폴백할 수 있게 한다.
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS account_snapshots (
+                account_key TEXT NOT NULL,
+                trading_env TEXT NOT NULL,
+                kind TEXT NOT NULL,
+                payload TEXT NOT NULL,
+                captured_at TEXT NOT NULL,
+                PRIMARY KEY (account_key, trading_env, kind)
+            )
+            """
+        )
+
         # 일회성 관심종목 클린업 마이그레이션 (더 많은 AI 자동 추가 자리를 확보하기 위함)
         try:
             c_mig = conn.execute("SELECT value FROM watchlist_settings WHERE key = 'migration_watchlist_cleaned_v3'")
@@ -1468,6 +1482,81 @@ def save_auto_approval_state(enabled: bool) -> None:
             conn.commit()
     except Exception as e:
         logger.warning(f"Failed to save auto approval state: {e}")
+
+
+def save_account_snapshot(
+    account_key: str,
+    trading_env: str,
+    kind: str,
+    payload: dict,
+    captured_at: str | None = None,
+) -> None:
+    """대시보드 라이브 데이터의 마지막 성공본을 DB에 저장(write-through)한다.
+
+    account_key/trading_env/kind 조합당 1행만 유지하며 항상 최신본으로 덮어쓴다.
+    """
+    try:
+        init_db()
+        captured_at = captured_at or datetime.now(KST).isoformat()
+        with connect_db() as conn:
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO account_snapshots
+                    (account_key, trading_env, kind, payload, captured_at)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (
+                    account_key,
+                    trading_env,
+                    kind,
+                    json.dumps(payload, ensure_ascii=False),
+                    captured_at,
+                ),
+            )
+            conn.commit()
+    except Exception as e:
+        logger.warning(f"Failed to save account snapshot ({kind}): {e}")
+
+
+def load_account_snapshot(account_key: str, trading_env: str, kind: str) -> dict | None:
+    """저장된 마지막 스냅샷을 반환한다. 없거나 오류면 None."""
+    try:
+        init_db()
+        with connect_db() as conn:
+            conn.row_factory = sqlite3.Row
+            c = conn.execute(
+                """
+                SELECT payload, captured_at FROM account_snapshots
+                WHERE account_key = ? AND trading_env = ? AND kind = ?
+                """,
+                (account_key, trading_env, kind),
+            )
+            row = c.fetchone()
+            if row is not None:
+                return {
+                    "payload": json.loads(row["payload"]),
+                    "captured_at": row["captured_at"],
+                }
+    except Exception as e:
+        logger.warning(f"Failed to load account snapshot ({kind}): {e}")
+    return None
+
+
+def delete_account_snapshot(account_key: str, trading_env: str, kind: str) -> None:
+    """지정 스냅샷을 삭제한다(강제 갱신용)."""
+    try:
+        init_db()
+        with connect_db() as conn:
+            conn.execute(
+                """
+                DELETE FROM account_snapshots
+                WHERE account_key = ? AND trading_env = ? AND kind = ?
+                """,
+                (account_key, trading_env, kind),
+            )
+            conn.commit()
+    except Exception as e:
+        logger.warning(f"Failed to delete account snapshot ({kind}): {e}")
 
 
 WATCHLIST_FILE = Path(".runtime/watchlist.json")
