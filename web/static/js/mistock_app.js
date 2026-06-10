@@ -1951,7 +1951,6 @@ async function processOptimizerBatch() {
     try {
         await Promise.all(promises);
         setStatus(`최적화 일괄 등록 완료 (성공: ${successCount}건, 실패: ${failCount}건)`, failCount === 0);
-        await Promise.all([renderApprovals(), renderTrades(), renderBalance()]);
     } catch (err) {
         setStatus(`최적화 일괄 처리 중 오류 발생: ${err.message}`);
     } finally {
@@ -1959,6 +1958,10 @@ async function processOptimizerBatch() {
             batchButton.disabled = false;
         }
     }
+    // Refresh UI in the background to prevent button from hanging on slow KIS API calls
+    renderApprovals();
+    renderTrades();
+    renderBalance();
 }
 
 async function renderApprovals() {
