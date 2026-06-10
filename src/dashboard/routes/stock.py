@@ -1239,6 +1239,11 @@ def get_performance():
             sym = t["symbol"]
             qty = t["qty"]
             price = t["price"]
+            
+            # Skip invalid qty or price <= 0 trades to avoid avg_cost and realized_pnl distortion
+            if qty <= 0 or price <= 0:
+                continue
+                
             names[sym] = t.get("name", sym)
             
             if sym not in holdings:
@@ -1257,6 +1262,13 @@ def get_performance():
                 if holdings[sym]["qty"] <= 0:
                     holdings[sym]["qty"] = 0
                     holdings[sym]["cost"] = 0
+                    
+        # Explicitly calculate realized_pnl by summing daily periodic performance values to match daily performance view exactly
+        try:
+            periodic_perf = _build_periodic_performance(trades)
+            realized_pnl = sum(day["realized_pnl"] for day in periodic_perf.get("daily", []))
+        except Exception:
+            pass
                     
         # Fetch current prices to calculate evaluation PnL
         current_holdings = {}
