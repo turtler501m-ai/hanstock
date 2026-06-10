@@ -42,10 +42,10 @@ class KISWebSocketClient(threading.Thread):
         if self.approval_key:
             return self.approval_key
         
-        url = f"{self.base_url}/uapi/token/approval"
+        url = f"{self.base_url}/oauth2/Approval"
         payload = {
             "grant_type": "client_credentials",
-            "appid": config.kistock_app_key,
+            "appkey": config.kistock_app_key,
             "secretkey": config.kistock_app_secret
         }
         try:
