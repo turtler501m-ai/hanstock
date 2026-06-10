@@ -448,9 +448,14 @@ def verify_ai_strategy(id: str):
     if strategy["provider"] == "none":
         return persist_result({"ok": True, "success": True, "speed_ms": 1, "message": "Rule/local strategy validation passed"})
 
-    predictor = ModelPredictor()
+    predictor = ModelPredictor(
+        strategy_profile=strategy.get("profile") or {},
+        description=strategy.get("description") or "",
+    )
     predictor.enabled = True
     predictor.model_name = strategy["model"]
+    # model_name을 전략 모델로 덮어썼으므로 캐시 시그니처를 재계산한다.
+    predictor.strategy_signature = predictor._build_strategy_signature()
 
     test_features = {
         "strategy_score": 3.0,
@@ -1527,22 +1532,37 @@ def trigger_scheduler_run(payload: dict = Body(...)):
         
     include_ai_rebalance = bool(payload.get("include_ai_rebalance", True))
     auto_approve = bool(payload.get("auto_approve", mode == "daily_auto"))
-    
+
+    # 실행 대상 전략: payload.strategy_id가 있으면 사용, 없으면 현재 선택된 전략을 강제.
+    force_strategy_id = payload.get("strategy_id")
+    if force_strategy_id is not None:
+        force_strategy_id = str(force_strategy_id).strip() or None
+    if force_strategy_id is None:
+        try:
+            from src.db.repository import load_ai_strategies
+            active = next((s for s in load_ai_strategies() if s.get("selected")), None)
+            # model이 "none"(룰 전용)인 경우 scheduler.py와 동일하게 seven_split로 폴백되도록 None 유지.
+            if active and active.get("model") and active.get("model") != "none":
+                force_strategy_id = active.get("model")
+        except Exception:
+            force_strategy_id = None
+
     with _scheduler_running_lock:
         if _scheduler_run_state["is_running"]:
             raise HTTPException(status_code=409, detail="스케줄러가 이미 실행 중입니다.")
-        
+
         _scheduler_run_state["is_running"] = True
         _scheduler_run_state["mode"] = mode
+        _scheduler_run_state["strategy_id"] = force_strategy_id
         _scheduler_run_state["started_at"] = trader.datetime.now(trader.KST).isoformat()
         _scheduler_run_state["completed_at"] = None
         _scheduler_run_state["result"] = None
         _scheduler_run_state["error"] = None
-        
+
     t = threading.Thread(
         target=_bg_run_scheduled_cycle,
-        args=(mode, include_ai_rebalance, auto_approve),
+        args=(mode, include_ai_rebalance, auto_approve, force_strategy_id),
         daemon=True
     )
     t.start()
-    return {"status": "started", "mode": mode}
+    return {"status": "started", "mode": mode, "strategy_id": force_strategy_id}

@@ -623,6 +623,41 @@ def build_scan_universe(api: "KIStockAPI", held_symbols: set[str]) -> list[str]:
 
 from datetime import datetime, timedelta, timezone
 
+
+def _apply_ai_promotion(candidates: list[dict], ai_targets: list[dict], min_score: float, predictor) -> None:
+    """AI 점수 반영 후 후보 멤버십을 재조정한다.
+
+    - allow_candidate_promotion=True면 룰 점수는 낮아도 AI 최종 점수가 기준을
+      넘는 종목을 후보로 승격한다(promoted_by_ai 표시).
+    - AI 평가 결과 최종 점수가 기준 아래로 내려간 기존 후보는 제거한다.
+      (AI가 실제로 평가한 종목에 한정하며, 룰 점수 필터로 AI 평가를 받지 않은
+       후보는 그대로 유지한다.)
+    """
+    evaluated = {entry["ticker"]: entry for entry in ai_targets}
+    existing = {c["ticker"] for c in candidates}
+
+    if getattr(predictor, "allow_candidate_promotion", False):
+        for ticker, entry in evaluated.items():
+            if ticker in existing:
+                continue
+            if float(entry.get("final_score", entry.get("score", 0)) or 0) >= min_score:
+                entry["passed"] = True
+                entry["promoted_by_ai"] = True
+                candidates.append(entry)
+                existing.add(ticker)
+
+    retained = []
+    for cand in candidates:
+        evaluated_entry = evaluated.get(cand["ticker"])
+        if evaluated_entry is not None and not evaluated_entry.get("promoted_by_ai"):
+            score = float(evaluated_entry.get("final_score", cand.get("score", 0)) or 0)
+            if score < min_score:
+                cand["passed"] = False
+                continue
+        retained.append(cand)
+    candidates[:] = retained
+
+
 def find_candidates(
     held_symbols: set[str],
     universe: list[str] | None = None,
@@ -630,17 +665,28 @@ def find_candidates(
     ranker: str = "gpt_5_mini",
     api = None,
     strategy_model: str = "",
+    strategy_profile: dict | None = None,
+    strategy_description: str = "",
 ) -> list[dict]:
     """universe 종목 전체를 기술분석 스코어링해 매수 후보를 반환한다.
 
     universe가 None이면 WATCHLIST만 스캔한다 (하위 호환).
+
+    strategy_profile/strategy_description이 주어지면 AI 스코어링(ModelPredictor)에
+    전략 성격(focus/avoid/risk_level/min_ai_confidence 등)이 반영된다. 둘 다
+    비어 있으면 현재 선택된(active) AI 전략의 profile을 자동으로 로드한다.
     """
-    if not strategy_model:
+    if not strategy_model or strategy_profile is None or not strategy_description:
         try:
             from src.db.repository import load_ai_strategies
             active = next((s for s in load_ai_strategies() if s.get("selected")), None)
             if active:
-                strategy_model = active.get("model") or ""
+                if not strategy_model:
+                    strategy_model = active.get("model") or ""
+                if strategy_profile is None:
+                    strategy_profile = active.get("profile") or {}
+                if not strategy_description:
+                    strategy_description = active.get("description") or ""
         except Exception:
             pass
     scan_list = [code for code in (universe if universe is not None else WATCHLIST)
@@ -652,7 +698,7 @@ def find_candidates(
     candidates: list[dict] = []
     scan_summary: list[dict] = []  # 기준 미달 포함 전체 분석 결과
     symbols = [get_yfinance_ticker(code) for code in scan_list]
-    predictor = ModelPredictor()
+    predictor = ModelPredictor(strategy_profile=strategy_profile, description=strategy_description)
     if ranker == "rule_only":
         predictor.enabled = False
     ai_candidate_limit = max(0, int(getattr(config, "ai_candidate_limit", 5) or 5))
@@ -782,11 +828,15 @@ def find_candidates(
                 
         # 하이브리드 완료 시 조기 리턴 처리
         if predictor.enabled and predictor.api_key and ai_candidate_limit > 0 and scan_summary:
+            ai_pool = [
+                item for item in scan_summary
+                if float(item.get("rule_score", item.get("score", 0)) or 0) >= predictor.min_rule_score_for_ai
+            ]
             ai_targets = sorted(
-                scan_summary,
+                ai_pool,
                 key=lambda item: (-float(item.get("score", 0) or 0), item.get("ticker", "")),
             )[:ai_candidate_limit]
-            
+
             import concurrent.futures
             def predict_for_entry(entry):
                 try:
@@ -795,23 +845,30 @@ def find_candidates(
                 except Exception as e:
                     return entry, None, e
 
-            with concurrent.futures.ThreadPoolExecutor(max_workers=len(ai_targets)) as executor:
-                futures = [executor.submit(predict_for_entry, entry) for entry in ai_targets]
-                for future in concurrent.futures.as_completed(futures):
-                    entry, prediction, p_err = future.result()
-                    if p_err is not None:
-                        logger.warning(f"[AI] Hybrid ranker update failed for {entry['ticker']}: {p_err}")
-                        continue
-                    if prediction:
-                        entry["score"] = round(float(prediction["final_score"]), 4)
-                        entry["ml_score"] = (
-                            round(float(prediction["ml_score"]), 4)
-                            if prediction.get("ml_score") is not None
-                            else None
-                        )
-                        entry["final_score"] = round(float(prediction["final_score"]), 4)
-                        entry["ai_enabled"] = prediction["ai_enabled"]
-                    
+            if ai_targets:
+                with concurrent.futures.ThreadPoolExecutor(max_workers=len(ai_targets)) as executor:
+                    futures = [executor.submit(predict_for_entry, entry) for entry in ai_targets]
+                    for future in concurrent.futures.as_completed(futures):
+                        entry, prediction, p_err = future.result()
+                        if p_err is not None:
+                            logger.warning(f"[AI] Hybrid ranker update failed for {entry['ticker']}: {p_err}")
+                            continue
+                        if prediction:
+                            entry["score"] = round(float(prediction["final_score"]), 4)
+                            entry["ml_score"] = (
+                                round(float(prediction["ml_score"]), 4)
+                                if prediction.get("ml_score") is not None
+                                else None
+                            )
+                            entry["final_score"] = round(float(prediction["final_score"]), 4)
+                            entry["ai_enabled"] = prediction["ai_enabled"]
+                            entry["ai_model_status"] = prediction["model_status"]
+                            entry["ai_fallback_reason"] = prediction["fallback_reason"]
+
+            _apply_ai_promotion(candidates, ai_targets, min_score, predictor)
+            candidates.sort(key=lambda x: -x["score"])
+            scan_summary.sort(key=lambda x: -x["score"])
+
         return {
             "candidates": candidates,
             "universe_size": len(scan_list),
@@ -894,11 +951,15 @@ def find_candidates(
             logger.info(f"[WARN] Candidate scan failed for {code}: {e}")
 
     if predictor.enabled and predictor.api_key and ai_candidate_limit > 0 and scan_summary:
+        ai_pool = [
+            item for item in scan_summary
+            if float(item.get("rule_score", item.get("score", 0)) or 0) >= predictor.min_rule_score_for_ai
+        ]
         ai_targets = sorted(
-            scan_summary,
+            ai_pool,
             key=lambda item: (-float(item.get("score", 0) or 0), item.get("ticker", "")),
         )[:ai_candidate_limit]
-        
+
         import concurrent.futures
         def predict_for_entry(entry):
             try:
@@ -907,28 +968,31 @@ def find_candidates(
             except Exception as e:
                 return entry, None, e
 
-        with concurrent.futures.ThreadPoolExecutor(max_workers=len(ai_targets)) as executor:
-            futures = [executor.submit(predict_for_entry, entry) for entry in ai_targets]
-            for future in concurrent.futures.as_completed(futures):
-                entry, prediction, e = future.result()
-                if e is not None:
-                    logger.info(f"[WARN] OpenAI scoring failed for {entry.get('ticker')}: {e}")
-                    continue
-                if prediction:
-                    entry["score"] = round(float(prediction["final_score"]), 4)
-                    entry["ml_score"] = (
-                        round(float(prediction["ml_score"]), 4)
-                        if prediction.get("ml_score") is not None
-                        else None
-                    )
-                    entry["final_score"] = round(float(prediction["final_score"]), 4)
-                    entry["ai_enabled"] = prediction["ai_enabled"]
-                    entry["ai_model_status"] = prediction["model_status"]
-                    entry["ai_model_version"] = prediction["model_version"]
-                    entry["feature_version"] = prediction["feature_version"]
-                    entry["ai_score_weight"] = prediction["score_weight"]
-                    entry["ai_fallback_reason"] = prediction["fallback_reason"]
-                    entry["top_features"] = prediction["top_features"]
+        if ai_targets:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=len(ai_targets)) as executor:
+                futures = [executor.submit(predict_for_entry, entry) for entry in ai_targets]
+                for future in concurrent.futures.as_completed(futures):
+                    entry, prediction, e = future.result()
+                    if e is not None:
+                        logger.info(f"[WARN] OpenAI scoring failed for {entry.get('ticker')}: {e}")
+                        continue
+                    if prediction:
+                        entry["score"] = round(float(prediction["final_score"]), 4)
+                        entry["ml_score"] = (
+                            round(float(prediction["ml_score"]), 4)
+                            if prediction.get("ml_score") is not None
+                            else None
+                        )
+                        entry["final_score"] = round(float(prediction["final_score"]), 4)
+                        entry["ai_enabled"] = prediction["ai_enabled"]
+                        entry["ai_model_status"] = prediction["model_status"]
+                        entry["ai_model_version"] = prediction["model_version"]
+                        entry["feature_version"] = prediction["feature_version"]
+                        entry["ai_score_weight"] = prediction["score_weight"]
+                        entry["ai_fallback_reason"] = prediction["fallback_reason"]
+                        entry["top_features"] = prediction["top_features"]
+
+        _apply_ai_promotion(candidates, ai_targets, min_score, predictor)
 
     candidates.sort(key=lambda x: -x["score"])
     scan_summary.sort(key=lambda x: -x["score"])

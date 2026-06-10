@@ -9,11 +9,48 @@ from src.strategy.features import FEATURE_VERSION, feature_contributions
 from src.utils.logger import logger
 
 
+def _as_float(value, default: float) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _as_str_list(value) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [str(v) for v in value if v]
+
+
 class ModelPredictor:
-    def __init__(self):
+    def __init__(self, strategy_profile: dict | None = None, description: str = ""):
         self.enabled = bool(getattr(config, "ai_strategy_enabled", False))
-        self.score_weight = max(0.0, min(1.0, float(getattr(config, "ai_score_weight", 0.4))))
-        self.min_confidence = float(getattr(config, "ai_min_model_confidence", 0.6))
+
+        profile = strategy_profile if isinstance(strategy_profile, dict) else {}
+        self.strategy_profile = profile
+        self.strategy_description = str(description or profile.get("description", "") or "").strip()
+
+        # AI 가중치는 profile.ai_weight를 우선하되 risk.max_ai_weight로 상한을 둔다.
+        weight = _as_float(profile.get("ai_weight"), _as_float(getattr(config, "ai_score_weight", 0.4), 0.4))
+        risk = profile.get("risk") if isinstance(profile.get("risk"), dict) else {}
+        max_ai_weight = risk.get("max_ai_weight")
+        if max_ai_weight is not None:
+            weight = min(weight, _as_float(max_ai_weight, weight))
+        self.score_weight = max(0.0, min(1.0, weight))
+
+        self.min_confidence = _as_float(
+            profile.get("min_ai_confidence"),
+            _as_float(getattr(config, "ai_min_model_confidence", 0.6), 0.6),
+        )
+
+        # 후보 탐색 단계에서 참조하는 전략 정책 필드.
+        self.strategy_type = str(profile.get("strategy_type", "") or "")
+        self.risk_level = str(profile.get("risk_level", "") or "")
+        self.focus = _as_str_list(profile.get("focus"))
+        self.avoid = _as_str_list(profile.get("avoid"))
+        self.min_rule_score_for_ai = _as_float(profile.get("min_rule_score_for_ai"), 0.0)
+        self.allow_candidate_promotion = bool(profile.get("allow_candidate_promotion", False))
+
         self.provider = "openai_responses"
         self.model_name = str(getattr(config, "openai_model", "gpt-5-mini") or "gpt-5-mini")
         self.api_key = str(getattr(config, "openai_api_key", "") or "").strip()
@@ -23,11 +60,50 @@ class ModelPredictor:
         self.model_status = "ready" if self.api_key else "fallback"
         self.fallback_reason = "" if self.api_key else "OPENAI_API_KEY not configured"
 
+        # 전략 시그니처: 전략 성격이 다르면 캐시/프롬프트가 달라지도록 한다.
+        self.strategy_signature = self._build_strategy_signature()
+
+    def _build_strategy_signature(self) -> str:
+        payload = json.dumps(
+            {
+                "strategy_type": self.strategy_type,
+                "risk_level": self.risk_level,
+                "focus": sorted(self.focus),
+                "avoid": sorted(self.avoid),
+                "description": self.strategy_description,
+                "score_weight": round(self.score_weight, 4),
+                "min_confidence": round(self.min_confidence, 4),
+                "model": self.model_name,
+            },
+            ensure_ascii=True,
+            sort_keys=True,
+        )
+        return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
+
+    def _strategy_instructions(self) -> str:
+        lines = [
+            "You score a Korean stock candidate from 0.0 to 1.0. "
+            "Return JSON only with keys probability and rationale. "
+            "Probability means short-term buy quality confidence."
+        ]
+        if self.strategy_type:
+            lines.append(f"Strategy type: {self.strategy_type}.")
+        if self.risk_level:
+            lines.append(f"Risk posture: {self.risk_level}.")
+        if self.focus:
+            lines.append("Reward candidates showing these signals: " + ", ".join(self.focus) + ".")
+        if self.avoid:
+            lines.append("Penalize candidates showing these signals: " + ", ".join(self.avoid) + ".")
+        if self.strategy_description:
+            lines.append("Strategy intent from the operator: " + self.strategy_description[:500])
+        return " ".join(lines)
+
     def _cache_key(self, features: dict) -> str:
         payload = json.dumps(
             {
                 "provider": self.provider,
                 "model": self.model_name,
+                "strategy_signature": self.strategy_signature,
                 "feature_version": features.get("feature_version", FEATURE_VERSION),
                 "strategy_score": round(float(features.get("strategy_score", 0.0) or 0.0), 4),
                 "rsi": round(float(features.get("rsi", 0.0) or 0.0), 4),
@@ -83,11 +159,7 @@ class ModelPredictor:
     def _predict_probability(self, features: dict, contributions: list[dict]) -> float:
         payload = {
             "model": self.model_name,
-            "instructions": (
-                "You score a Korean stock candidate from 0.0 to 1.0. "
-                "Return JSON only with keys probability and rationale. "
-                "Probability means short-term buy quality confidence."
-            ),
+            "instructions": self._strategy_instructions(),
             "input": self._prompt_payload(features, contributions),
             "text": {
                 "format": {

@@ -584,12 +584,20 @@ def build_dashboard_candidates(
     ranker_weight: float = 0.4,
     optimizer: str = "score_tilted_inverse_vol",
     strategy_model: str = "",
+    strategy_profile: dict | None = None,
+    strategy_description: str = "",
 ) -> dict:
     held_symbols = {holding["symbol"] for holding in parsed["holdings"]}
     universe = trader.build_scan_universe(api, held_symbols)
-    
+
     if ranker == "gpt_5_mini" and ranker_weight == 0.4 and not strategy_model:
-        scan_result = trader.find_candidates(held_symbols, universe=universe, min_score=min_score)
+        scan_result = trader.find_candidates(
+            held_symbols,
+            universe=universe,
+            min_score=min_score,
+            strategy_profile=strategy_profile,
+            strategy_description=strategy_description,
+        )
     else:
         ranker_param = "rule_only" if ranker == "none" else ranker
         orig_weight = trader.config.ai_score_weight
@@ -602,13 +610,15 @@ def build_dashboard_candidates(
                 trader.config.ai_strategy_enabled = False
             else:
                 trader.config.ai_strategy_enabled = True
-                
+
             scan_result = trader.find_candidates(
                 held_symbols,
                 universe=universe,
                 min_score=min_score,
                 ranker=ranker_param,
                 strategy_model=strategy_model,
+                strategy_profile=strategy_profile,
+                strategy_description=strategy_description,
             )
         finally:
             trader.config.ai_score_weight = orig_weight
@@ -2247,13 +2257,17 @@ async def get_candidates(
         selected_strat = next((s for s in strats if s["id"] == cache_ranker), None)
         
         strategy_model = ""
+        strategy_profile = None
+        strategy_description = ""
         if selected_strat:
             profile = selected_strat.get("profile") or {}
             model = profile.get("model") or selected_strat["model"] or "none"
             provider = selected_strat.get("provider") or "none"
             ranker_weight = float(profile.get("ai_weight", selected_strat["weight"]) or 0.0)
-            
+
             strategy_model = model
+            strategy_profile = profile
+            strategy_description = selected_strat.get("description") or ""
             if provider == "none" or model == "none" or ranker_weight == 0.0:
                 ranker_model = "rule_only"
             else:
@@ -2262,7 +2276,7 @@ async def get_candidates(
             ranker_model = cache_ranker
             ranker_weight = 0.4
             strategy_model = ""
-            
+
         import asyncio
         loop = asyncio.get_event_loop()
         payload = await loop.run_in_executor(
@@ -2275,6 +2289,8 @@ async def get_candidates(
                 ranker_weight=ranker_weight,
                 optimizer=optimizer,
                 strategy_model=strategy_model,
+                strategy_profile=strategy_profile,
+                strategy_description=strategy_description,
             ),
         )
         if selected_strat:
@@ -3295,6 +3311,7 @@ _scheduler_running_lock = threading.Lock()
 _scheduler_run_state = {
     "is_running": False,
     "mode": None,
+    "strategy_id": None,
     "started_at": None,
     "completed_at": None,
     "result": None,

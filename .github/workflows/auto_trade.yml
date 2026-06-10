@@ -1,6 +1,10 @@
 name: 세븐 스플릿 자동 매매 (Seven Split Auto Trading)
 
 on:
+  schedule:
+    # 평일 KST 09:00~15:00 매시 정각 (UTC 00:00~06:00). GitHub Actions는 UTC 기준이며
+    # 스케줄 실행은 수 분 지연될 수 있다. 시장 시간 밖 실행은 trader 정책에서 걸러진다.
+    - cron: '0 0-6 * * 1-5'
   workflow_dispatch:
     inputs:
       dry_run:
@@ -14,10 +18,10 @@ on:
       mode:
         description: '실행 모드'
         required: false
-        default: 'auto'
+        default: 'execute'
         type: choice
         options:
-          - auto
+          - execute
           - analysis_only
 
 jobs:
@@ -67,7 +71,9 @@ jobs:
           CASH_BUFFER: ${{ vars.CASH_BUFFER || '0.20' }}
           MAX_DAILY_LOSS_PCT: ${{ vars.MAX_DAILY_LOSS_PCT || '3.0' }}
           LOG_FILE: logs/trade-${{ github.run_number }}.log
-        run: python -m src.trader 2>&1 | tee "$LOG_FILE"
+          SCHEDULE_MODE: ${{ github.event.inputs.mode || 'execute' }}
+        run: |
+          python -m src.scheduler --mode "$SCHEDULE_MODE" 2>&1 | tee "$LOG_FILE"
 
       - name: 커밋 및 푸시 (DB 동기화)
         if: always()

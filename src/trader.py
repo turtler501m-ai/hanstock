@@ -650,13 +650,17 @@ def build_runtime_plan(
             else:
                 ranker = "gpt_5_mini"
                 strategy_model = ""
+                strategy_profile = None
+                strategy_description = ""
                 if active_strategy:
                     model = active_strategy.get("model") or "none"
                     provider = active_strategy.get("provider") or "none"
                     profile = active_strategy.get("profile") or {}
                     weight = float(profile.get("ai_weight", active_strategy.get("weight", 0.0)) or 0.0)
-                    
+
                     strategy_model = model
+                    strategy_profile = profile
+                    strategy_description = active_strategy.get("description") or ""
                     if provider == "none" or model == "none" or weight == 0.0:
                         ranker = "rule_only"
                     else:
@@ -666,6 +670,8 @@ def build_runtime_plan(
                     universe=universe,
                     ranker=ranker,
                     strategy_model=strategy_model,
+                    strategy_profile=strategy_profile,
+                    strategy_description=strategy_description,
                     api=api,
                 )
             candidates = scan_result.get("candidates", [])

@@ -47,6 +47,14 @@ class TraderPresetsTests(unittest.TestCase):
                 universe=["000660"],
                 ranker="rule_only",
                 strategy_model="none",
+                strategy_profile={
+                    "model": "none",
+                    "ai_weight": 0.0,
+                    "risk": {
+                        "max_risk_per_trade_pct": 0.5,
+                    },
+                },
+                strategy_description="",
                 api=api,
             )
 
@@ -91,6 +99,11 @@ class TraderPresetsTests(unittest.TestCase):
                 universe=["000660"],
                 ranker="gpt-5-mini",
                 strategy_model="gpt-5-mini",
+                strategy_profile={
+                    "model": "gpt-5-mini",
+                    "ai_weight": 0.4,
+                },
+                strategy_description="",
                 api=api,
             )
 

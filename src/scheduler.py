@@ -212,6 +212,17 @@ def run_scheduled_cycle(
     auto_approve: bool = False,
     force_strategy_id: str | None = None,
 ) -> dict:
+    # force_strategy_id가 명시되지 않은 경우(cron 등) 현재 선택된 전략을 사용해
+    # trader 실행과 결과 기록의 strategy_id가 일치하도록 한다.
+    if force_strategy_id is None:
+        try:
+            from src.db.repository import load_ai_strategies
+            active = next((s for s in load_ai_strategies() if s.get("selected")), None)
+            if active and active.get("model") and active.get("model") != "none":
+                force_strategy_id = active.get("model")
+        except Exception:
+            force_strategy_id = None
+
     if mode == "daily_auto":
         include_ai_rebalance = True
         auto_approve = True
