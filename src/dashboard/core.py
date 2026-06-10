@@ -547,13 +547,50 @@ AUTO_APPROVAL_SWEEP_ENABLED = str(
 AUTO_APPROVAL_SWEEP_INTERVAL_SECONDS = int(
     os.environ.get("DASHBOARD_AUTO_APPROVAL_SWEEP_INTERVAL_SECONDS", "15")
 )
+# 이 시간(초)보다 오래 'executing'에 머문 승인은 프로세스 중단 등으로 고아가 된 것으로
+# 보고 failed 처리한다(정상 승인은 수 초 내 완료되므로 넉넉히 잡는다).
+AUTO_APPROVAL_STALE_EXECUTING_SECONDS = int(
+    os.environ.get("DASHBOARD_AUTO_APPROVAL_STALE_EXECUTING_SECONDS", "120")
+)
 _auto_approval_sweeper_thread: threading.Thread | None = None
 _auto_approval_sweeper_stop = threading.Event()
+
+
+def _reclaim_stale_executing_approvals(max_age_seconds: int | None = None) -> int:
+    """프로세스 중단 등으로 'executing'에 고아처럼 멈춘 승인을 failed로 정리한다.
+
+    재실행(중복 주문) 위험을 피하기 위해 pending이 아니라 failed로 표시한다.
+    """
+    from datetime import timedelta
+
+    max_age = AUTO_APPROVAL_STALE_EXECUTING_SECONDS if max_age_seconds is None else max_age_seconds
+    now = trader.datetime.now(trader.KST)
+    cutoff = (now - timedelta(seconds=max_age)).strftime("%Y-%m-%d %H:%M:%S")
+    try:
+        _init_approval_db()
+        with trader.connect_db() as conn:
+            cursor = conn.execute(
+                """
+                UPDATE approvals
+                SET status = 'failed',
+                    response_msg = 'Orphaned in executing state (process interrupted); auto-reclaimed',
+                    updated_at = ?
+                WHERE status = 'executing' AND updated_at < ?
+                """,
+                (now.strftime("%Y-%m-%d %H:%M:%S"), cutoff),
+            )
+            return cursor.rowcount or 0
+    except Exception as exc:
+        logger.warning(f"reclaim stale executing approvals failed: {exc}")
+        return 0
 
 
 def _auto_approval_sweeper_loop() -> None:
     while not _auto_approval_sweeper_stop.wait(AUTO_APPROVAL_SWEEP_INTERVAL_SECONDS):
         try:
+            reclaimed = _reclaim_stale_executing_approvals()
+            if reclaimed:
+                logger.info(f"auto-approval sweeper: reclaimed {reclaimed} stale executing approval(s)")
             if not _auto_approval_enabled():
                 continue
             if not _pending_approval_ids(limit=1):
