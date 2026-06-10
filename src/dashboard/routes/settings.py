@@ -422,3 +422,95 @@ def get_kis_rehearsal():
         "sample_order_payload": sample_order,
         "websocket": _kis_websocket_status(),
     }
+
+
+@app.post("/api/config/reset-database")
+def reset_database_and_clear_cache():
+    import shutil
+    from datetime import datetime
+    from pathlib import Path
+    
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    results = []
+    
+    # 1. 국내 주식 거래 DB 백업 및 초기화
+    db_path_str = getattr(trader.config, "trade_db_path", ".runtime/trades.sqlite")
+    if db_path_str:
+        db_path = Path(db_path_str)
+        if db_path.exists():
+            backup_path = db_path.with_name(f"{db_path.name}.backup_{timestamp}")
+            try:
+                shutil.move(str(db_path), str(backup_path))
+                results.append(f"국내주식 DB 백업 완료: {backup_path.name}")
+            except Exception as e:
+                results.append(f"국내주식 DB 백업 실패: {str(e)}")
+                
+    # 2. 미국 주식 거래 DB 백업 및 초기화
+    try:
+        from src.mistock.config import config as mistock_config
+        mistock_db_path_str = getattr(mistock_config, "trade_db_path", ".runtime/mistock/trades.sqlite")
+        if mistock_db_path_str:
+            mistock_db_path = Path(mistock_db_path_str)
+            if mistock_db_path.exists():
+                mistock_backup_path = mistock_db_path.with_name(f"{mistock_db_path.name}.backup_{timestamp}")
+                shutil.move(str(mistock_db_path), str(mistock_backup_path))
+                results.append(f"미국주식 DB 백업 완료: {mistock_backup_path.name}")
+    except Exception as e:
+        results.append(f"미국주식 DB 초기화 실패: {str(e)}")
+
+    # 3. KIS 토큰 캐시 파일 일괄 제거
+    token_files = ["data/kis_token.json", "data/kis_token_01.json", "data/kis_token_mistock_demo.json"]
+    for t_file in token_files:
+        p = Path(t_file)
+        if p.exists():
+            try:
+                p.unlink()
+                results.append(f"토큰 캐시 제거 완료: {p.name}")
+            except Exception as e:
+                results.append(f"토큰 캐시 제거 실패 ({p.name}): {str(e)}")
+                
+    # 4. 잔고 스냅샷 및 DB 캐시 제거
+    cache_files = [".runtime/balance_snapshot.json", ".runtime/db_cache.sqlite"]
+    for c_file in cache_files:
+        p = Path(c_file)
+        if p.exists():
+            try:
+                p.unlink()
+                results.append(f"캐시 파일 제거 완료: {p.name}")
+            except Exception as e:
+                results.append(f"캐시 파일 제거 실패 ({p.name}): {str(e)}")
+
+    # 5. 메모리 내 캐시 털기
+    try:
+        _clear_balance_cache()
+        results.append("메모리 잔고 캐시 초기화 완료")
+    except Exception:
+        pass
+        
+    try:
+        import src.mistock.trader as mistock_trader
+        mistock_trader._kis_client_cache = None
+        results.append("미국주식 클라이언트 캐시 초기화 완료")
+    except Exception:
+        pass
+        
+    try:
+        global _cloud_trades_cache, _cloud_trades_cache_time
+        _cloud_trades_cache = None
+        _cloud_trades_cache_time = 0
+        results.append("클라우드 거래 이력 캐시 초기화 완료")
+    except Exception:
+        pass
+
+    # DB 초기화를 위해 재호출
+    try:
+        trader.init_db()
+        results.append("새로운 거래 DB 테이블 생성 완료")
+    except Exception as e:
+        results.append(f"새 거래 DB 초기화 실패: {str(e)}")
+        
+    return {
+        "ok": True,
+        "message": "데이터베이스 및 캐시 완전 초기화가 성공적으로 수행되었습니다.",
+        "details": results
+    }

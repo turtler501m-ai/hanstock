@@ -305,6 +305,34 @@ async function saveEnvSettings(event) {
     }
 }
 
+async function resetDatabaseAndClearCache() {
+    const confirmed = window.confirm(
+        "⚠️ [경고] 모든 국내/미국 주식 거래 내역 DB와 토큰/잔고 캐시 파일을 완전히 초기화하시겠습니까?\n\n- 기존 DB 파일은 백업본으로 안전하게 이동 처리됩니다.\n- 초기화 후에는 이전 성과 데이터 조회가 불가능합니다."
+    );
+    if (!confirmed) {
+        return;
+    }
+    
+    setButtonBusy('btn-env-reset-db', true);
+    try {
+        const result = await postJson('/api/config/reset-database');
+        if (result.ok) {
+            alert(`${result.message}\n\n상세 조치 내역:\n${result.details.map(d => '• ' + d).join('\n')}`);
+            window.location.reload();
+        } else {
+            throw new Error(result.message || '초기화 실패');
+        }
+    } catch (err) {
+        alert(`초기화 작업 중 오류가 발생했습니다:\n${err.message}`);
+    } finally {
+        setButtonBusy('btn-env-reset-db', false);
+    }
+}
+
 document.getElementById('env-form').addEventListener('submit', saveEnvSettings);
 document.getElementById('btn-env-reload').addEventListener('click', renderEnvSettings);
+const resetBtn = document.getElementById('btn-env-reset-db');
+if (resetBtn) {
+    resetBtn.addEventListener('click', resetDatabaseAndClearCache);
+}
 renderEnvSettings();
