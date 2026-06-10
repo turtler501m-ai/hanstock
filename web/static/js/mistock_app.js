@@ -2640,7 +2640,7 @@ document.addEventListener('DOMContentLoaded', () => {
             try {
                 const result = await postJson('/api/mistock/trades/sync', {});
                 setStatus(`증권사 기록 동기화 완료 (누락된 ${result.synced_count}건 추가됨)`, true);
-                await renderTrades();
+                await Promise.all([renderTrades(), renderBalance()]);
                 
                 btnSyncTrades.textContent = result.synced_count > 0 ? `동기화 완료 (${result.synced_count}건)` : '동기화 완료 ✔️';
                 btnSyncTrades.style.backgroundColor = '#10b981'; // success green
@@ -3155,6 +3155,17 @@ async function renderScheduleInfo() {
                                         if (closingIdx !== -1) {
                                             cleanReason = cleanReason.substring(closingIdx + 1).trim();
                                         }
+                                    }
+                                    if (decision === 'skip') {
+                                        let skipPrefix = '';
+                                        if (row.skip_reason === 'category filtered') {
+                                            skipPrefix = '[카테고리 제외] ';
+                                        } else if (row.action === 'hold' || (row.qty || row.signal_qty || 0) === 0) {
+                                            skipPrefix = (row.action === 'hold') ? '[보류: 유지(Hold)] ' : '[보류: 주문수량 0] ';
+                                        } else {
+                                            skipPrefix = '[보류] ';
+                                        }
+                                        cleanReason = skipPrefix + cleanReason;
                                     }
                                     
                                     tr.innerHTML = `
