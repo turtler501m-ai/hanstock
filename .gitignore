@@ -5,6 +5,7 @@ __pycache__/
 logs/
 *.log
 .runtime/
+.vm_backup/
 .DS_Store
 .vscode/
 .idea/workspace.iml
