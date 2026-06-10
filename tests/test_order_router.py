@@ -49,6 +49,85 @@ class OrderRouterTests(unittest.TestCase):
             config.enable_live_trading = original["enable_live_trading"]
             config.require_approval = original["require_approval"]
 
+    def test_require_approval_returns_approval_id(self):
+        original = {
+            "dry_run": config.dry_run,
+            "trading_env": config.trading_env,
+            "enable_live_trading": config.enable_live_trading,
+            "require_approval": config.require_approval,
+            "trade_db_path": config.trade_db_path,
+        }
+
+        class FakeApi:
+            def get_balance(self):
+                return {"output1": []}
+
+        import sqlite3
+        import tempfile
+        temp_db = tempfile.NamedTemporaryFile(delete=False)
+        temp_db.close()
+        
+        try:
+            config.dry_run = False
+            config.trading_env = "demo"
+            config.enable_live_trading = False
+            config.require_approval = True
+            config.trade_db_path = temp_db.name
+
+            # Initialize approvals table in temp db
+            conn = sqlite3.connect(temp_db.name)
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS approvals (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    symbol TEXT NOT NULL,
+                    name TEXT NOT NULL,
+                    action TEXT NOT NULL,
+                    qty INTEGER NOT NULL,
+                    price INTEGER NOT NULL,
+                    reason TEXT,
+                    source TEXT,
+                    status TEXT NOT NULL,
+                    response_msg TEXT
+                )
+            """)
+            conn.close()
+
+            order_router = router.OrderRouter(FakeApi())
+            with patch.object(router, "save_decision_log"):
+                result = order_router.route("005930", "Samsung", "buy", 1, 70000, "test_reason", {}, strategy_id="plunge_bounce_strategy")
+
+            self.assertTrue(result["ok"])
+            self.assertEqual(result["status"], "pending")
+            self.assertIn("approval_id", result)
+            self.assertIsNotNone(result["approval_id"])
+            
+            # Check db content
+            conn = sqlite3.connect(temp_db.name)
+            cursor = conn.execute("SELECT * FROM approvals WHERE id = ?", (result["approval_id"],))
+            row = cursor.fetchone()
+            conn.close()
+            self.assertIsNotNone(row)
+            self.assertEqual(row[3], "005930")
+            self.assertEqual(row[4], "Samsung")
+            self.assertEqual(row[5], "buy")
+            self.assertEqual(row[6], 1)
+            self.assertEqual(row[7], 70000)
+            self.assertEqual(row[8], "test_reason")
+            self.assertEqual(row[10], "pending")
+        finally:
+            import os
+            try:
+                os.unlink(temp_db.name)
+            except Exception:
+                pass
+            config.dry_run = original["dry_run"]
+            config.trading_env = original["trading_env"]
+            config.enable_live_trading = original["enable_live_trading"]
+            config.require_approval = original["require_approval"]
+            config.trade_db_path = original["trade_db_path"]
+
 
 if __name__ == "__main__":
     unittest.main()

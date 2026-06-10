@@ -484,7 +484,10 @@ def execute_plan_row(api, context: dict, row: dict) -> dict:
     )
     ok = result.get("ok", False)
     decision = "execute" if ok else "failed"
-    return {**row, "decision": decision, "ok": ok}
+    ret = {**row, "decision": decision, "ok": ok}
+    if "approval_id" in result:
+        ret["approval_id"] = result["approval_id"]
+    return ret
 
 
 def _holding_history_from_balance(api, stocks: list[dict]) -> list[dict]:

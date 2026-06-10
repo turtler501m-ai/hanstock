@@ -39,9 +39,9 @@ class OrderRouter:
 
         if self.require_approval:
             # 대기열(approvals)에 넣기
-            self._insert_approval(symbol, name, action, qty, price, reason, strategy_id=strategy_id)
+            approval_id = self._insert_approval(symbol, name, action, qty, price, reason, strategy_id=strategy_id)
             logger.info(f"[ROUTER] Pending Approval: {action} {name} qty={qty}")
-            return {"ok": True, "msg": "Added to approval queue", "status": "pending"}
+            return {"ok": True, "msg": "Added to approval queue", "status": "pending", "approval_id": approval_id}
             
         # 직접 KIS API 호출
         pre_order_qty = self._current_holding_qty(symbol)
@@ -67,7 +67,7 @@ class OrderRouter:
         )
         return {"ok": ok, "msg": result.get("msg1", ""), "status": "live"}
 
-    def _insert_approval(self, symbol: str, name: str, action: str, qty: int, price: int, reason: str, strategy_id: str = None) -> None:
+    def _insert_approval(self, symbol: str, name: str, action: str, qty: int, price: int, reason: str, strategy_id: str = None) -> int | None:
         from src.db.repository import connect_db
         from datetime import datetime, timezone, timedelta
         
@@ -98,7 +98,7 @@ class OrderRouter:
                     _ensure_column(conn, "approvals", "strategy_id", "TEXT")
                 except Exception:
                     pass
-                conn.execute(
+                cursor = conn.execute(
                     """
                     INSERT INTO approvals
                     (created_at, updated_at, symbol, name, action, qty, price, reason, source, status, response_msg, strategy_id)
@@ -106,5 +106,7 @@ class OrderRouter:
                     """,
                     (now, now, symbol, name, action, qty, price, reason, 'auto_trader', strategy_id),
                 )
+                return cursor.lastrowid
         except Exception as e:
             logger.error(f"[ROUTER] Failed to insert approval: {e}")
+            return None
