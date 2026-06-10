@@ -1196,35 +1196,7 @@ def get_periodic_performance():
 @app.get("/api/performance")
 def get_performance():
     try:
-        cloud_trades = fetch_cloud_trades() or []
-        local_trades = []
-        with trader.connect_db() as conn:
-            conn.row_factory = sqlite3.Row
-            rows = conn.execute("SELECT * FROM trades ORDER BY ts ASC").fetchall()
-            local_trades = [dict(row) for row in rows]
-            
-        # Merge cloud and local trades
-        # Use a dictionary keyed by timestamp and symbol to deduplicate
-        merged_trades = {}
-        for t in cloud_trades + local_trades:
-            ts = t.get("ts") or t.get("timestamp")
-            if not ts: continue
-            ts_norm = str(ts).replace("T", " ").split(".")[0].strip()
-            key = f"{ts_norm}_{t.get('symbol')}_{t.get('action')}"
-            merged_trades[key] = {
-                "ts": ts_norm,
-                "symbol": t.get("symbol"),
-                "name": t.get("name", t.get("symbol")),
-                "action": t.get("action"),
-                "qty": t.get("qty", 0),
-                "price": t.get("price", 0),
-                "reason": t.get("reason", ""),
-                "ok": t.get("ok", 1),
-                "env": t.get("env", "demo"),
-                "dry_run": t.get("dry_run", 0)
-            }
-            
-        trades = _account_trades(sorted(merged_trades.values(), key=lambda x: x["ts"]))
+        trades = _account_trades(_load_merged_trades())
         
         total_trades = len(trades)
         success_count = sum(1 for t in trades if t.get("ok", False))
