@@ -755,10 +755,16 @@ async function renderBalance() {
         const evalPnl = Number(balance.pnl || 0);
         const evalCost = Math.max(0, Number(balance.stock_eval || holdingValue || 0) - evalPnl);
         const returnRate = evalCost > 0 ? (evalPnl / evalCost) * 100 : 0;
+        const realizedPnl = displayTotal - principal - evalPnl;
 
         setElementText('val-total', formatCurrency(displayTotal));
         setElementText('val-principal', formatCurrency(principal));
         setElementText('val-cash', formatCurrency(balance.cash));
+        setElementText('val-realized', formatCurrency(realizedPnl));
+        const realizedEl = document.getElementById('val-realized');
+        if (realizedEl) {
+            realizedEl.className = `value ${realizedPnl >= 0 ? 'text-success' : 'text-danger'}`;
+        }
         const returnEl = setElementText('val-return', formatPercent(returnRate));
         if (returnEl) {
             returnEl.className = `value ${returnRate >= 0 ? 'text-success' : 'text-danger'}`;
