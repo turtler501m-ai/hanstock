@@ -578,7 +578,12 @@ async function saveStrategySettings(event) {
         }
         const result = await postJson('/api/mistock/env', { values });
         setStatus(`전략 설정을 저장했습니다. 반영 항목: ${result.updated.join(', ')}`, true);
-        await Promise.all([renderConfig(), renderBalance()]);
+        try {
+            await renderConfig();
+        } catch (e) {
+            console.error("Failed to load config after save:", e);
+        }
+        await renderBalance();
     } catch (err) {
         setStatus(`전략 설정 저장 실패: ${err.message}`);
     } finally {
