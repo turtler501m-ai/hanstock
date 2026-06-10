@@ -23,7 +23,8 @@ class KISWebSocketClient(threading.Thread):
         
         # Real-time connection details
         self.base_url = "https://openapi.koreainvestment.com:9443" if self.trading_env == "real" else "https://openapivts.koreainvestment.com:29443"
-        self.ws_url = "wss://ops.koreainvestment.com:2100" if self.trading_env == "real" else "wss://ops.koreainvestment.com:3100"
+        # KIS 실시간 WebSocket 포트: 실전 21000 / 모의 31000 (기존 2100/3100은 0 누락 오타로 항상 타임아웃)
+        self.ws_url = "wss://ops.koreainvestment.com:21000" if self.trading_env == "real" else "wss://ops.koreainvestment.com:31000"
         
         self.ws = None
         self.running = False
