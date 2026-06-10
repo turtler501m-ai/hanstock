@@ -130,7 +130,7 @@ def _strategy_scan(strategy_id: str, *, min_score: float = 1.0) -> dict:
     balance = api.get_balance()
     stocks = balance.get("output1", []) or []
     held_symbols = {s.get("pdno", "") for s in stocks}
-    scan_list = [code for code in build_scan_universe() if code not in held_symbols]
+    scan_list = [code for code in build_scan_universe(api, held_symbols) if code not in held_symbols]
 
     logger.info(f"[StrategyRoute] {strategy_id} scan initiated for {len(scan_list)} symbols")
     scan_result = find_candidates(
