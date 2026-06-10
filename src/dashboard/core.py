@@ -31,6 +31,7 @@ from src.futures_signals import (  # noqa: E402
 )
 from src.notifier.slack import slack_order as _slack_order, slack_error as _slack_error  # noqa: E402
 from src.strategy.seven_split import adjust_tick_size  # noqa: E402
+from src.utils.logger import logger  # noqa: E402
 
 
 app = FastAPI(title="Seven Split Dashboard", version="1.0.0")
