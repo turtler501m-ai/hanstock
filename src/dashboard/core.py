@@ -2946,9 +2946,10 @@ def _load_merged_trades() -> list[dict]:
         ts = t.get("ts") or t.get("timestamp")
         if not ts:
             continue
-        key = f"{ts}_{t.get('symbol')}_{t.get('action')}"
+        ts_norm = str(ts).replace("T", " ").split(".")[0].strip()
+        key = f"{ts_norm}_{t.get('symbol')}_{t.get('action')}"
         merged_trades[key] = {
-            "ts": ts,
+            "ts": ts_norm,
             "symbol": t.get("symbol"),
             "name": t.get("name", t.get("symbol")),
             "action": t.get("action"),
@@ -2977,7 +2978,17 @@ def _trade_is_dry_run(trade: dict) -> bool:
 
 def _trade_is_sync_adjustment(trade: dict) -> bool:
     reason = str(trade.get("reason") or "").lower()
-    return any(token in reason for token in ("sync", "adjust"))
+    # Check English terms
+    if any(token in reason for token in ("sync", "adjust", "correction", "import")):
+        return True
+    # Check Korean terms
+    if any(token in reason for token in ("동기화", "보정", "조정")):
+        return True
+    # Check broken Korean encoding terms (e.g. 利앷텒 for 증권, 媛뺤젣 for 강제, 숆린 for 동기, 蹂댁젙 for 보정, 섎룞 for 수동, 꾨씫遺 for 누락분)
+    broken_tokens = ("利앷텒", "媛뺤젣", "숆린", "蹂댁젙", "섎룞", "꾨씫遺")
+    if any(token in reason for token in broken_tokens):
+        return True
+    return False
 
 
 def _account_trades(trades: list[dict]) -> list[dict]:

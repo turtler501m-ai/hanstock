@@ -766,7 +766,12 @@ def _mistock_account_trades(trades: list[dict]) -> list[dict]:
             continue
             
         reason = str(trade.get("reason") or "").lower()
-        if any(token in reason for token in ("sync", "adjust")):
+        if any(token in reason for token in ("sync", "adjust", "correction", "import")):
+            continue
+        if any(token in reason for token in ("동기화", "보정", "조정")):
+            continue
+        broken_tokens = ("利앷텒", "媛뺤젣", "숆린", "蹂댁젙", "섎룞", "꾨씫遺")
+        if any(token in reason for token in broken_tokens):
             continue
             
         dr_val = trade.get("dry_run")

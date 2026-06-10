@@ -769,7 +769,7 @@ async function renderBalance() {
         const evalPnl = Number(balance.pnl || 0);
         const evalCost = Math.max(0, Number(balance.stock_eval || holdingValue || 0) - evalPnl);
         const returnRate = evalCost > 0 ? (evalPnl / evalCost) * 100 : 0;
-        const realizedPnl = displayTotal - principal - evalPnl;
+        const realizedPnl = Number(perf.realized_pnl || 0);
 
         setElementText('val-total', formatCurrency(displayTotal));
         setElementText('val-principal', formatCurrency(principal));

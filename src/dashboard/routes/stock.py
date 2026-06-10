@@ -1209,9 +1209,10 @@ def get_performance():
         for t in cloud_trades + local_trades:
             ts = t.get("ts") or t.get("timestamp")
             if not ts: continue
-            key = f"{ts}_{t.get('symbol')}_{t.get('action')}"
+            ts_norm = str(ts).replace("T", " ").split(".")[0].strip()
+            key = f"{ts_norm}_{t.get('symbol')}_{t.get('action')}"
             merged_trades[key] = {
-                "ts": ts,
+                "ts": ts_norm,
                 "symbol": t.get("symbol"),
                 "name": t.get("name", t.get("symbol")),
                 "action": t.get("action"),
