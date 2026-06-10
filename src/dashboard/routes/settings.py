@@ -61,6 +61,15 @@ def start_snapshot_refresher_if_enabled():
     except Exception:
         pass
 
+
+@app.on_event("startup")
+def start_auto_approval_sweeper_on_boot():
+    # 자동승인 토글이 켜져 있으면 cron이 만든 대기 승인도 주기적으로 일괄 처리한다.
+    try:
+        start_auto_approval_sweeper()
+    except Exception:
+        pass
+
 ENV_FIELD_TEXT = {
     "KISTOCK_APP_KEY": {"label": "KIS App Key", "hint": "국내주식 KIS API 앱 키입니다."},
     "KISTOCK_APP_SECRET": {"label": "KIS App Secret", "hint": "국내주식 KIS API 앱 시크릿입니다."},

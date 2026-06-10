@@ -535,6 +535,58 @@ def start_snapshot_refresher() -> bool:
     return True
 
 
+# ---------------------------------------------------------------------------
+# 자동승인 주기 스위퍼
+#   "자동승인" 토글이 켜져 있으면, 어떤 경로(자동매매 cron의 StrategyRouter 등)가
+#   만든 대기 승인이든 주기적으로 일괄 승인/실행한다. 토글이 꺼져 있으면 아무 일도
+#   하지 않는다(자체 게이트). DASHBOARD_AUTO_APPROVAL_SWEEP_ENABLED=false로 끌 수 있다.
+# ---------------------------------------------------------------------------
+AUTO_APPROVAL_SWEEP_ENABLED = str(
+    os.environ.get("DASHBOARD_AUTO_APPROVAL_SWEEP_ENABLED", "true")
+).lower() in ("1", "true", "yes", "on")
+AUTO_APPROVAL_SWEEP_INTERVAL_SECONDS = int(
+    os.environ.get("DASHBOARD_AUTO_APPROVAL_SWEEP_INTERVAL_SECONDS", "15")
+)
+_auto_approval_sweeper_thread: threading.Thread | None = None
+_auto_approval_sweeper_stop = threading.Event()
+
+
+def _auto_approval_sweeper_loop() -> None:
+    while not _auto_approval_sweeper_stop.wait(AUTO_APPROVAL_SWEEP_INTERVAL_SECONDS):
+        try:
+            if not _auto_approval_enabled():
+                continue
+            if not _pending_approval_ids(limit=1):
+                continue
+            processed = _auto_approve_pending_approvals()
+            done = [r for r in processed if isinstance(r, dict) and r.get("status") == "executed"]
+            if processed:
+                logger.info(
+                    f"auto-approval sweeper: processed {len(processed)} pending "
+                    f"({len(done)} executed)"
+                )
+        except Exception as exc:
+            logger.warning(f"auto-approval sweeper failed: {exc}")
+
+
+def start_auto_approval_sweeper() -> bool:
+    """자동승인 주기 스위퍼를 시작한다(비활성이거나 이미 켜져 있으면 no-op)."""
+    global _auto_approval_sweeper_thread
+    if not AUTO_APPROVAL_SWEEP_ENABLED:
+        return False
+    if _auto_approval_sweeper_thread is not None and _auto_approval_sweeper_thread.is_alive():
+        return True
+    _auto_approval_sweeper_stop.clear()
+    _auto_approval_sweeper_thread = threading.Thread(
+        target=_auto_approval_sweeper_loop, name="auto-approval-sweeper", daemon=True
+    )
+    _auto_approval_sweeper_thread.start()
+    logger.info(
+        f"auto-approval sweeper started (interval={AUTO_APPROVAL_SWEEP_INTERVAL_SECONDS}s)"
+    )
+    return True
+
+
 def _balance_cache_age_seconds(balance_data: dict) -> float | None:
     cached_at = balance_data.get("_cache", {}).get("cached_at", "")
     if not cached_at:
