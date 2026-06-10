@@ -638,6 +638,15 @@ def build_runtime_plan(
             candidates = sorted(candidates, key=lambda c: (-float(c["final_score"]), c["ticker"]))
         else:
             universe = build_scan_universe(api, held_symbols)
+            # 전략 전용 유니버스가 등록돼 있으면 그것만 스캔한다(없으면 공유 유니버스).
+            if active_strategy_id:
+                try:
+                    from src.db.repository import load_strategy_universe_symbols
+                    dedicated = load_strategy_universe_symbols(active_strategy_id)
+                    if dedicated:
+                        universe = [code for code in dedicated if code not in held_symbols]
+                except Exception:
+                    pass
             if active_strategy_id == "plunge_bounce_strategy":
                 scan_result = find_candidates(
                     held_symbols,

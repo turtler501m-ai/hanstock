@@ -286,6 +286,35 @@ def init_db() -> None:
             )
             """
         )
+        # 전략별 스케쥴(대시보드에서 등록/제어, VM 디스패처가 읽어 실행)
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS strategy_schedules (
+                strategy_id TEXT PRIMARY KEY,
+                enabled INTEGER NOT NULL DEFAULT 0,
+                interval_minutes INTEGER NOT NULL DEFAULT 15,
+                start_hm TEXT NOT NULL DEFAULT '0900',
+                end_hm TEXT NOT NULL DEFAULT '1530',
+                weekdays TEXT NOT NULL DEFAULT '1-5',
+                mode TEXT NOT NULL DEFAULT 'execute',
+                auto_approve INTEGER NOT NULL DEFAULT 1,
+                last_run_at TEXT,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
+        # 전략별 전용 유니버스(스캔 대상 종목)
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS strategy_universe (
+                strategy_id TEXT NOT NULL,
+                symbol TEXT NOT NULL,
+                name TEXT,
+                created_at TEXT NOT NULL,
+                PRIMARY KEY (strategy_id, symbol)
+            )
+            """
+        )
 
         # 일회성 관심종목 클린업 마이그레이션 (더 많은 AI 자동 추가 자리를 확보하기 위함)
         try:
@@ -1557,6 +1586,221 @@ def delete_account_snapshot(account_key: str, trading_env: str, kind: str) -> No
             conn.commit()
     except Exception as e:
         logger.warning(f"Failed to delete account snapshot ({kind}): {e}")
+
+
+# ---------------------------------------------------------------------------
+# 전략 스케쥴 (대시보드 등록/제어 + VM 디스패처가 읽어 실행)
+# ---------------------------------------------------------------------------
+_SCHEDULE_DEFAULTS = {
+    "enabled": 0,
+    "interval_minutes": 15,
+    "start_hm": "0900",
+    "end_hm": "1530",
+    "weekdays": "1-5",
+    "mode": "execute",
+    "auto_approve": 1,
+    "last_run_at": None,
+}
+
+
+def _schedule_row_to_dict(row) -> dict:
+    d = dict(row)
+    d["enabled"] = bool(d.get("enabled"))
+    d["auto_approve"] = bool(d.get("auto_approve"))
+    d["interval_minutes"] = int(d.get("interval_minutes") or 15)
+    return d
+
+
+def load_strategy_schedule(strategy_id: str) -> dict:
+    """전략 스케쥴을 반환한다. 없으면 기본값(enabled=False)으로 채운다."""
+    init_db()
+    with connect_db() as conn:
+        conn.row_factory = sqlite3.Row
+        row = conn.execute(
+            "SELECT * FROM strategy_schedules WHERE strategy_id = ?", (strategy_id,)
+        ).fetchone()
+    if row is None:
+        return {"strategy_id": strategy_id, **_SCHEDULE_DEFAULTS}
+    return _schedule_row_to_dict(row)
+
+
+def list_strategy_schedules(enabled_only: bool = False) -> list[dict]:
+    init_db()
+    with connect_db() as conn:
+        conn.row_factory = sqlite3.Row
+        sql = "SELECT * FROM strategy_schedules"
+        if enabled_only:
+            sql += " WHERE enabled = 1"
+        rows = conn.execute(sql).fetchall()
+    return [_schedule_row_to_dict(r) for r in rows]
+
+
+def save_strategy_schedule(strategy_id: str, **fields) -> dict:
+    """전략 스케쥴을 upsert 한다. 전달된 필드만 갱신."""
+    init_db()
+    current = load_strategy_schedule(strategy_id)
+    merged = {**current, **{k: v for k, v in fields.items() if v is not None}}
+    now = datetime.now(KST).strftime("%Y-%m-%d %H:%M:%S")
+    with connect_db() as conn:
+        conn.execute(
+            """
+            INSERT OR REPLACE INTO strategy_schedules
+                (strategy_id, enabled, interval_minutes, start_hm, end_hm, weekdays,
+                 mode, auto_approve, last_run_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                strategy_id,
+                1 if merged.get("enabled") else 0,
+                int(merged.get("interval_minutes") or 15),
+                str(merged.get("start_hm") or "0900"),
+                str(merged.get("end_hm") or "1530"),
+                str(merged.get("weekdays") or "1-5"),
+                str(merged.get("mode") or "execute"),
+                1 if merged.get("auto_approve") else 0,
+                merged.get("last_run_at"),
+                now,
+            ),
+        )
+        conn.commit()
+    return load_strategy_schedule(strategy_id)
+
+
+def mark_strategy_schedule_run(strategy_id: str, ts: str | None = None) -> None:
+    init_db()
+    ts = ts or datetime.now(KST).strftime("%Y-%m-%d %H:%M:%S")
+    with connect_db() as conn:
+        conn.execute(
+            "UPDATE strategy_schedules SET last_run_at = ? WHERE strategy_id = ?",
+            (ts, strategy_id),
+        )
+        conn.commit()
+
+
+def _weekday_matches(weekdays: str, dow: int) -> bool:
+    """dow: 1(Mon)~7(Sun). weekdays 예: '1-5', '1,3,5', '6,7'."""
+    for part in str(weekdays or "").split(","):
+        part = part.strip()
+        if not part:
+            continue
+        if "-" in part:
+            try:
+                lo, hi = (int(x) for x in part.split("-", 1))
+                if lo <= dow <= hi:
+                    return True
+            except ValueError:
+                continue
+        else:
+            try:
+                if int(part) == dow:
+                    return True
+            except ValueError:
+                continue
+    return False
+
+
+def is_schedule_due(schedule: dict, now=None) -> bool:
+    """현재 시각(KST)이 스케쥴 실행 윈도우 안이고, interval만큼 경과했으면 True."""
+    if not schedule.get("enabled"):
+        return False
+    now = now or datetime.now(KST)
+    dow = now.isoweekday()  # 1~7
+    if not _weekday_matches(schedule.get("weekdays", "1-5"), dow):
+        return False
+    hm = now.strftime("%H%M")
+    start_hm = str(schedule.get("start_hm") or "0900")
+    end_hm = str(schedule.get("end_hm") or "1530")
+    if not (start_hm <= hm <= end_hm):
+        return False
+    last = schedule.get("last_run_at")
+    if not last:
+        return True
+    try:
+        last_dt = datetime.strptime(last, "%Y-%m-%d %H:%M:%S").replace(tzinfo=KST)
+    except ValueError:
+        return True
+    interval = int(schedule.get("interval_minutes") or 15)
+    return (now - last_dt).total_seconds() >= interval * 60 - 1
+
+
+# ---------------------------------------------------------------------------
+# 전략 전용 유니버스(스캔 대상 종목)
+# ---------------------------------------------------------------------------
+def load_strategy_universe(strategy_id: str) -> list[dict]:
+    init_db()
+    with connect_db() as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            "SELECT symbol, name, created_at FROM strategy_universe WHERE strategy_id = ? ORDER BY created_at ASC",
+            (strategy_id,),
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def load_strategy_universe_symbols(strategy_id: str) -> list[str]:
+    return [r["symbol"] for r in load_strategy_universe(strategy_id)]
+
+
+def add_strategy_universe_symbol(strategy_id: str, symbol: str, name: str = "") -> None:
+    init_db()
+    now = datetime.now(KST).strftime("%Y-%m-%d %H:%M:%S")
+    with connect_db() as conn:
+        conn.execute(
+            """
+            INSERT OR REPLACE INTO strategy_universe (strategy_id, symbol, name, created_at)
+            VALUES (?, ?, ?, COALESCE((SELECT created_at FROM strategy_universe WHERE strategy_id = ? AND symbol = ?), ?))
+            """,
+            (strategy_id, symbol, name, strategy_id, symbol, now),
+        )
+        conn.commit()
+
+
+def remove_strategy_universe_symbol(strategy_id: str, symbol: str) -> int:
+    init_db()
+    with connect_db() as conn:
+        cur = conn.execute(
+            "DELETE FROM strategy_universe WHERE strategy_id = ? AND symbol = ?",
+            (strategy_id, symbol),
+        )
+        conn.commit()
+        return cur.rowcount or 0
+
+
+def reconstruct_strategy_positions(strategy_id: str, env: str | None = None) -> list[dict]:
+    """trades(strategy_id 태깅)로부터 해당 전략의 보유 포지션을 재구성한다."""
+    init_db()
+    with connect_db() as conn:
+        conn.row_factory = sqlite3.Row
+        sql = "SELECT * FROM trades WHERE strategy_id = ? AND ok = 1"
+        params: list = [strategy_id]
+        if env:
+            sql += " AND env = ?"
+            params.append(env)
+        sql += " ORDER BY ts ASC"
+        rows = [dict(r) for r in conn.execute(sql, params).fetchall()]
+
+    positions: dict[str, dict] = {}
+    for t in rows:
+        sym = t.get("symbol")
+        if not sym:
+            continue
+        qty = int(t.get("qty") or 0)
+        price = float(t.get("price") or 0)
+        pos = positions.setdefault(sym, {"symbol": sym, "name": t.get("name", sym), "qty": 0, "avg_cost": 0.0, "realized_pnl": 0.0})
+        pos["name"] = t.get("name", pos["name"])
+        if t.get("action") == "buy":
+            total_qty = pos["qty"] + qty
+            total_cost = pos["qty"] * pos["avg_cost"] + qty * price
+            pos["qty"] = total_qty
+            pos["avg_cost"] = (total_cost / total_qty) if total_qty > 0 else 0.0
+        elif t.get("action") == "sell":
+            sell_qty = min(qty, pos["qty"])
+            pos["realized_pnl"] += (price - pos["avg_cost"]) * sell_qty
+            pos["qty"] -= sell_qty
+            if pos["qty"] <= 0:
+                pos["qty"] = 0
+                pos["avg_cost"] = 0.0
+    return [p for p in positions.values() if p["qty"] > 0 or p["realized_pnl"]]
 
 
 WATCHLIST_FILE = Path(".runtime/watchlist.json")

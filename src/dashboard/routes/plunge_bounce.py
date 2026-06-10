@@ -130,7 +130,12 @@ def _strategy_scan(strategy_id: str, *, min_score: float = 1.0) -> dict:
     balance = api.get_balance()
     stocks = balance.get("output1", []) or []
     held_symbols = {s.get("pdno", "") for s in stocks}
-    scan_list = [code for code in build_scan_universe(api, held_symbols) if code not in held_symbols]
+    from src.db.repository import load_strategy_universe_symbols
+    dedicated = load_strategy_universe_symbols(strategy_id)
+    if dedicated:
+        scan_list = [code for code in dedicated if code not in held_symbols]
+    else:
+        scan_list = [code for code in build_scan_universe(api, held_symbols) if code not in held_symbols]
 
     logger.info(f"[StrategyRoute] {strategy_id} scan initiated for {len(scan_list)} symbols")
     scan_result = find_candidates(
@@ -267,8 +272,10 @@ def run_plunge_bounce_scan():
         stocks = balance.get("output1", []) or []
         held_symbols = {s.get("pdno", "") for s in stocks}
 
-        # 2. Build full universe list (WATCHLIST + KOSPI_UNIVERSE)
-        full_universe = list(dict.fromkeys(WATCHLIST + KOSPI_UNIVERSE))
+        # 2. 전용 유니버스가 있으면 그것을, 없으면 공유 유니버스(WATCHLIST + KOSPI_UNIVERSE)를 사용
+        from src.db.repository import load_strategy_universe_symbols
+        dedicated = load_strategy_universe_symbols("plunge_bounce_strategy")
+        full_universe = dedicated if dedicated else list(dict.fromkeys(WATCHLIST + KOSPI_UNIVERSE))
         scan_list = [code for code in full_universe if code not in held_symbols]
 
         # 3. Perform scan forcing the plunge_bounce_strategy custom rule
@@ -471,6 +478,107 @@ def save_plunge_bounce_settings(payload: dict = Body(...)):
     except Exception as e:
         logger.error(f"[PlungeBounceRoute] Failed to save settings: {e}")
         return {"ok": False, "error": str(e)}
+
+
+# ---------------------------------------------------------------------------
+# 전략 일반화: 스케쥴 등록/제어, 전용 유니버스, 전용 포지션
+#   (plunge_bounce_strategy / heikin_ashi_scalping_strategy 등 strategy_id 기준)
+# ---------------------------------------------------------------------------
+_KNOWN_STRATEGY_IDS = {"plunge_bounce_strategy", "heikin_ashi_scalping_strategy"}
+
+
+def _validate_strategy_id(strategy_id: str) -> str:
+    sid = (strategy_id or "").strip()
+    if sid not in _KNOWN_STRATEGY_IDS:
+        raise HTTPException(status_code=404, detail=f"Unknown strategy_id: {strategy_id}")
+    return sid
+
+
+@app.get("/api/strategy/{strategy_id}/schedule")
+def get_strategy_schedule(strategy_id: str):
+    sid = _validate_strategy_id(strategy_id)
+    from src.db.repository import load_strategy_schedule
+    return {"ok": True, "schedule": load_strategy_schedule(sid)}
+
+
+@app.post("/api/strategy/{strategy_id}/schedule")
+def save_strategy_schedule_route(strategy_id: str, payload: dict = Body(...)):
+    sid = _validate_strategy_id(strategy_id)
+    from src.db.repository import save_strategy_schedule
+
+    allowed = {"enabled", "interval_minutes", "start_hm", "end_hm", "weekdays", "mode", "auto_approve"}
+    fields = {k: v for k, v in payload.items() if k in allowed}
+    if "mode" in fields and str(fields["mode"]).lower() not in {"execute", "analysis_only"}:
+        raise HTTPException(status_code=400, detail="mode must be 'execute' or 'analysis_only'")
+    if "interval_minutes" in fields:
+        try:
+            fields["interval_minutes"] = max(1, int(fields["interval_minutes"]))
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail="interval_minutes must be an integer")
+    schedule = save_strategy_schedule(sid, **fields)
+    return {"ok": True, "schedule": schedule}
+
+
+@app.get("/api/strategy/{strategy_id}/universe")
+def get_strategy_universe(strategy_id: str):
+    sid = _validate_strategy_id(strategy_id)
+    from src.db.repository import load_strategy_universe
+    from src.strategy.seven_split import STOCK_NAMES
+
+    universe = load_strategy_universe(sid)
+    for item in universe:
+        if not item.get("name"):
+            item["name"] = STOCK_NAMES.get(item["symbol"], item["symbol"])
+    return {"ok": True, "universe": universe, "count": len(universe)}
+
+
+@app.post("/api/strategy/{strategy_id}/universe")
+def add_strategy_universe(strategy_id: str, payload: dict = Body(...)):
+    sid = _validate_strategy_id(strategy_id)
+    from src.db.repository import add_strategy_universe_symbol
+    from src.strategy.seven_split import STOCK_NAMES
+
+    symbol = str(payload.get("symbol", "")).strip()
+    if not symbol.isdigit() or len(symbol) != 6:
+        raise HTTPException(status_code=400, detail="유효하지 않은 종목코드입니다. (6자리 숫자)")
+    name = str(payload.get("name") or STOCK_NAMES.get(symbol, symbol))
+    add_strategy_universe_symbol(sid, symbol, name)
+    return {"ok": True, "symbol": symbol, "name": name}
+
+
+@app.delete("/api/strategy/{strategy_id}/universe/{symbol}")
+def delete_strategy_universe(strategy_id: str, symbol: str):
+    sid = _validate_strategy_id(strategy_id)
+    from src.db.repository import remove_strategy_universe_symbol
+
+    deleted = remove_strategy_universe_symbol(sid, symbol.strip())
+    if deleted <= 0:
+        raise HTTPException(status_code=404, detail="전용 유니버스에 없는 종목입니다.")
+    return {"ok": True}
+
+
+@app.get("/api/strategy/{strategy_id}/positions")
+def get_strategy_positions(strategy_id: str):
+    sid = _validate_strategy_id(strategy_id)
+    from src.db.repository import reconstruct_strategy_positions
+
+    positions = reconstruct_strategy_positions(sid, env=trader.TRADING_ENV)
+    # 현재가를 붙여 평가손익 계산(실패해도 보유 정보는 반환)
+    try:
+        from src.trader import KIStockAPI
+        api = KIStockAPI(notify_errors=False)
+        for p in positions:
+            try:
+                q = api.get_quote(p["symbol"])
+                cur = int(q.get("current") or 0)
+                p["current_price"] = cur
+                p["eval_pnl"] = int((cur - p["avg_cost"]) * p["qty"]) if p["qty"] else 0
+                p["return_rate"] = round(((cur / p["avg_cost"]) - 1) * 100, 2) if p["avg_cost"] else 0.0
+            except Exception:
+                p.setdefault("current_price", 0)
+    except Exception:
+        pass
+    return {"ok": True, "positions": positions, "count": len(positions)}
 
 
 @app.get("/api/strategy/heikin_ashi_scalping/performance")
