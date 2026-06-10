@@ -18,7 +18,7 @@ VM/Linux:
 
 ## 자동 배포
 
-기본 VM 대상은 `hanstock-server5`입니다.
+기본 VM 대상은 신규 운영 VM(`instance-20260610-stock1`, http://34.69.241.175:8000, user `turtler801`)입니다. 자세한 대상/환경변수는 `scripts/local/README.md` 참조.
 
 ```powershell
 .\scripts\local\deploy-vm.ps1

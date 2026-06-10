@@ -44,25 +44,34 @@
 .\connect-vm.ps1
 .\check-vm.ps1
 .\vm-dashboard.cmd
+.\scripts\local\stock1.ps1   # 신규 VM SSH 접속 래퍼
 ```
 
-기본 VM 대상:
+기본 VM 대상(신규 운영 VM):
 
 ```text
-GCP instance: hanstock-server5
-zone: us-central1-b
-project: hanstock-server
-user: turtler800
+host: 34.69.241.175 (http://34.69.241.175:8000)
+GCP instance: instance-20260610-stock1
+zone: us-central1-c
+project: project-c48329d1-72a5-4699-8ff
+user: turtler801
 key: ~/.ssh/google_compute_engine
 repo: ~/hanstock
 ```
 
-환경변수로 대상을 바꿀 수 있습니다.
+> 참고: 이 gcloud 계정은 신규 프로젝트의 `compute.instances.get` 권한이 없어
+> `gcloud compute instances describe`로 IP를 해석하지 못한다. 그래서 스크립트는
+> 기본값으로 IP(`34.69.241.175`)를 직접 사용한다. VM 재시작 등으로 외부 IP가
+> 바뀌면 `$env:HANSTOCK_VM_HOST`로 덮어쓰거나 스크립트 기본값을 갱신할 것.
+
+환경변수로 대상을 바꿀 수 있습니다(예: 다른 VM/구 VM 접속).
 
 ```powershell
-$env:HANSTOCK_GCP_INSTANCE="hanstock-server5"
-$env:HANSTOCK_GCP_ZONE="us-central1-b"
-$env:HANSTOCK_GCP_PROJECT="hanstock-server"
-$env:HANSTOCK_VM_USER="turtler800"
+$env:HANSTOCK_VM_HOST="34.69.241.175"   # IP 직접 지정(gcloud 해석 건너뜀)
+$env:HANSTOCK_VM_USER="turtler801"
 $env:HANSTOCK_VM_PATH="~/hanstock"
+# gcloud 해석을 쓰는 경우에만 필요(권한 있는 프로젝트):
+$env:HANSTOCK_GCP_INSTANCE="instance-20260610-stock1"
+$env:HANSTOCK_GCP_ZONE="us-central1-c"
+$env:HANSTOCK_GCP_PROJECT="project-c48329d1-72a5-4699-8ff"
 ```
