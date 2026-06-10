@@ -748,7 +748,10 @@ function renderRisk(balance) {
 
 async function renderBalance() {
     try {
-        const balance = await fetchJson('/api/balance', 30000);
+        const [balance, perf] = await Promise.all([
+            fetchJson('/api/balance', 30000),
+            fetchJson('/api/performance').catch(() => ({ realized_pnl: 0 }))
+        ]);
         const holdingValue = (balance.holdings || []).reduce((sum, holding) => {
             return sum + Number(holding.value || (Number(holding.qty || 0) * Number(holding.price || 0)));
         }, 0);
@@ -760,7 +763,7 @@ async function renderBalance() {
         const evalPnl = Number(balance.pnl || 0);
         const evalCost = Math.max(0, Number(balance.stock_eval || holdingValue || 0) - evalPnl);
         const returnRate = evalCost > 0 ? (evalPnl / evalCost) * 100 : 0;
-        const realizedPnl = displayTotal - principal - evalPnl;
+        const realizedPnl = Number(perf.realized_pnl || 0);
 
         setElementText('val-total', formatCurrency(displayTotal));
         setElementText('val-principal', formatCurrency(principal));
