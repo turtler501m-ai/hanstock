@@ -899,8 +899,17 @@ async function renderOptimizer() {
             tbody.appendChild(tr);
         });
         bindQueueButtons();
+        const hasOrders = data.positions.some(row => String(row.rebalance_action || 'hold').toLowerCase() !== 'hold');
+        const batchBtn = document.getElementById('btn-optimizer-batch');
+        if (batchBtn) {
+            batchBtn.style.display = hasOrders ? 'inline-block' : 'none';
+        }
     } catch (err) {
         setTableMessage('#table-optimizer tbody', 7, err.message);
+        const batchBtn = document.getElementById('btn-optimizer-batch');
+        if (batchBtn) {
+            batchBtn.style.display = 'none';
+        }
     } finally {
         setButtonBusy('btn-optimizer', false);
     }
@@ -1888,6 +1897,68 @@ async function sellAllHoldings() {
     }
 }
 
+async function processOptimizerBatch() {
+    const buttons = document.querySelectorAll('#table-optimizer tbody .queue-order:not([disabled])');
+    if (buttons.length === 0) {
+        alert('일괄 처리할 주문 제안이 없습니다.');
+        return;
+    }
+
+    if (!window.confirm(`최적화 제안 ${buttons.length}건의 주문을 일괄 승인 대기로 등록하시겠습니까?`)) {
+        return;
+    }
+
+    const batchButton = document.getElementById('btn-optimizer-batch');
+    if (batchButton) {
+        batchButton.disabled = true;
+    }
+
+    let successCount = 0;
+    let failCount = 0;
+
+    const promises = Array.from(buttons).map(async (button) => {
+        const payload = {
+            symbol: button.dataset.symbol,
+            name: button.dataset.name,
+            action: button.dataset.action,
+            qty: Number(button.dataset.qty || 0),
+            price: Number(button.dataset.price || 0),
+            reason: button.dataset.reason || '',
+            source: button.dataset.source || 'dashboard',
+            strategy_id: button.dataset.strategyId || '',
+            strategy_version: Number(button.dataset.strategyVersion || 0) || null,
+            profile_hash: button.dataset.profileHash || '',
+            source_candidate_id: Number(button.dataset.sourceCandidateId || 0) || null
+        };
+        button.disabled = true;
+        try {
+            const isMistock = window.location.pathname.includes('/mistock');
+            const url = isMistock ? '/api/mistock/approvals' : '/api/approvals';
+            await postJson(url, payload);
+            successCount++;
+            button.textContent = '등록완료';
+            button.className = 'button-ghost';
+            button.disabled = true;
+        } catch (err) {
+            failCount++;
+            button.disabled = false;
+            console.error(`Batch order registration failed for ${payload.symbol}:`, err);
+        }
+    });
+
+    try {
+        await Promise.all(promises);
+        setStatus(`최적화 일괄 등록 완료 (성공: ${successCount}건, 실패: ${failCount}건)`, failCount === 0);
+        await Promise.all([renderApprovals(), renderTrades(), renderBalance()]);
+    } catch (err) {
+        setStatus(`최적화 일괄 처리 중 오류 발생: ${err.message}`);
+    } finally {
+        if (batchButton) {
+            batchButton.disabled = false;
+        }
+    }
+}
+
 async function renderApprovals() {
     try {
         const data = await fetchJson('/api/approvals?limit=50');
@@ -2706,6 +2777,10 @@ document.addEventListener('DOMContentLoaded', () => {
     const btnOptimizer = document.getElementById('btn-optimizer');
     if (btnOptimizer) {
         btnOptimizer.addEventListener('click', renderOptimizer);
+    }
+    const btnOptimizerBatch = document.getElementById('btn-optimizer-batch');
+    if (btnOptimizerBatch) {
+        btnOptimizerBatch.addEventListener('click', processOptimizerBatch);
     }
     const btnAutoApproval = document.getElementById('btn-auto-approval');
     if (btnAutoApproval) {
