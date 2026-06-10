@@ -1003,7 +1003,9 @@ def sync_trade_order_status(days: int = 30):
     if trader.DRY_RUN:
         raise HTTPException(status_code=400, detail="Order status sync requires DRY_RUN=false")
     try:
-        return _sync_order_status_from_history(_get_api(), days=days)
+        result = _sync_order_status_from_history(_get_api(), days=days)
+        _clear_balance_cache()
+        return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
@@ -1119,6 +1121,8 @@ def sync_trades(days: int = 90):
                 
         imported_count = _to_int(history_sync.get("imported_count")) if history_sync else 0
         updated_count = _to_int(history_sync.get("updated_count")) if history_sync else 0
+        # 동기화로 보유/거래가 바뀌었으니 잔고·파생 보유탭 스냅샷을 무효화해 현행화한다.
+        _clear_balance_cache()
         return {
             "ok": True,
             "synced_count": synced_count + imported_count,
