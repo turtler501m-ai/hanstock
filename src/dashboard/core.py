@@ -2805,7 +2805,7 @@ def _approval_response_msg(result: dict, *, ok: bool) -> str:
 
 def _current_holding_qty_from_balance(api, symbol: str) -> int:
     try:
-        parsed = _parse_balance(_get_balance_data(api, allow_cache=False))
+        parsed = _parse_balance(_get_balance_data(api, allow_cache=True))
     except Exception:
         return 0
     for holding in parsed.get("holdings", []):

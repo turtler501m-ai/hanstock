@@ -17,7 +17,7 @@ HTTP.trust_env = False
 # KIS API 전역 스로틀: 초당 최대 1회 요청 강제 (EGW00201 방지)
 _KIS_THROTTLE_LOCK = threading.Lock()
 _KIS_LAST_CALL: float = 0.0
-_KIS_MIN_INTERVAL: float = 2.0  # 초 단위 (EGW00201 방지)
+_KIS_MIN_INTERVAL: float = 0.5  # 초 단위 (EGW00201 방지)
 
 
 def _kis_throttle() -> None:
