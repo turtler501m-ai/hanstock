@@ -1,10 +1,10 @@
 name: 세븐 스플릿 자동 매매 (Seven Split Auto Trading)
 
 on:
-  schedule:
-    # 평일 KST 09:00~15:00 매시 정각 (UTC 00:00~06:00). GitHub Actions는 UTC 기준이며
-    # 스케줄 실행은 수 분 지연될 수 있다. 시장 시간 밖 실행은 trader 정책에서 걸러진다.
-    - cron: '0 0-6 * * 1-5'
+  # 정기 자동매매는 GCP VM crontab(scripts/vm/install-daily-auto-cron.sh, 평일 KST
+  # 09:00~15:00)이 담당한다. 여기에 schedule: cron을 두면 같은 시간대에 매매 사이클이
+  # 이중 실행되어 중복 주문 위험이 있으므로, 이 워크플로는 수동 실행(workflow_dispatch)
+  # 전용으로 유지한다.
   workflow_dispatch:
     inputs:
       dry_run:
