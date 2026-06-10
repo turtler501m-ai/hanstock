@@ -66,6 +66,26 @@ class StrategyAiTests(unittest.TestCase):
         self.assertEqual(candidate["score"], candidate["rule_score"])
         self.assertEqual(candidate["ai_model_status"], "disabled")
 
+    def test_model_predictor_falls_back_to_rule_score_when_below_min_confidence(self):
+        # probability(0.5)가 min_ai_confidence(0.7) 미만 → AI를 신뢰하지 않고
+        # 룰 점수로 폴백한다. final_score가 블렌딩되지 않아야 한다.
+        with patch.object(config, "ai_strategy_enabled", True), patch.object(
+            config, "openai_api_key", "test-key"
+        ), patch.object(config, "openai_model", "gpt-5-mini"), patch.object(
+            config, "ai_score_weight", 0.5
+        ), patch.object(
+            ModelPredictor, "_predict_probability", return_value=0.5
+        ):
+            predictor = ModelPredictor(strategy_profile={"min_ai_confidence": 0.7})
+            result = predictor.predict({"strategy_score": 2.0, "feature_version": "features_v1"})
+
+        self.assertEqual(result["model_status"], "low_confidence")
+        self.assertEqual(result["ml_score"], 0.5)
+        # 블렌딩 시 4.0이 되겠지만, 폴백이므로 rule_score 2.0이 그대로 유지된다.
+        self.assertAlmostEqual(result["final_score"], 2.0)
+        self.assertEqual(result["score_weight"], 0.0)
+        self.assertIsNotNone(result["fallback_reason"])
+
     def test_model_predictor_falls_back_without_openai_api_key(self):
         with patch.object(config, "ai_strategy_enabled", True), patch.object(config, "openai_api_key", ""):
             predictor = ModelPredictor()

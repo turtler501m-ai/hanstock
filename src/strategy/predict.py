@@ -257,22 +257,39 @@ class ModelPredictor:
 
         try:
             probability = self._predict_probability(features, contributions)
-            model_component = probability * 5.0
-            final_score = (rule_score * (1 - self.score_weight)) + (model_component * self.score_weight)
+            confident = probability >= self.min_confidence
+            if confident:
+                # 신뢰도가 기준 이상일 때만 AI 점수를 룰 점수와 블렌딩한다.
+                model_component = probability * 5.0
+                final_score = (rule_score * (1 - self.score_weight)) + (model_component * self.score_weight)
+                applied_weight = self.score_weight
+                model_status = "ready"
+                low_conf_reason = None
+            else:
+                # 신뢰도 미달이면 AI를 신뢰하지 않고 룰 점수로 폴백한다.
+                # → 저신뢰 AI가 후보를 승격/강등시키지 못한다.
+                final_score = rule_score
+                applied_weight = 0.0
+                model_status = "low_confidence"
+                low_conf_reason = (
+                    f"AI confidence {probability:.2f} < min_ai_confidence "
+                    f"{self.min_confidence:.2f}; using rule score"
+                )
             cache[cache_key] = {
                 "ml_score": probability,
                 "final_score": final_score,
-                "score_weight": self.score_weight,
-                "model_status": "ready" if probability >= self.min_confidence else "low_confidence",
-                "fallback_reason": None,
+                "score_weight": applied_weight,
+                "model_status": model_status,
+                "fallback_reason": low_conf_reason,
             }
             self._save_cache(cache)
             result.update(
                 {
                     "ml_score": probability,
                     "final_score": final_score,
-                    "score_weight": self.score_weight,
-                    "model_status": "ready" if probability >= self.min_confidence else "low_confidence",
+                    "score_weight": applied_weight,
+                    "model_status": model_status,
+                    "fallback_reason": low_conf_reason,
                 }
             )
         except Exception as e:
