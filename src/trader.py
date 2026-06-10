@@ -585,7 +585,14 @@ def build_runtime_plan(
 
     stocks = balance_data.get("output1", [])
     summary = (balance_data.get("output2") or [{}])[0]
-    cash = int(summary.get("dnca_tot_amt", 0) or 0)
+    cash = int(summary.get("prvs_rcdl_excc_amt", 0) or 0)
+    if cash == 0:
+        summary_total = int(summary.get("tot_evlu_amt", 0) or 0)
+        summary_stock_eval = int(summary.get("scts_evlu_amt", 0) or 0)
+        if summary_total > 0:
+            cash = summary_total - summary_stock_eval
+        else:
+            cash = int(summary.get("dnca_tot_amt", 0) or 0)
     total_eval = int(summary.get("tot_evlu_amt", 0) or 0)
     pnl = int(summary.get("evlu_pfls_smtl_amt", 0) or 0)
 
@@ -769,7 +776,14 @@ def run(
 
     stocks = balance.get("output1", [])
     summary = (balance.get("output2") or [{}])[0]
-    cash = int(summary.get("dnca_tot_amt", 0) or 0)
+    cash = int(summary.get("prvs_rcdl_excc_amt", 0) or 0)
+    if cash == 0:
+        summary_total = int(summary.get("tot_evlu_amt", 0) or 0)
+        summary_stock_eval = int(summary.get("scts_evlu_amt", 0) or 0)
+        if summary_total > 0:
+            cash = summary_total - summary_stock_eval
+        else:
+            cash = int(summary.get("dnca_tot_amt", 0) or 0)
     total_eval = int(summary.get("tot_evlu_amt", 0) or 0)
     pnl = int(summary.get("evlu_pfls_smtl_amt", 0) or 0)
 

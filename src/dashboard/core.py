@@ -251,8 +251,8 @@ def _holding_value(stock: dict, qty: int, price: int) -> int:
 def _portfolio_totals(cash: int, summary_total: int, holdings: list[dict]) -> dict:
     stock_eval = sum(_to_int(holding.get("value")) for holding in holdings)
     broker_total = max(0, summary_total)
-    calculated_total = max(0, cash) + stock_eval
-    effective_total = broker_total if broker_total >= stock_eval else calculated_total
+    calculated_total = cash + stock_eval
+    effective_total = broker_total if broker_total > 0 else calculated_total
     if effective_total <= 0:
         effective_total = calculated_total
     return {
@@ -296,10 +296,11 @@ def _parse_balance(balance_data: dict) -> dict:
     summary_total = _to_int(first_summary.get("tot_evlu_amt"))
     summary_stock_eval = _to_int(first_summary.get("scts_evlu_amt"))
     cash = _to_int(first_summary.get("prvs_rcdl_excc_amt"))
-    if cash <= 0 and summary_total > 0 and summary_stock_eval > 0:
-        cash = max(0, summary_total - summary_stock_eval)
-    if cash <= 0:
-        cash = _to_int(first_summary.get("dnca_tot_amt"))
+    if cash == 0:
+        if summary_total > 0:
+            cash = summary_total - summary_stock_eval
+        else:
+            cash = _to_int(first_summary.get("dnca_tot_amt"))
     totals = _portfolio_totals(cash, summary_total, holdings)
     return {
         "cash": cash,
