@@ -1027,11 +1027,6 @@ def _bg_run_mistock_scheduled_cycle(mode: str):
             _mistock_scheduler_run_state["error"] = str(e)
 
 
-@app.get("/api/mistock/usage/quota")
-def mistock_usage_quota():
-    return {"ok": True, "quota": {"provider": "mistock-local", "used": 0, "limit": 0}, "message": "Mistock uses local rule-based analysis."}
-
-
 def map_mistock_to_kis_format(mistock_result: dict) -> dict:
     if not mistock_result:
         return {}

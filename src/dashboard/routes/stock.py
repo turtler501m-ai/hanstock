@@ -1419,59 +1419,6 @@ def deactivate_kill_switch():
 
 
 
-@app.get("/api/usage/quota")
-def get_antigravity_quota_api():
-    import subprocess
-    import re
-    
-    try:
-        res = subprocess.run(
-            ["antigravity-usage", "quota"],
-            capture_output=True,
-            text=True,
-            shell=True,
-            timeout=12
-        )
-        if res.returncode != 0:
-            logger.warning(f"antigravity-usage quota CLI failed with code {res.returncode}: {res.stderr}")
-            return {"ok": False, "error": "CLI 실행에 실패했습니다. (로그인 필요)"}
-            
-        stdout = res.stdout
-        
-        email = "Unknown"
-        email_match = re.search(r"👤\s*(\S+@\S+)", stdout)
-        if email_match:
-            email = email_match.group(1).strip()
-            
-        quota_list = []
-        lines = stdout.splitlines()
-        for line in lines:
-            if "│" in line and "Model" not in line and "┌" not in line and "├" not in line and "└" not in line:
-                parts = [p.strip() for p in line.split("│") if p.strip()]
-                if len(parts) >= 2:
-                    model = parts[0]
-                    remaining = parts[1]
-                    resets = parts[2] if len(parts) >= 3 else ""
-                    remaining_clean = remaining.replace("🟢", "").replace("🟡", "").replace("🔴", "").strip()
-                    quota_list.append({
-                        "model": model,
-                        "remaining": remaining_clean,
-                        "resets_in": resets
-                    })
-                    
-        return {
-            "ok": True,
-            "email": email,
-            "quota": quota_list,
-            "raw_text": stdout.strip()
-        }
-    except Exception as e:
-        logger.error(f"Failed to fetch antigravity quota: {e}")
-        return {"ok": False, "error": str(e)}
-
-
-
-
 @app.get("/api/scheduler/status")
 def get_scheduler_status():
     global _scheduler_run_state
