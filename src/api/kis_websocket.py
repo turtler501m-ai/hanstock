@@ -93,8 +93,10 @@ class KISWebSocketClient(threading.Thread):
         # 1. Subscribe to Real-time Order Execution
         # Real trading TR: H0STCNI0, Paper trading TR: H0STCNI9
         tr_id = "H0STCNI0" if self.trading_env == "real" else "H0STCNI9"
-        tr_key = config.kistock_hts_id or config.kistock_account[:8]
-        
+        # 체결통보 tr_key는 반드시 HTS ID여야 한다. 계좌번호로 대체하면 KIS가 구독을
+        # 거부하며 연결을 끊어 5초 재접속 루프가 발생하므로 fallback을 두지 않는다.
+        tr_key = config.kistock_hts_id
+
         if tr_key:
             logger.info(f"[WS] Subscribing to Order Execution. TR_ID={tr_id}, HTS_ID={tr_key}")
             self.subscribe(tr_id, tr_key)
