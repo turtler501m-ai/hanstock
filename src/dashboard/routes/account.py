@@ -1,11 +1,13 @@
 # -*- coding: utf-8 -*-
-from fastapi import Body, HTTPException, Request
+from fastapi import APIRouter, Body, HTTPException, Request
 from fastapi.responses import FileResponse
 import src.dashboard.core as _core
 from src.dashboard.core import *
 globals().update({k: v for k, v in _core.__dict__.items() if not k.startswith('__')})
 
-@app.get("/api/health")
+router = APIRouter(tags=["account"])
+
+@router.get("/api/health")
 def health():
     missing = _required_env_missing()
     account_warning = _account_format_warning(trader.config.kistock_account)
@@ -36,14 +38,14 @@ def health():
 
 
 
-@app.get("/api/demo-trading/readiness")
+@router.get("/api/demo-trading/readiness")
 def get_demo_trading_readiness():
     return _demo_trading_readiness()
 
 
 
 
-@app.get("/api/mock-trading/summary")
+@router.get("/api/mock-trading/summary")
 def get_mock_trading_summary():
     """모의거래 성과 요약"""
     import os
@@ -86,7 +88,7 @@ def get_mock_trading_summary():
 
 
 
-@app.get("/api/mock-trading/positions")
+@router.get("/api/mock-trading/positions")
 def get_mock_trading_positions():
     """모의거래 현재 포지션"""
     import os
@@ -130,7 +132,7 @@ def get_mock_trading_positions():
 
 
 
-@app.get("/api/mock-trading/trades")
+@router.get("/api/mock-trading/trades")
 def get_mock_trading_trades(limit: int = 200):
     """모의거래 체결 내역"""
     json_path = Path(".runtime/mock_trades.json")
@@ -149,7 +151,7 @@ def get_mock_trading_trades(limit: int = 200):
 
 
 
-@app.get("/api/balance")
+@router.get("/api/balance")
 def get_balance():
     from src.online_access import is_online_access_blocked
 
@@ -194,7 +196,7 @@ def get_balance():
 
 
 
-@app.get("/api/portfolio-optimizer")
+@router.get("/api/portfolio-optimizer")
 def get_portfolio_optimizer():
     missing = _required_env_missing()
     if missing:
@@ -210,4 +212,3 @@ def get_portfolio_optimizer():
         return snapshot_read_through("portfolio_optimizer", _build)
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"Portfolio optimizer failed: {e}") from e
-

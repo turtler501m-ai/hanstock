@@ -2,23 +2,26 @@
 from __future__ import annotations
 
 import json
-from fastapi import Body, HTTPException
+import os
+from fastapi import APIRouter, Body, HTTPException
 from fastapi.responses import FileResponse
 
 import src.dashboard.core as _core
-from src.dashboard.core import WEB_DIR, app
+from src.dashboard.core import WEB_DIR
 from src.mistock.config import config as mistock_config
 from src.mistock import db as mistock_db
 from src.mistock import trader as mistock_trader
 from src.mistock.strategy import NASDAQ_UNIVERSE, normalize_symbol, quote, symbol_name
 
+router = APIRouter(tags=["mistock"])
 
-@app.get("/mistock", response_class=FileResponse)
+
+@router.get("/mistock", response_class=FileResponse)
 def read_mistock_dashboard():
     return FileResponse(WEB_DIR / "templates" / "mistock" / "index.html")
 
 
-@app.get("/api/mistock/health")
+@router.get("/api/mistock/health")
 def mistock_health():
     flags = mistock_trader.runtime_flags()
     return {
@@ -55,7 +58,7 @@ def mistock_health():
 from src.utils.exchange_rate import get_usd_krw_rate
 
 
-@app.get("/api/mistock/config")
+@router.get("/api/mistock/config")
 def mistock_config_api():
     flags = mistock_trader.runtime_flags()
     watchlist = [item["symbol"] for item in mistock_trader.get_watchlist()]
@@ -91,7 +94,7 @@ def mistock_config_api():
     }
 
 
-@app.get("/api/mistock/env")
+@router.get("/api/mistock/env")
 def mistock_env():
     fields = [
         ("MISTOCK_MARKET", mistock_config.market, "text"),
@@ -125,7 +128,7 @@ def mistock_env():
     }
 
 
-@app.post("/api/mistock/env")
+@router.post("/api/mistock/env")
 def mistock_update_env(payload: dict = Body(...)):
     values = payload.get("values")
     if not isinstance(values, dict):
@@ -151,12 +154,12 @@ def mistock_update_env(payload: dict = Body(...)):
     }
 
 
-@app.get("/api/mistock/balance")
+@router.get("/api/mistock/balance")
 def mistock_balance():
     return mistock_trader.get_balance()
 
 
-@app.get("/api/mistock/portfolio-optimizer")
+@router.get("/api/mistock/portfolio-optimizer")
 def mistock_portfolio_optimizer():
     balance = mistock_trader.get_balance()
     holdings = balance["holdings"]
@@ -291,7 +294,7 @@ def _mistock_easy_strategy_preset(preset: str) -> dict:
     return item
 
 
-@app.post("/api/mistock/ai-strategy-presets/{preset}/apply")
+@router.post("/api/mistock/ai-strategy-presets/{preset}/apply")
 def mistock_apply_ai_strategy_preset(preset: str):
     import time
     import uuid
@@ -349,12 +352,12 @@ def mistock_apply_ai_strategy_preset(preset: str):
     }
 
 
-@app.get("/api/mistock/ai-strategies")
+@router.get("/api/mistock/ai-strategies")
 def mistock_ai_strategies():
     return {"strategies": _strategy_rows()}
 
 
-@app.post("/api/mistock/ai-strategies")
+@router.post("/api/mistock/ai-strategies")
 def mistock_create_ai_strategy(payload: dict = Body(...)):
     strategy_id = normalize_symbol(str(payload.get("name") or "mistock_strategy")).lower().replace(".", "_")
     strategy_id = f"mistock_{strategy_id}_{int(__import__('time').time())}"
@@ -385,13 +388,13 @@ def mistock_create_ai_strategy(payload: dict = Body(...)):
     return {"ok": True, "strategy": mistock_db.row("SELECT * FROM ai_strategies WHERE id = ?", (strategy_id,))}
 
 
-@app.delete("/api/mistock/ai-strategies/{strategy_id}")
+@router.delete("/api/mistock/ai-strategies/{strategy_id}")
 def mistock_delete_ai_strategy(strategy_id: str):
     mistock_db.execute("DELETE FROM ai_strategies WHERE id = ? AND id <> 'mistock_nasdaq_rule_v1'", (strategy_id,))
     return {"ok": True}
 
 
-@app.post("/api/mistock/ai-strategies/{strategy_id}/select")
+@router.post("/api/mistock/ai-strategies/{strategy_id}/select")
 def mistock_select_ai_strategy(strategy_id: str, payload: dict = Body(default={})):
     selected = 1 if payload.get("selected", True) else 0
     if selected:
@@ -412,17 +415,17 @@ def _strategy_gate(strategy_id: str, check: str, status: str = "passed") -> dict
     return payload
 
 
-@app.post("/api/mistock/ai-strategies/{strategy_id}/static-verify")
+@router.post("/api/mistock/ai-strategies/{strategy_id}/static-verify")
 def mistock_static_verify(strategy_id: str):
     return _strategy_gate(strategy_id, "static")
 
 
-@app.post("/api/mistock/ai-strategies/{strategy_id}/verify")
+@router.post("/api/mistock/ai-strategies/{strategy_id}/verify")
 def mistock_api_verify(strategy_id: str):
     return _strategy_gate(strategy_id, "api")
 
 
-@app.post("/api/mistock/ai-strategies/{strategy_id}/backtest")
+@router.post("/api/mistock/ai-strategies/{strategy_id}/backtest")
 def mistock_backtest(strategy_id: str):
     from src.strategy.backtest_mistock import run_mistock_backtest
     strategy = mistock_db.row("SELECT * FROM ai_strategies WHERE id = ?", (strategy_id,))
@@ -459,7 +462,7 @@ def mistock_backtest(strategy_id: str):
     return {**gate, "result": result, "metrics": result.get("metrics"), "strategy": mistock_db.row("SELECT * FROM ai_strategies WHERE id = ?", (strategy_id,))}
 
 
-@app.post("/api/mistock/ai-strategies/{strategy_id}/evolve")
+@router.post("/api/mistock/ai-strategies/{strategy_id}/evolve")
 def mistock_evolve(strategy_id: str):
     from src.strategy.evolve_mistock import evolve_mistock_strategy
     result = evolve_mistock_strategy(strategy_id)
@@ -468,36 +471,36 @@ def mistock_evolve(strategy_id: str):
     return {"ok": True, "result": result}
 
 
-@app.post("/api/mistock/ai-strategies/{strategy_id}/paper/start")
+@router.post("/api/mistock/ai-strategies/{strategy_id}/paper/start")
 def mistock_paper_start(strategy_id: str):
     mistock_db.execute("UPDATE ai_strategies SET last_paper_started_at = ? WHERE id = ?", (mistock_db.now_text(), strategy_id))
     return _strategy_gate(strategy_id, "paper_start")
 
 
-@app.post("/api/mistock/ai-strategies/{strategy_id}/paper/complete")
+@router.post("/api/mistock/ai-strategies/{strategy_id}/paper/complete")
 def mistock_paper_complete(strategy_id: str, payload: dict = Body(default={})):
     mistock_db.execute("UPDATE ai_strategies SET last_paper_completed_at = ? WHERE id = ?", (mistock_db.now_text(), strategy_id))
     return {**_strategy_gate(strategy_id, "paper"), "days": int(payload.get("days") or 20)}
 
 
-@app.post("/api/mistock/ai-strategies/{strategy_id}/approve")
+@router.post("/api/mistock/ai-strategies/{strategy_id}/approve")
 def mistock_strategy_approve(strategy_id: str):
     mistock_db.execute("UPDATE ai_strategies SET status = 'approved', last_used_at = ? WHERE id = ?", (mistock_db.now_text(), strategy_id))
     return {"ok": True, "id": strategy_id, "status": "approved"}
 
 
-@app.post("/api/mistock/ai-strategies/{strategy_id}/retire")
+@router.post("/api/mistock/ai-strategies/{strategy_id}/retire")
 def mistock_strategy_retire(strategy_id: str):
     mistock_db.execute("UPDATE ai_strategies SET status = 'retired' WHERE id = ?", (strategy_id,))
     return {"ok": True, "id": strategy_id, "status": "retired"}
 
 
-@app.post("/api/mistock/ai-strategies/{strategy_id}/performance/review")
+@router.post("/api/mistock/ai-strategies/{strategy_id}/performance/review")
 def mistock_strategy_performance_review(strategy_id: str, days: int = 30):
     return {"ok": True, "strategy_id": strategy_id, "days": days, "status": "reviewed", "message": "Mistock demo performance reviewed."}
 
 
-@app.get("/api/mistock/strategy-context")
+@router.get("/api/mistock/strategy-context")
 def mistock_strategy_context():
     strategies = _strategy_rows()
     active = next((item for item in strategies if item.get("selected")), strategies[0] if strategies else {})
@@ -526,7 +529,7 @@ def mistock_strategy_context():
     }
 
 
-@app.get("/api/mistock/ai-strategies/{strategy_id}/events")
+@router.get("/api/mistock/ai-strategies/{strategy_id}/events")
 def mistock_strategy_events(strategy_id: str, limit: int = 20):
     rows = mistock_db.rows(
         "SELECT * FROM ai_strategy_events WHERE strategy_id = ? ORDER BY ts DESC LIMIT ?",
@@ -535,12 +538,12 @@ def mistock_strategy_events(strategy_id: str, limit: int = 20):
     return {"events": rows}
 
 
-@app.get("/api/mistock/ai-strategies/{strategy_id}/performance")
+@router.get("/api/mistock/ai-strategies/{strategy_id}/performance")
 def mistock_strategy_performance(strategy_id: str, days: int = 30):
     return {"strategy_id": strategy_id, "days": days, "return_pct": 0.0, "win_rate": 0.0, "trades": 0, "max_drawdown_pct": 0.0}
 
 
-@app.get("/api/mistock/watchlist")
+@router.get("/api/mistock/watchlist")
 def mistock_watchlist():
     items = mistock_trader.get_watchlist()
     enriched = []
@@ -569,19 +572,19 @@ def mistock_watchlist():
     }
 
 
-@app.post("/api/mistock/watchlist")
+@router.post("/api/mistock/watchlist")
 def mistock_add_watchlist(payload: dict = Body(...)):
     item = mistock_trader.add_watchlist(str(payload.get("symbol", "")), payload.get("name"))
     return {"ok": True, "item": item}
 
 
-@app.delete("/api/mistock/watchlist/{symbol}")
+@router.delete("/api/mistock/watchlist/{symbol}")
 def mistock_delete_watchlist(symbol: str):
     mistock_trader.delete_watchlist(symbol)
     return {"ok": True}
 
 
-@app.post("/api/mistock/watchlist/toggle-auto")
+@router.post("/api/mistock/watchlist/toggle-auto")
 def mistock_watchlist_toggle_auto(payload: dict = Body(...)):
     enabled = bool(payload.get("enabled"))
     threshold = float(payload.get("threshold") or 3.0)
@@ -590,7 +593,7 @@ def mistock_watchlist_toggle_auto(payload: dict = Body(...)):
     return {"ok": True, "enabled": enabled, "threshold": threshold}
 
 
-@app.post("/api/mistock/watchlist/scan-trigger")
+@router.post("/api/mistock/watchlist/scan-trigger")
 def mistock_watchlist_scan_trigger():
     threshold = float(mistock_db.get_setting("ai_auto_add_threshold", "3") or 3)
     scan = mistock_trader.scan_candidates(min_score=int(threshold), limit=20)
@@ -607,12 +610,12 @@ def mistock_watchlist_scan_trigger():
     }
 
 
-@app.get("/api/mistock/signals")
+@router.get("/api/mistock/signals")
 def mistock_signals():
     return {"signals": mistock_trader.signals()}
 
 
-@app.get("/api/mistock/candidates")
+@router.get("/api/mistock/candidates")
 def mistock_candidates(min_score: int = 2, limit: int = 60, ranker: str = "mistock_rule", optimizer: str = "equal_weight"):
     scan = mistock_trader.scan_candidates(min_score=min_score, limit=limit)
     balance = mistock_trader.get_balance()
@@ -627,7 +630,7 @@ def mistock_candidates(min_score: int = 2, limit: int = 60, ranker: str = "misto
     }
 
 
-@app.get("/api/mistock/candidates/history")
+@router.get("/api/mistock/candidates/history")
 def mistock_candidates_history(limit: int = 50):
     rows = mistock_db.rows(
         "SELECT * FROM scanned_candidates ORDER BY id DESC LIMIT ?",
@@ -636,24 +639,24 @@ def mistock_candidates_history(limit: int = 50):
     return {"candidates": rows, "history": rows}
 
 
-@app.delete("/api/mistock/candidates/history/{candidate_id}")
+@router.delete("/api/mistock/candidates/history/{candidate_id}")
 def mistock_delete_candidate(candidate_id: int):
     mistock_db.execute("DELETE FROM scanned_candidates WHERE id = ?", (candidate_id,))
     return {"ok": True}
 
 
-@app.get("/api/mistock/ai-allocation")
+@router.get("/api/mistock/ai-allocation")
 def mistock_ai_allocation():
     plan = mistock_trader.execution_plan()
     return {"orders": plan["plan"], "plan": plan["plan"], "cash": plan["cash"], "remaining_cash": plan["remaining_cash"]}
 
 
-@app.get("/api/mistock/execution-plan")
+@router.get("/api/mistock/execution-plan")
 def mistock_execution_plan():
     return mistock_trader.execution_plan()
 
 
-@app.post("/api/mistock/approvals")
+@router.post("/api/mistock/approvals")
 def mistock_create_approval(payload: dict = Body(...)):
     from src.online_access import is_online_access_blocked
 
@@ -685,7 +688,7 @@ def mistock_create_approval(payload: dict = Body(...)):
     return {"ok": True, "id": approval_id, "status": "pending", "auto_approved": False}
 
 
-@app.get("/api/mistock/approvals")
+@router.get("/api/mistock/approvals")
 def mistock_approvals(limit: int = 50):
     rows = mistock_db.rows("SELECT * FROM approvals ORDER BY id DESC LIMIT ?", (max(1, min(limit, 200)),))
     return {"approvals": rows}
@@ -718,17 +721,17 @@ def _execute_approval(approval_id: int, *, approve: bool) -> dict:
     return {**updated, "ok": bool(result.get("ok"))}
 
 
-@app.post("/api/mistock/approvals/{approval_id}/approve")
+@router.post("/api/mistock/approvals/{approval_id}/approve")
 def mistock_approve(approval_id: int):
     return _execute_approval(approval_id, approve=True)
 
 
-@app.post("/api/mistock/approvals/{approval_id}/reject")
+@router.post("/api/mistock/approvals/{approval_id}/reject")
 def mistock_reject(approval_id: int):
     return _execute_approval(approval_id, approve=False)
 
 
-@app.post("/api/mistock/holdings/sell-all")
+@router.post("/api/mistock/holdings/sell-all")
 def mistock_sell_all():
     holdings = mistock_trader.get_holdings()
     if not holdings:
@@ -748,13 +751,13 @@ def mistock_sell_all():
     return {"status": "queued", "created_count": created, "pending_count": created, "executed_count": 0, "failed_count": 0}
 
 
-@app.get("/api/mistock/trades")
+@router.get("/api/mistock/trades")
 def mistock_trades(limit: int = 20):
     rows = mistock_db.rows("SELECT * FROM trades ORDER BY id DESC LIMIT ?", (max(1, min(limit, 500)),))
     return {"trades": rows}
 
 
-@app.post("/api/mistock/trades/sync")
+@router.post("/api/mistock/trades/sync")
 def mistock_trades_sync():
     return {"ok": True, "synced_count": 0, "message": "Mistock demo DB is authoritative."}
 
@@ -886,7 +889,7 @@ def _build_mistock_periodic_performance(trades: list[dict]) -> dict:
     }
 
 
-@app.get("/api/mistock/performance")
+@router.get("/api/mistock/performance")
 def mistock_performance():
     try:
         trades = mistock_db.rows("SELECT * FROM trades ORDER BY ts ASC")
@@ -994,7 +997,7 @@ def mistock_performance():
         }
 
 
-@app.get("/api/mistock/performance/periodic")
+@router.get("/api/mistock/performance/periodic")
 def mistock_periodic_performance():
     try:
         trades = mistock_db.rows("SELECT * FROM trades ORDER BY ts ASC")
@@ -1008,16 +1011,17 @@ def mistock_periodic_performance():
 import threading
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
+from src.runtime_state import PersistentRuntimeState
 
 _mistock_scheduler_running_lock = threading.Lock()
-_mistock_scheduler_run_state = {
+_mistock_scheduler_run_state = PersistentRuntimeState("mistock_scheduler", {
     "is_running": False,
     "mode": None,
     "started_at": None,
     "completed_at": None,
     "result": None,
     "error": None
-}
+})
 
 def _bg_run_mistock_scheduled_cycle(mode: str):
     global _mistock_scheduler_run_state
@@ -1029,16 +1033,24 @@ def _bg_run_mistock_scheduled_cycle(mode: str):
         save_mistock_daily_run(recorded_at, mode, result)
         
         with _mistock_scheduler_running_lock:
-            _mistock_scheduler_run_state["is_running"] = False
-            _mistock_scheduler_run_state["completed_at"] = recorded_at
-            _mistock_scheduler_run_state["result"] = result
-            _mistock_scheduler_run_state["error"] = None
+            _mistock_scheduler_run_state.replace({
+                **_mistock_scheduler_run_state,
+                "is_running": False,
+                "completed_at": recorded_at,
+                "result": result,
+                "error": None,
+                "owner_pid": None,
+            })
     except Exception as e:
         with _mistock_scheduler_running_lock:
-            _mistock_scheduler_run_state["is_running"] = False
-            _mistock_scheduler_run_state["completed_at"] = datetime.now(timezone(timedelta(hours=9))).isoformat()
-            _mistock_scheduler_run_state["result"] = None
-            _mistock_scheduler_run_state["error"] = str(e)
+            _mistock_scheduler_run_state.replace({
+                **_mistock_scheduler_run_state,
+                "is_running": False,
+                "completed_at": datetime.now(timezone(timedelta(hours=9))).isoformat(),
+                "result": None,
+                "error": str(e),
+                "owner_pid": None,
+            })
 
 
 def map_mistock_to_kis_format(mistock_result: dict) -> dict:
@@ -1251,9 +1263,10 @@ def merge_mistock_runs_to_kis_format(runs: list) -> dict | None:
     }
 
 
-@app.get("/api/mistock/scheduler/status")
+@router.get("/api/mistock/scheduler/status")
 def mistock_scheduler_status():
     global _mistock_scheduler_run_state
+    _mistock_scheduler_run_state.refresh()
     
     runs = load_mistock_daily_runs()
     last_result = merge_mistock_runs_to_kis_format(runs)
@@ -1272,7 +1285,7 @@ def mistock_scheduler_status():
     }
 
 
-@app.post("/api/mistock/scheduler/run")
+@router.post("/api/mistock/scheduler/run")
 def mistock_scheduler_run(payload: dict = Body(default={})):
     global _mistock_scheduler_run_state
     mode = str(payload.get("mode", "execute")).lower()
@@ -1287,16 +1300,18 @@ def mistock_scheduler_run(payload: dict = Body(default={})):
             detail=f"지원하지 않는 미장 스케줄러 모드입니다: '{mode}'. 'execute', 'analysis_only', 'daily_auto' 중 하나를 선택해 주세요."
         )
         
+    started_state = {
+        "is_running": True,
+        "mode": mode,
+        "started_at": datetime.now(timezone(timedelta(hours=9))).isoformat(),
+        "completed_at": None,
+        "result": None,
+        "error": None,
+        "owner_pid": os.getpid(),
+    }
     with _mistock_scheduler_running_lock:
-        if _mistock_scheduler_run_state["is_running"]:
+        if not _mistock_scheduler_run_state.claim(started_state):
             raise HTTPException(status_code=409, detail="스케줄러가 이미 실행 중입니다.")
-            
-        _mistock_scheduler_run_state["is_running"] = True
-        _mistock_scheduler_run_state["mode"] = mode
-        _mistock_scheduler_run_state["started_at"] = datetime.now(timezone(timedelta(hours=9))).isoformat()
-        _mistock_scheduler_run_state["completed_at"] = None
-        _mistock_scheduler_run_state["result"] = None
-        _mistock_scheduler_run_state["error"] = None
         
     t = threading.Thread(
         target=_bg_run_mistock_scheduled_cycle,
@@ -1313,7 +1328,7 @@ def mistock_scheduler_run(payload: dict = Body(default={})):
     }
 
 
-@app.post("/api/mistock/circuit-breaker/reset")
+@router.post("/api/mistock/circuit-breaker/reset")
 def mistock_reset_circuit():
     return {"ok": True, "circuit_breaker": {"opened": False, "error_count": 0, "max_errors": 5, "opened_at": None}}
 
@@ -1330,7 +1345,7 @@ def _auto_approve_mistock_pending_approvals() -> list[dict]:
     return results
 
 
-@app.post("/api/mistock/auto-approval")
+@router.post("/api/mistock/auto-approval")
 def mistock_set_auto_approval(payload: dict = Body(...)):
     enabled = bool(payload.get("enabled"))
     mistock_db.set_setting("auto_approval", "true" if enabled else "false")
@@ -1338,7 +1353,7 @@ def mistock_set_auto_approval(payload: dict = Body(...)):
     return {"ok": True, "enabled": enabled, "processed": processed, "processed_count": len(processed)}
 
 
-@app.post("/api/mistock/runtime/order-mode")
+@router.post("/api/mistock/runtime/order-mode")
 def mistock_runtime_order_mode(payload: dict = Body(...)):
     key = str(payload.get("key", "")).strip()
     enabled = bool(payload.get("enabled"))
@@ -1355,7 +1370,7 @@ def mistock_runtime_order_mode(payload: dict = Body(...)):
     raise HTTPException(status_code=400, detail="key must be DRY_RUN")
 
 
-@app.post("/api/mistock/orders/cancel")
+@router.post("/api/mistock/orders/cancel")
 def mistock_cancel_order(payload: dict = Body(...)):
     symbol = str(payload.get("symbol") or "").strip()
     order_no = str(payload.get("order_no") or payload.get("original_order_no") or "").strip()
@@ -1364,7 +1379,7 @@ def mistock_cancel_order(payload: dict = Body(...)):
     return mistock_trader.cancel_order(symbol, order_no, qty=float(payload.get("qty") or 0))
 
 
-@app.post("/api/mistock/orders/revise")
+@router.post("/api/mistock/orders/revise")
 def mistock_revise_order(payload: dict = Body(...)):
     symbol = str(payload.get("symbol") or "").strip()
     order_no = str(payload.get("order_no") or payload.get("original_order_no") or "").strip()

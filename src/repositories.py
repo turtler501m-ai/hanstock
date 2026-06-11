@@ -6,8 +6,6 @@ from typing import Callable
 
 
 def _close_connection(conn: sqlite3.Connection) -> None:
-    if getattr(conn, "close_on_exit", False):
-        return
     conn.close()
 
 

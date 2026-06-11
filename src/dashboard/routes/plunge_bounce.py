@@ -3,11 +3,10 @@ import json
 import sqlite3
 import threading
 from datetime import datetime
-from fastapi import Body, HTTPException
+from fastapi import APIRouter, Body, HTTPException
 from fastapi.responses import RedirectResponse
 
 from src.dashboard.core import (
-    app,
     WEB_DIR,
     _scheduler_running_lock,
     _scheduler_run_state,
@@ -15,6 +14,8 @@ from src.dashboard.core import (
 )
 from src import trader
 from src.utils.logger import logger
+
+router = APIRouter(tags=["strategies"])
 
 STRATEGY_META = {
     "plunge_bounce": {
@@ -236,19 +237,19 @@ def _strategy_schedule_history(strategy_id: str, limit: int = 50) -> dict:
             parsed_history.append(row_dict)
         return {"ok": True, "history": parsed_history}
 
-@app.get("/plunge-bounce")
+@router.get("/plunge-bounce")
 def read_plunge_bounce_dashboard():
     """Redirects to the main dashboard with plunge-bounce tab active."""
     return RedirectResponse(url="/?tab=plunge-bounce")
 
 
-@app.get("/heikin-ashi-scalping")
+@router.get("/heikin-ashi-scalping")
 def read_heikin_ashi_dashboard():
     """Redirects to the main dashboard with alpha Heikin Ashi tab active."""
     return RedirectResponse(url="/?tab=heikin-ashi")
 
 
-@app.get("/api/strategy/plunge_bounce/performance")
+@router.get("/api/strategy/plunge_bounce/performance")
 def get_strategy_performance():
     """Calculates daily, monthly, and overall performance for plunge_bounce_strategy."""
     try:
@@ -258,7 +259,7 @@ def get_strategy_performance():
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.get("/api/strategy/plunge_bounce/scan")
+@router.get("/api/strategy/plunge_bounce/scan")
 def run_plunge_bounce_scan():
     """Triggers real-time scanning of the KOSPI_UNIVERSE and Watchlist using PlungeBounceStrategy."""
     try:
@@ -339,7 +340,7 @@ def run_plunge_bounce_scan():
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.post("/api/strategy/plunge_bounce/run-trader")
+@router.post("/api/strategy/plunge_bounce/run-trader")
 def run_plunge_bounce_trader(payload: dict = Body(...)):
     """Triggers an independent execution run cycle using plunge_bounce_strategy in the background."""
     global _scheduler_run_state
@@ -369,7 +370,7 @@ def run_plunge_bounce_trader(payload: dict = Body(...)):
     return {"status": "started", "mode": mode}
 
 
-@app.get("/api/strategy/plunge_bounce/scans-history")
+@router.get("/api/strategy/plunge_bounce/scans-history")
 def get_plunge_bounce_scans_history(limit: int = 100):
     """Retrieves the history of scanned candidates for plunge_bounce_strategy."""
     try:
@@ -436,7 +437,7 @@ def _summarize_scheduler_result(result):
     }
 
 
-@app.get("/api/strategy/plunge_bounce/schedule-history")
+@router.get("/api/strategy/plunge_bounce/schedule-history")
 def get_plunge_bounce_schedule_history(limit: int = 10):
     """Retrieves the execution history of scheduler runs for plunge_bounce_strategy."""
     try:
@@ -471,7 +472,7 @@ def get_plunge_bounce_schedule_history(limit: int = 10):
         return {"ok": False, "error": str(e)}
 
 
-@app.get("/api/strategy/plunge_bounce/settings")
+@router.get("/api/strategy/plunge_bounce/settings")
 def get_plunge_bounce_settings():
     """Retrieves the custom rule filters for the Plunge Bounce strategy from DB."""
     try:
@@ -492,7 +493,7 @@ def get_plunge_bounce_settings():
         return {"ok": False, "error": str(e)}
 
 
-@app.post("/api/strategy/plunge_bounce/settings")
+@router.post("/api/strategy/plunge_bounce/settings")
 def save_plunge_bounce_settings(payload: dict = Body(...)):
     """Saves the custom rule filters for the Plunge Bounce strategy to DB."""
     try:
@@ -539,14 +540,14 @@ def _validate_strategy_id(strategy_id: str) -> str:
     return sid
 
 
-@app.get("/api/strategy/{strategy_id}/schedule")
+@router.get("/api/strategy/{strategy_id}/schedule")
 def get_strategy_schedule(strategy_id: str):
     sid = _validate_strategy_id(strategy_id)
     from src.db.repository import load_strategy_schedule
     return {"ok": True, "schedule": load_strategy_schedule(sid)}
 
 
-@app.post("/api/strategy/{strategy_id}/schedule")
+@router.post("/api/strategy/{strategy_id}/schedule")
 def save_strategy_schedule_route(strategy_id: str, payload: dict = Body(...)):
     sid = _validate_strategy_id(strategy_id)
     from src.db.repository import save_strategy_schedule
@@ -564,7 +565,7 @@ def save_strategy_schedule_route(strategy_id: str, payload: dict = Body(...)):
     return {"ok": True, "schedule": schedule}
 
 
-@app.get("/api/strategy/{strategy_id}/universe")
+@router.get("/api/strategy/{strategy_id}/universe")
 def get_strategy_universe(strategy_id: str):
     sid = _validate_strategy_id(strategy_id)
     from src.db.repository import load_strategy_universe
@@ -577,7 +578,7 @@ def get_strategy_universe(strategy_id: str):
     return {"ok": True, "universe": universe, "count": len(universe)}
 
 
-@app.post("/api/strategy/{strategy_id}/universe")
+@router.post("/api/strategy/{strategy_id}/universe")
 def add_strategy_universe(strategy_id: str, payload: dict = Body(...)):
     sid = _validate_strategy_id(strategy_id)
     from src.db.repository import add_strategy_universe_symbol
@@ -591,7 +592,7 @@ def add_strategy_universe(strategy_id: str, payload: dict = Body(...)):
     return {"ok": True, "symbol": symbol, "name": name}
 
 
-@app.delete("/api/strategy/{strategy_id}/universe/{symbol}")
+@router.delete("/api/strategy/{strategy_id}/universe/{symbol}")
 def delete_strategy_universe(strategy_id: str, symbol: str):
     sid = _validate_strategy_id(strategy_id)
     from src.db.repository import remove_strategy_universe_symbol
@@ -602,7 +603,7 @@ def delete_strategy_universe(strategy_id: str, symbol: str):
     return {"ok": True}
 
 
-@app.get("/api/strategy/{strategy_id}/positions")
+@router.get("/api/strategy/{strategy_id}/positions")
 def get_strategy_positions(strategy_id: str):
     sid = _validate_strategy_id(strategy_id)
     from src.db.repository import reconstruct_strategy_positions
@@ -626,7 +627,7 @@ def get_strategy_positions(strategy_id: str):
     return {"ok": True, "positions": positions, "count": len(positions)}
 
 
-@app.get("/api/strategy/heikin_ashi_scalping/performance")
+@router.get("/api/strategy/heikin_ashi_scalping/performance")
 def get_heikin_ashi_performance():
     try:
         return _strategy_performance("heikin_ashi_scalping_strategy")
@@ -635,7 +636,7 @@ def get_heikin_ashi_performance():
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.get("/api/strategy/heikin_ashi_scalping/scan")
+@router.get("/api/strategy/heikin_ashi_scalping/scan")
 def run_heikin_ashi_scan():
     try:
         from src.db.repository import get_watchlist_setting
@@ -647,7 +648,7 @@ def run_heikin_ashi_scan():
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.post("/api/strategy/heikin_ashi_scalping/run-trader")
+@router.post("/api/strategy/heikin_ashi_scalping/run-trader")
 def run_heikin_ashi_trader(payload: dict = Body(...)):
     global _scheduler_run_state
     mode = str(payload.get("mode", "execute")).lower()
@@ -674,7 +675,7 @@ def run_heikin_ashi_trader(payload: dict = Body(...)):
     return {"status": "started", "mode": mode}
 
 
-@app.get("/api/strategy/heikin_ashi_scalping/scans-history")
+@router.get("/api/strategy/heikin_ashi_scalping/scans-history")
 def get_heikin_ashi_scans_history(limit: int = 100):
     try:
         return _strategy_scans_history("heikin_ashi_scalping_strategy", limit=limit)
@@ -683,7 +684,7 @@ def get_heikin_ashi_scans_history(limit: int = 100):
         return {"ok": False, "error": str(e)}
 
 
-@app.get("/api/strategy/heikin_ashi_scalping/schedule-history")
+@router.get("/api/strategy/heikin_ashi_scalping/schedule-history")
 def get_heikin_ashi_schedule_history(limit: int = 50):
     try:
         return _strategy_schedule_history("heikin_ashi_scalping_strategy", limit=limit)
@@ -692,7 +693,7 @@ def get_heikin_ashi_schedule_history(limit: int = 50):
         return {"ok": False, "error": str(e)}
 
 
-@app.get("/api/strategy/heikin_ashi_scalping/settings")
+@router.get("/api/strategy/heikin_ashi_scalping/settings")
 def get_heikin_ashi_settings():
     try:
         from src.db.repository import get_watchlist_setting
@@ -711,7 +712,7 @@ def get_heikin_ashi_settings():
         return {"ok": False, "error": str(e)}
 
 
-@app.post("/api/strategy/heikin_ashi_scalping/settings")
+@router.post("/api/strategy/heikin_ashi_scalping/settings")
 def save_heikin_ashi_settings(payload: dict = Body(...)):
     try:
         from src.db.repository import save_watchlist_setting

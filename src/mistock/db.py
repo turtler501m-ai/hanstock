@@ -6,6 +6,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
+from src.db.connection import open_sqlite
 from src.mistock.config import config
 
 KST = timezone(timedelta(hours=9))
@@ -29,11 +30,7 @@ def now_text() -> str:
 
 
 def connect_db() -> sqlite3.Connection:
-    path = Path(config.trade_db_path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(path)
-    conn.row_factory = sqlite3.Row
-    return conn
+    return open_sqlite(config.trade_db_path, row_factory=sqlite3.Row)
 
 
 def init_db() -> None:

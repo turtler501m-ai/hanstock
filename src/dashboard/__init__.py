@@ -11,6 +11,18 @@ import src.dashboard.routes.stock as stock
 import src.dashboard.routes.mistock as mistock
 import src.dashboard.routes.plunge_bounce as plunge_bounce
 
+for route_module in [
+    pages,
+    account,
+    futures,
+    quantconnect,
+    settings,
+    stock,
+    mistock,
+    plunge_bounce,
+]:
+    app.include_router(route_module.router)
+
 # Dynamically expose all names from core and all route files for backward compatibility
 import src.dashboard.core as _core
 

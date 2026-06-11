@@ -1,11 +1,13 @@
 # -*- coding: utf-8 -*-
-from fastapi import Body, HTTPException, Request
+from fastapi import APIRouter, Body, HTTPException, Request
 from fastapi.responses import FileResponse
 import src.dashboard.core as _core
 from src.dashboard.core import *
 globals().update({k: v for k, v in _core.__dict__.items() if not k.startswith('__')})
 
-@app.get("/api/futures-signals/summary")
+router = APIRouter(tags=["futures"])
+
+@router.get("/api/futures-signals/summary")
 def get_futures_signals_summary():
     db_signals = _list_db_futures_signals(limit=500)
     if db_signals:
@@ -16,7 +18,7 @@ def get_futures_signals_summary():
 
 
 
-@app.get("/api/futures-signals")
+@router.get("/api/futures-signals")
 def get_futures_signals(limit: int = 100):
     safe_limit = max(1, min(int(limit or 100), 500))
     db_signals = _list_db_futures_signals(limit=safe_limit)
@@ -28,7 +30,7 @@ def get_futures_signals(limit: int = 100):
 
 
 
-@app.get("/api/futures-signals/collector/status")
+@router.get("/api/futures-signals/collector/status")
 def get_futures_signal_collector_status():
     status = collector_status()
     # `connected`: session이 있고 ready이면 연결된 것으로 간주
@@ -40,7 +42,7 @@ def get_futures_signal_collector_status():
 
 
 
-@app.post("/api/futures-signals/parse")
+@router.post("/api/futures-signals/parse")
 def parse_futures_signal_message(payload: dict = Body(...)):
     text = str(payload.get("text") or payload.get("raw_text") or "").strip()
     if not text:
@@ -68,7 +70,7 @@ def parse_futures_signal_message(payload: dict = Body(...)):
 
 
 
-@app.post("/api/futures-signals/{signal_id}/verify")
+@router.post("/api/futures-signals/{signal_id}/verify")
 def verify_futures_signal(signal_id: str, payload: dict = Body(...)):
     record = _find_futures_signal_record(signal_id)
     if record is None:
@@ -100,7 +102,7 @@ def verify_futures_signal(signal_id: str, payload: dict = Body(...)):
 
 
 
-@app.get("/api/futures/balance")
+@router.get("/api/futures/balance")
 def get_futures_balance():
     try:
         api = _get_futures_api()
@@ -122,7 +124,7 @@ def get_futures_balance():
 
 
 
-@app.get("/api/futures/positions")
+@router.get("/api/futures/positions")
 def get_futures_positions():
     try:
         api = _get_futures_api()
@@ -139,7 +141,7 @@ def get_futures_positions():
 
 
 
-@app.get("/api/futures/orders")
+@router.get("/api/futures/orders")
 def get_futures_orders(start_date: str = None, end_date: str = None):
     try:
         api = _get_futures_api()
@@ -156,7 +158,7 @@ def get_futures_orders(start_date: str = None, end_date: str = None):
 
 
 
-@app.get("/api/futures/quote/{symbol}")
+@router.get("/api/futures/quote/{symbol}")
 def get_futures_quote(symbol: str):
     try:
         api = _get_futures_api()
@@ -170,7 +172,7 @@ def get_futures_quote(symbol: str):
 
 
 
-@app.post("/api/futures/order")
+@router.post("/api/futures/order")
 def place_futures_order(payload: dict = Body(...)):
     try:
         api = _get_futures_api()
@@ -192,7 +194,7 @@ def place_futures_order(payload: dict = Body(...)):
 
 
 
-@app.post("/api/futures/order/cancel")
+@router.post("/api/futures/order/cancel")
 def cancel_futures_order(payload: dict = Body(...)):
     try:
         api = _get_futures_api()
@@ -208,6 +210,5 @@ def cancel_futures_order(payload: dict = Body(...)):
         raise
     except Exception as e:
         return {"error": str(e), "success": False}
-
 
 

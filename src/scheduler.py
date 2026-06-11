@@ -3,12 +3,23 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import sqlite3
 import time
 from datetime import datetime
 from pathlib import Path
 
 from src import trader
 from src.notifier.slack import send_slack
+
+
+SchedulerOperationError = (
+    OSError,
+    RuntimeError,
+    ValueError,
+    TypeError,
+    KeyError,
+    sqlite3.Error,
+)
 
 
 def _env_int(name: str, default: int, *, minimum: int = 1) -> int:
@@ -45,7 +56,7 @@ def _run_trader_with_retries(*, attempts: int, delay_seconds: float, kwargs: dic
             if errors:
                 result = {**result, "retry_errors": errors, "retry_count": len(errors)}
             return result
-        except Exception as exc:
+        except SchedulerOperationError as exc:
             errors.append(_error_record(exc, attempt=attempt))
             if attempt >= attempts:
                 return {
@@ -68,7 +79,7 @@ def _approve_one_with_retries(approval_id: int, *, attempts: int, delay_seconds:
             if errors:
                 result = {**result, "retry_errors": errors, "retry_count": len(errors)}
             return {"approved": result, "errors": []}
-        except Exception as exc:
+        except SchedulerOperationError as exc:
             errors.append(_error_record(exc, attempt=attempt, approval_id=approval_id))
             if attempt >= attempts:
                 return {"approved": None, "errors": errors}
@@ -118,7 +129,7 @@ def _sync_order_status_after_cycle(result: dict) -> dict:
         days = _env_int("HANSTOCK_ORDER_STATUS_SYNC_DAYS", 30)
         sync_result = _sync_order_status_from_history(_get_api(), days=days)
         return {**result, "order_status_sync": sync_result}
-    except Exception as exc:
+    except SchedulerOperationError as exc:
         return {**result, "order_status_sync_error": _error_record(exc)}
 
 
@@ -146,8 +157,10 @@ def _write_cycle_result(result: dict, *, mode: str, strategy_id: str | None = No
     try:
         from src.db.repository import save_scheduler_result
         save_scheduler_result(mode, recorded_at, result)
-    except Exception as e:
-        pass
+    except (sqlite3.DatabaseError, OSError, ValueError, TypeError) as exc:
+        from src.utils.logger import logger
+
+        logger.warning(f"Failed to persist scheduler result: {exc}")
 
 
 def _slack_enabled() -> bool:
@@ -220,7 +233,7 @@ def run_scheduled_cycle(
             active = next((s for s in load_ai_strategies() if s.get("selected")), None)
             if active and active.get("model") and active.get("model") != "none":
                 force_strategy_id = active.get("model")
-        except Exception:
+        except SchedulerOperationError:
             force_strategy_id = None
 
     if mode == "daily_auto":

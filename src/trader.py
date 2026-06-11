@@ -8,7 +8,7 @@ import time
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
-from src.config import config
+from src.config import config, get_settings, trading_flags
 from src.utils.logger import logger
 from src.online_access import require_online_access
 from src.api.kis_api import HTTP
@@ -64,6 +64,53 @@ ORDER_SUBMISSION_ENABLED = (
     and (TRADING_ENV == "demo" or REAL_ORDERS_ENABLED)
 )
 
+
+def runtime_flags():
+    return trading_flags(get_settings())
+
+
+def sync_legacy_config_aliases() -> None:
+    global TRADING_ENV, DRY_RUN, ENABLE_LIVE_TRADING, REQUIRE_APPROVAL
+    global ONLINE_ACCESS_BLOCKED, REAL_ORDERS_ENABLED, ORDER_SUBMISSION_ENABLED
+    global SPLIT_N, STOP_LOSS_PCT, TAKE_PROFIT, RSI_BUY, RSI_SELL
+    global TOTAL_CAPITAL, MAX_POSITIONS, MAX_SINGLE_WEIGHT, CASH_BUFFER
+    global MAX_DAILY_LOSS_PCT, SCAN_UNIVERSE_SIZE
+    global BASE_URL, KISTOCK_APP_KEY, KISTOCK_APP_SECRET, KISTOCK_ACCOUNT
+
+    settings = get_settings()
+    flags = trading_flags(settings)
+    TRADING_ENV = flags.trading_env
+    DRY_RUN = flags.dry_run
+    ENABLE_LIVE_TRADING = flags.enable_live_trading
+    REQUIRE_APPROVAL = flags.require_approval
+    ONLINE_ACCESS_BLOCKED = flags.online_access_blocked
+    REAL_ORDERS_ENABLED = flags.real_orders_enabled
+    ORDER_SUBMISSION_ENABLED = flags.order_submission_enabled
+    SPLIT_N = settings.split_n
+    STOP_LOSS_PCT = settings.stop_loss_pct
+    TAKE_PROFIT = settings.take_profit
+    RSI_BUY = settings.rsi_buy
+    RSI_SELL = settings.rsi_sell
+    TOTAL_CAPITAL = settings.total_capital
+    MAX_POSITIONS = settings.max_positions
+    MAX_SINGLE_WEIGHT = settings.max_single_weight
+    CASH_BUFFER = settings.cash_buffer
+    MAX_DAILY_LOSS_PCT = settings.max_daily_loss_pct
+    SCAN_UNIVERSE_SIZE = settings.scan_universe_size
+    BASE_URL = (
+        "https://openapi.koreainvestment.com:9443"
+        if settings.trading_env == "real"
+        else "https://openapivts.koreainvestment.com:29443"
+    )
+    KISTOCK_APP_KEY = settings.kistock_app_key
+    KISTOCK_APP_SECRET = settings.kistock_app_secret
+    KISTOCK_ACCOUNT = settings.kistock_account
+    if "_LEGACY_SYNCED_VALUES" in globals():
+        _LEGACY_SYNCED_VALUES.update({
+            name: globals()[name]
+            for name in _LEGACY_SYNCED_VALUES
+        })
+
 RUNTIME_DIR = Path(".runtime")
 DB_PATH = Path(config.trade_db_path)
 
@@ -76,18 +123,50 @@ BASE_URL = (
 KISTOCK_APP_KEY = config.kistock_app_key
 KISTOCK_APP_SECRET = config.kistock_app_secret
 KISTOCK_ACCOUNT = config.kistock_account
+_LEGACY_SYNCED_VALUES = {
+    name: globals()[name]
+    for name in (
+        "TRADING_ENV",
+        "DRY_RUN",
+        "ENABLE_LIVE_TRADING",
+        "REQUIRE_APPROVAL",
+        "ONLINE_ACCESS_BLOCKED",
+        "REAL_ORDERS_ENABLED",
+        "ORDER_SUBMISSION_ENABLED",
+        "TOTAL_CAPITAL",
+        "MAX_DAILY_LOSS_PCT",
+        "BASE_URL",
+        "KISTOCK_APP_KEY",
+        "KISTOCK_APP_SECRET",
+        "KISTOCK_ACCOUNT",
+    )
+}
+
+
+def _runtime_value(alias: str, settings_value):
+    legacy_value = globals()[alias]
+    if legacy_value != _LEGACY_SYNCED_VALUES.get(alias):
+        return legacy_value
+    return settings_value
 _KIS_ORDER_THROTTLE_LOCK = threading.Lock()
 _KIS_ORDER_LAST_CALL = 0.0
 _KIS_ORDER_MIN_INTERVAL_SECONDS = float(os.environ.get("KIS_ORDER_MIN_INTERVAL_SECONDS", "2.0"))
 
 
 def build_kis_client_config() -> KISClientConfig:
+    settings = get_settings()
+    flags = trading_flags(settings)
+    base_url = (
+        "https://openapi.koreainvestment.com:9443"
+        if flags.trading_env == "real"
+        else "https://openapivts.koreainvestment.com:29443"
+    )
     return KISClientConfig(
-        base_url=BASE_URL,
-        app_key=KISTOCK_APP_KEY,
-        app_secret=KISTOCK_APP_SECRET,
-        account_no=KISTOCK_ACCOUNT,
-        trading_env=TRADING_ENV,
+        base_url=_runtime_value("BASE_URL", base_url),
+        app_key=_runtime_value("KISTOCK_APP_KEY", settings.kistock_app_key),
+        app_secret=_runtime_value("KISTOCK_APP_SECRET", settings.kistock_app_secret),
+        account_no=_runtime_value("KISTOCK_ACCOUNT", settings.kistock_account),
+        trading_env=_runtime_value("TRADING_ENV", flags.trading_env),
         token_cache_path=Path("data") / "kis_token.json",
     )
 
@@ -120,6 +199,11 @@ class KIStockAPI:
         require_online_access("KIS API access")
         self.notify_errors = notify_errors
         self.client_config = build_kis_client_config()
+        self.base_url = getattr(self.client_config, "base_url", BASE_URL)
+        self.app_key = getattr(self.client_config, "app_key", KISTOCK_APP_KEY)
+        self.app_secret = getattr(self.client_config, "app_secret", KISTOCK_APP_SECRET)
+        self.account_no = getattr(self.client_config, "account_no", KISTOCK_ACCOUNT)
+        self.trading_env = getattr(self.client_config, "trading_env", TRADING_ENV)
         self.access_token = self._load_or_fetch_token()
         self._client = KISClient(self.client_config, session=HTTP, access_token=self.access_token)
 
@@ -129,9 +213,9 @@ class KIStockAPI:
                 cached = json.loads(self.TOKEN_CACHE.read_text(encoding="utf-8"))
                 expires_at = datetime.fromisoformat(cached["expires_at"])
                 if (
-                    cached.get("trading_env") == TRADING_ENV
-                    and cached.get("base_url") == BASE_URL
-                    and cached.get("app_key_prefix") == KISTOCK_APP_KEY[:8]
+                    cached.get("trading_env") == self.trading_env
+                    and cached.get("base_url") == self.base_url
+                    and cached.get("app_key_prefix") == self.app_key[:8]
                     and expires_at > datetime.now() + timedelta(minutes=5)
                 ):
                     return cached["token"]
@@ -141,11 +225,11 @@ class KIStockAPI:
 
     def _fetch_token(self) -> str:
         r = HTTP.post(
-            f"{BASE_URL}/oauth2/tokenP",
+            f"{self.base_url}/oauth2/tokenP",
             json={
                 "grant_type": "client_credentials",
-                "appkey": KISTOCK_APP_KEY,
-                "appsecret": KISTOCK_APP_SECRET,
+                "appkey": self.app_key,
+                "appsecret": self.app_secret,
             },
             timeout=10,
         )
@@ -155,14 +239,14 @@ class KIStockAPI:
         expires_at = datetime.now() + timedelta(hours=23)
         self.TOKEN_CACHE.parent.mkdir(parents=True, exist_ok=True)
         import hashlib
-        app_key_hash = hashlib.sha256(KISTOCK_APP_KEY.encode("utf-8")).hexdigest()
+        app_key_hash = hashlib.sha256(self.app_key.encode("utf-8")).hexdigest()
         self.TOKEN_CACHE.write_text(
             json.dumps({
                 "token": token,
                 "expires_at": expires_at.isoformat(),
-                "trading_env": TRADING_ENV,
-                "base_url": BASE_URL,
-                "app_key_prefix": KISTOCK_APP_KEY[:8],
+                "trading_env": self.trading_env,
+                "base_url": self.base_url,
+                "app_key_prefix": self.app_key[:8],
                 "app_key_hash": app_key_hash,
             }),
             encoding="utf-8",
@@ -217,10 +301,10 @@ class KIStockAPI:
         }
 
     def get_balance(self) -> dict:
-        tr_id = "VTTC8434R" if TRADING_ENV == "demo" else "TTTC8434R"
-        url = f"{BASE_URL}/uapi/domestic-stock/v1/trading/inquire-balance"
-        cano = KISTOCK_ACCOUNT[:8]
-        acnt = KISTOCK_ACCOUNT[8:] if len(KISTOCK_ACCOUNT) > 8 else "01"
+        tr_id = "VTTC8434R" if self.trading_env == "demo" else "TTTC8434R"
+        url = f"{self.base_url}/uapi/domestic-stock/v1/trading/inquire-balance"
+        cano = self.account_no[:8]
+        acnt = self.account_no[8:] if len(self.account_no) > 8 else "01"
         params = {
             "CANO": cano, "ACNT_PRDT_CD": acnt,
             "AFHR_FLPR_YN": "N", "OFL_YN": "", "INQR_DVSN": "02",
@@ -244,7 +328,7 @@ class KIStockAPI:
         _kis_order_throttle()
         try:
             r = HTTP.get(
-                f"{BASE_URL}/uapi/domestic-stock/v1/quotations/inquire-price",
+                f"{self.base_url}/uapi/domestic-stock/v1/quotations/inquire-price",
                 headers=self._headers("FHKST01010100"),
                 params={"FID_COND_MRKT_DIV_CODE": "J", "FID_INPUT_ISCD": symbol},
                 timeout=10,
@@ -277,16 +361,22 @@ class KIStockAPI:
 
     def place_order(self, symbol: str, order_type: str, price: int, qty: int) -> dict:
         require_online_access("KIS order submission")
-        if not ORDER_SUBMISSION_ENABLED:
+        flags = trading_flags(get_settings())
+        # Settings is authoritative. The alias remains an explicit
+        # compatibility override for callers that still patch this module.
+        submission_enabled = (
+            flags.order_submission_enabled or bool(ORDER_SUBMISSION_ENABLED)
+        )
+        if not submission_enabled:
             return {"rt_cd": "0", "msg1": "DRY_RUN"}
-        is_demo = TRADING_ENV == "demo"
+        is_demo = self.trading_env == "demo"
         if order_type == "buy":
             tr_id = "VTTC0802U" if is_demo else "TTTC0802U"
         else:
             tr_id = "VTTC0801U" if is_demo else "TTTC0801U"
-        url = f"{BASE_URL}/uapi/domestic-stock/v1/trading/order-cash"
-        cano = KISTOCK_ACCOUNT[:8]
-        acnt = KISTOCK_ACCOUNT[8:] if len(KISTOCK_ACCOUNT) > 8 else "01"
+        url = f"{self.base_url}/uapi/domestic-stock/v1/trading/order-cash"
+        cano = self.account_no[:8]
+        acnt = self.account_no[8:] if len(self.account_no) > 8 else "01"
         body = {
             "CANO": cano,
             "ACNT_PRDT_CD": acnt,
@@ -311,10 +401,10 @@ class KIStockAPI:
             return {"rt_cd": "1", "msg1": str(e)}
 
     def get_trade_history(self, start_date: str, end_date: str) -> list:
-        tr_id = "VTTC0081R" if TRADING_ENV == "demo" else "TTTC0081R"
-        url = f"{BASE_URL}/uapi/domestic-stock/v1/trading/inquire-daily-ccld"
-        cano = KISTOCK_ACCOUNT[:8]
-        acnt = KISTOCK_ACCOUNT[8:] if len(KISTOCK_ACCOUNT) > 8 else "01"
+        tr_id = "VTTC0081R" if self.trading_env == "demo" else "TTTC0081R"
+        url = f"{self.base_url}/uapi/domestic-stock/v1/trading/inquire-daily-ccld"
+        cano = self.account_no[:8]
+        acnt = self.account_no[8:] if len(self.account_no) > 8 else "01"
         params = {
             "CANO": cano, "ACNT_PRDT_CD": acnt,
             "INQR_STRT_DT": start_date, "INQR_END_DT": end_date,
@@ -414,10 +504,16 @@ def init_approval_db() -> None:
 
 
 def daily_loss_halt_triggered(pnl: int) -> bool:
-    if TOTAL_CAPITAL <= 0:
+    settings = get_settings()
+    total_capital = _runtime_value("TOTAL_CAPITAL", settings.total_capital)
+    max_daily_loss_pct = _runtime_value(
+        "MAX_DAILY_LOSS_PCT",
+        settings.max_daily_loss_pct,
+    )
+    if total_capital <= 0:
         return False
-    loss_pct = abs(pnl) / TOTAL_CAPITAL * 100
-    return pnl < 0 and loss_pct >= MAX_DAILY_LOSS_PCT
+    loss_pct = abs(pnl) / total_capital * 100
+    return pnl < 0 and loss_pct >= max_daily_loss_pct
 
 
 def check_daily_loss(pnl: int) -> bool:
@@ -731,7 +827,7 @@ def build_runtime_plan(
                     score=candidate.get("score", 0),
                     reasons=candidate.get("reasons", []),
                     price=candidate.get("current_price", candidate.get("price", 0)),
-                    env=TRADING_ENV,
+                    env=get_settings().trading_env,
                     indicators=indicators
                 )
             if order:
@@ -780,6 +876,8 @@ def run(
     execution_categories: set[str] | None = None,
     force_strategy_id: str | None = None,
 ) -> dict:
+    settings = get_settings()
+    flags = trading_flags(settings)
     check_secrets()
     init_db()
     init_approval_db()
@@ -802,10 +900,14 @@ def run(
 
     logger.info("=" * 60)
     logger.info(
-        f"Seven Split started | DRY_RUN={DRY_RUN} | ENABLE_LIVE_TRADING={ENABLE_LIVE_TRADING} | ENV={TRADING_ENV}"
+        "Seven Split started | "
+        f"DRY_RUN={flags.dry_run} | "
+        f"ENABLE_LIVE_TRADING={flags.enable_live_trading} | "
+        f"ENV={flags.trading_env}"
     )
     logger.info(
-        f"Order submission enabled: {ORDER_SUBMISSION_ENABLED} | Real orders enabled: {REAL_ORDERS_ENABLED}"
+        f"Order submission enabled: {flags.order_submission_enabled} | "
+        f"Real orders enabled: {flags.real_orders_enabled}"
     )
     logger.info(f"Cash={cash:,} KRW | Total={total_eval:,} KRW | PnL={pnl:+,} KRW | Holdings={len(stocks)}")
 
@@ -813,8 +915,8 @@ def run(
         cash=cash,
         total=total_eval,
         stock_count=len(stocks),
-        order_submission_enabled=ORDER_SUBMISSION_ENABLED,
-        real_orders_enabled=REAL_ORDERS_ENABLED,
+        order_submission_enabled=flags.order_submission_enabled,
+        real_orders_enabled=flags.real_orders_enabled,
     )
 
     if check_daily_loss(pnl):

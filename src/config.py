@@ -1,7 +1,9 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from dataclasses import dataclass
 from typing import Optional
 from dotenv import load_dotenv
 import os
+import threading
 
 
 _TESTING = os.environ.get("HANSTOCK_TESTING") == "1"
@@ -92,3 +94,66 @@ class Settings(BaseSettings):
     )
 
 config = Settings()
+
+_settings_lock = threading.RLock()
+
+
+@dataclass(frozen=True)
+class TradingFlags:
+    trading_env: str
+    dry_run: bool
+    enable_live_trading: bool
+    require_approval: bool
+    online_access_blocked: bool
+    order_submission_enabled: bool
+    real_orders_enabled: bool
+
+
+def get_settings() -> Settings:
+    return config
+
+
+def trading_flags(settings: Settings | None = None) -> TradingFlags:
+    current = settings or get_settings()
+    real_orders_enabled = (
+        not current.online_access_blocked
+        and not current.dry_run
+        and current.trading_env == "real"
+        and current.enable_live_trading
+    )
+    order_submission_enabled = (
+        not current.online_access_blocked
+        and not current.dry_run
+        and (current.trading_env == "demo" or real_orders_enabled)
+    )
+    return TradingFlags(
+        trading_env=current.trading_env,
+        dry_run=current.dry_run,
+        enable_live_trading=current.enable_live_trading,
+        require_approval=current.require_approval,
+        online_access_blocked=current.online_access_blocked,
+        order_submission_enabled=order_submission_enabled,
+        real_orders_enabled=real_orders_enabled,
+    )
+
+
+def apply_env_updates(updates: dict[str, str]) -> Settings:
+    with _settings_lock:
+        previous = {key: os.environ.get(key) for key in updates}
+        try:
+            for key, value in updates.items():
+                os.environ[key] = str(value)
+            refreshed = Settings()
+        finally:
+            for key, value in previous.items():
+                if value is None:
+                    os.environ.pop(key, None)
+                else:
+                    os.environ[key] = value
+
+        field_names = set(Settings.model_fields)
+        for key in updates:
+            field_name = key.lower()
+            if field_name in field_names:
+                setattr(config, field_name, getattr(refreshed, field_name))
+        return config

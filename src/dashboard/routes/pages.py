@@ -8,11 +8,13 @@ import os
 import wave
 from pathlib import Path
 
-from fastapi import Body, HTTPException, Request
+from fastapi import APIRouter, Body, HTTPException, Request
 from fastapi.responses import FileResponse
 import src.dashboard.core as _core
 from src.dashboard.core import *
 globals().update({k: v for k, v in _core.__dict__.items() if not k.startswith('__')})
+
+router = APIRouter(tags=["pages"])
 
 VOICE_MODEL_CACHE = {}
 VOICE_SYSTEM_CAPTURE = {
@@ -27,40 +29,40 @@ VOICE_SYSTEM_CAPTURE = {
 VOICE_SYSTEM_LOCK = threading.Lock()
 VOICE_SYSTEM_CHUNK_SECONDS = int(os.environ.get("VOICE_SYSTEM_CHUNK_SECONDS", "15"))
 
-@app.get("/", response_class=FileResponse)
+@router.get("/", response_class=FileResponse)
 def read_root():
     return FileResponse(WEB_DIR / "templates" / "index.html")
 
 
 
 
-@app.get("/finrl", response_class=FileResponse)
+@router.get("/finrl", response_class=FileResponse)
 def read_finrl_dashboard():
     return FileResponse(WEB_DIR / "templates" / "finrl.html")
 
 
 
 
-@app.get("/vendors", response_class=FileResponse)
+@router.get("/vendors", response_class=FileResponse)
 def read_vendor_dashboard():
     return FileResponse(WEB_DIR / "templates" / "vendors.html")
 
 
 
 
-@app.get("/futures-signals", response_class=FileResponse)
+@router.get("/futures-signals", response_class=FileResponse)
 def read_futures_signals_dashboard():
     return FileResponse(WEB_DIR / "templates" / "futures_signals.html")
 
 
 
 
-@app.get("/env-settings", response_class=FileResponse)
+@router.get("/env-settings", response_class=FileResponse)
 def read_env_settings():
     return FileResponse(WEB_DIR / "templates" / "env_settings.html")
 
 
-@app.get("/voice-dashboard", response_class=FileResponse)
+@router.get("/voice-dashboard", response_class=FileResponse)
 def read_voice_dashboard():
     return FileResponse(WEB_DIR / "templates" / "voice_dashboard.html")
 
@@ -238,7 +240,7 @@ def _system_audio_state() -> dict:
         }
 
 
-@app.post("/api/voice/transcribe")
+@router.post("/api/voice/transcribe")
 async def transcribe_video_audio(request: Request):
     try:
         form = await request.form()
@@ -272,7 +274,7 @@ async def transcribe_video_audio(request: Request):
         )
 
 
-@app.post("/api/voice/transcribe-stream-chunk")
+@router.post("/api/voice/transcribe-stream-chunk")
 async def transcribe_stream_chunk(request: Request):
     body = await request.body()
     if len(body) < 512:
@@ -294,7 +296,7 @@ async def transcribe_stream_chunk(request: Request):
         )
 
 
-@app.post("/api/voice/system-audio/start")
+@router.post("/api/voice/system-audio/start")
 def start_system_audio_capture(language: str = ""):
     try:
         import soundcard  # noqa: F401
@@ -328,13 +330,13 @@ def start_system_audio_capture(language: str = ""):
     return _system_audio_state()
 
 
-@app.post("/api/voice/system-audio/stop")
+@router.post("/api/voice/system-audio/stop")
 def stop_system_audio_capture():
     with VOICE_SYSTEM_LOCK:
         VOICE_SYSTEM_CAPTURE["running"] = False
     return _system_audio_state()
 
 
-@app.get("/api/voice/system-audio/status")
+@router.get("/api/voice/system-audio/status")
 def system_audio_capture_status():
     return _system_audio_state()

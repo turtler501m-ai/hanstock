@@ -1,11 +1,13 @@
 # -*- coding: utf-8 -*-
-from fastapi import Body, HTTPException, Request
+from fastapi import APIRouter, Body, HTTPException, Request
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 import src.dashboard.core as _core
 from src.dashboard.core import *
 from src.utils.logger import logger
 globals().update({k: v for k, v in _core.__dict__.items() if not k.startswith('__')})
+
+router = APIRouter(tags=["stock"])
 
 class NewStrategyPayload(BaseModel):
     name: str = Field(..., min_length=1)
@@ -122,13 +124,13 @@ def _paper_result_from_payload(payload: PaperCompletePayload, strategy: dict) ->
     }
 
 
-@app.get("/api/ai-strategies")
+@router.get("/api/ai-strategies")
 def get_ai_strategies():
     from src.db.repository import load_ai_strategies
     return {"strategies": load_ai_strategies()}
 
 
-@app.get("/api/strategy-context")
+@router.get("/api/strategy-context")
 def get_strategy_context():
     from src.db.repository import load_ai_strategies
 
@@ -170,7 +172,7 @@ def get_strategy_context():
 
 
 
-@app.post("/api/ai-strategies")
+@router.post("/api/ai-strategies")
 def create_ai_strategy(payload: NewStrategyPayload):
     from src.db.repository import load_ai_strategies, normalize_ai_strategy, record_ai_strategy_event, save_ai_strategies
     import time
@@ -196,7 +198,7 @@ def create_ai_strategy(payload: NewStrategyPayload):
     return {"ok": True, "strategy": new_strat}
 
 
-@app.patch("/api/ai-strategies/{id}")
+@router.patch("/api/ai-strategies/{id}")
 def update_ai_strategy(id: str, payload: UpdateStrategyPayload):
     from src.db.repository import load_ai_strategies, normalize_ai_strategy, record_ai_strategy_event, save_ai_strategies
 
@@ -223,7 +225,7 @@ def update_ai_strategy(id: str, payload: UpdateStrategyPayload):
     return {"ok": True, "strategy": found}
 
 
-@app.delete("/api/ai-strategies/{id}")
+@router.delete("/api/ai-strategies/{id}")
 def delete_ai_strategy(id: str):
     from src.db.repository import load_ai_strategies, record_ai_strategy_event, save_ai_strategies
 
@@ -241,7 +243,7 @@ def delete_ai_strategy(id: str):
 
 
 
-@app.post("/api/ai-strategies/{id}/select")
+@router.post("/api/ai-strategies/{id}/select")
 def select_ai_strategy(id: str, payload: SelectStrategyPayload):
     from src.db.repository import load_ai_strategies, record_ai_strategy_event, save_ai_strategies
 
@@ -338,7 +340,7 @@ def _easy_strategy_preset(preset: str) -> dict:
     return item
 
 
-@app.post("/api/ai-strategy-presets/{preset}/apply")
+@router.post("/api/ai-strategy-presets/{preset}/apply")
 def apply_ai_strategy_preset(preset: str):
     from src.db.repository import load_ai_strategies, normalize_ai_strategy, record_ai_strategy_event, save_ai_strategies
     import json
@@ -394,7 +396,7 @@ def apply_ai_strategy_preset(preset: str):
     return {"ok": True, "preset": preset, "message": f"{preset_data['label']} 전략을 적용했습니다.", "strategy": strategy}
 
 
-@app.post("/api/ai-strategies/{id}/static-verify")
+@router.post("/api/ai-strategies/{id}/static-verify")
 def static_verify_ai_strategy(id: str):
     from src.db.repository import load_ai_strategies, record_ai_strategy_event, save_ai_strategies
 
@@ -419,7 +421,7 @@ def static_verify_ai_strategy(id: str):
     return {"ok": True, "result": result, "strategy": strategy}
 
 
-@app.post("/api/ai-strategies/{id}/verify")
+@router.post("/api/ai-strategies/{id}/verify")
 def verify_ai_strategy(id: str):
     from src.db.repository import load_ai_strategies, record_ai_strategy_event, save_ai_strategies
     from src.strategy.predict import ModelPredictor
@@ -498,7 +500,7 @@ def verify_ai_strategy(id: str):
         })
 
 
-@app.post("/api/ai-strategies/{id}/backtest")
+@router.post("/api/ai-strategies/{id}/backtest")
 def backtest_ai_strategy(id: str):
     from src.db.repository import load_ai_strategies, record_ai_strategy_event, save_ai_strategies
 
@@ -524,7 +526,7 @@ def backtest_ai_strategy(id: str):
     return {"ok": True, "result": result, "strategy": strategy}
 
 
-@app.post("/api/ai-strategies/{id}/evolve")
+@router.post("/api/ai-strategies/{id}/evolve")
 def evolve_ai_strategy(id: str):
     from src.strategy.evolve import evolve_strategy
     result = evolve_strategy(id)
@@ -533,7 +535,7 @@ def evolve_ai_strategy(id: str):
     return {"ok": True, "result": result}
 
 
-@app.post("/api/ai-strategies/{id}/paper/start")
+@router.post("/api/ai-strategies/{id}/paper/start")
 def start_ai_strategy_paper(id: str):
     from src.db.repository import load_ai_strategies, record_ai_strategy_event, save_ai_strategies
 
@@ -557,7 +559,7 @@ def start_ai_strategy_paper(id: str):
     return {"ok": True, "result": result, "strategy": strategy}
 
 
-@app.post("/api/ai-strategies/{id}/paper/complete")
+@router.post("/api/ai-strategies/{id}/paper/complete")
 def complete_ai_strategy_paper(id: str, payload: PaperCompletePayload | None = None):
     from src.db.repository import load_ai_strategies, record_ai_strategy_event, save_ai_strategies
 
@@ -581,7 +583,7 @@ def complete_ai_strategy_paper(id: str, payload: PaperCompletePayload | None = N
     return {"ok": True, "result": result, "strategy": strategy}
 
 
-@app.post("/api/ai-strategies/{id}/approve")
+@router.post("/api/ai-strategies/{id}/approve")
 def approve_ai_strategy(id: str):
     from src.db.repository import load_ai_strategies, record_ai_strategy_event, save_ai_strategies
 
@@ -605,7 +607,7 @@ def approve_ai_strategy(id: str):
     return {"ok": True, "strategy": found}
 
 
-@app.post("/api/ai-strategies/{id}/retire")
+@router.post("/api/ai-strategies/{id}/retire")
 def retire_ai_strategy(id: str):
     from src.db.repository import load_ai_strategies, record_ai_strategy_event, save_ai_strategies
 
@@ -624,7 +626,7 @@ def retire_ai_strategy(id: str):
     return {"ok": True, "strategy": found}
 
 
-@app.get("/api/ai-strategies/{id}/events")
+@router.get("/api/ai-strategies/{id}/events")
 def get_ai_strategy_events(id: str, limit: int = 100):
     from src.db.repository import get_ai_strategy_events, load_ai_strategies
 
@@ -633,7 +635,7 @@ def get_ai_strategy_events(id: str, limit: int = 100):
     return {"events": get_ai_strategy_events(id, limit=limit)}
 
 
-@app.get("/api/ai-strategies/{id}/performance")
+@router.get("/api/ai-strategies/{id}/performance")
 def get_ai_strategy_performance(id: str, days: int = 30):
     from src.db.repository import (
         get_ai_strategy_performance as load_performance,
@@ -647,7 +649,7 @@ def get_ai_strategy_performance(id: str, days: int = 30):
     return load_performance(id, days=days)
 
 
-@app.post("/api/ai-strategies/{id}/performance/review")
+@router.post("/api/ai-strategies/{id}/performance/review")
 def review_ai_strategy_performance(id: str, days: int = 30):
     from src.db.repository import load_ai_strategies, review_ai_strategy_performance as review_performance
 
@@ -658,7 +660,7 @@ def review_ai_strategy_performance(id: str, days: int = 30):
 
 
 
-@app.get("/api/watchlist")
+@router.get("/api/watchlist")
 def get_watchlist():
     from src.db.repository import load_watchlist_data, get_watchlist_extra_info
     from src.strategy.seven_split import STOCK_NAMES, STOCK_SECTORS
@@ -685,7 +687,7 @@ def get_watchlist():
 
 
 
-@app.post("/api/watchlist")
+@router.post("/api/watchlist")
 def add_to_watchlist(payload: WatchlistAddPayload):
     from src.db.repository import load_watchlist_data, save_watchlist_data
     from src.strategy.seven_split import sync_watchlist_runtime, STOCK_NAMES
@@ -710,7 +712,7 @@ def add_to_watchlist(payload: WatchlistAddPayload):
 
 
 
-@app.delete("/api/watchlist/{symbol}")
+@router.delete("/api/watchlist/{symbol}")
 def delete_from_watchlist(symbol: str):
     from src.db.repository import load_watchlist_data, save_watchlist_data
     from src.strategy.seven_split import sync_watchlist_runtime
@@ -728,7 +730,7 @@ def delete_from_watchlist(symbol: str):
 
 
 
-@app.post("/api/watchlist/toggle-auto")
+@router.post("/api/watchlist/toggle-auto")
 def toggle_watchlist_auto_add(payload: WatchlistTogglePayload):
     from src.db.repository import load_watchlist_data, save_watchlist_data
     
@@ -747,7 +749,7 @@ def toggle_watchlist_auto_add(payload: WatchlistTogglePayload):
 
 
 
-@app.get("/api/ai-allocation")
+@router.get("/api/ai-allocation")
 def get_ai_allocation():
     missing = _required_env_missing()
     if missing:
@@ -796,21 +798,21 @@ def get_ai_allocation():
 
 
 
-@app.get("/api/finrl/status")
+@router.get("/api/finrl/status")
 def get_finrl_status():
     return _vendor_status("finrl", VENDOR_PROJECTS["finrl"])
 
 
 
 
-@app.get("/api/vendors")
+@router.get("/api/vendors")
 def get_vendors():
     return {"vendors": [_vendor_status(slug, meta) for slug, meta in VENDOR_PROJECTS.items()]}
 
 
 
 
-@app.get("/api/vendors/{slug}")
+@router.get("/api/vendors/{slug}")
 def get_vendor(slug: str):
     if slug not in VENDOR_PROJECTS:
         raise HTTPException(status_code=404, detail="vendor not found")
@@ -819,7 +821,7 @@ def get_vendor(slug: str):
 
 
 
-@app.get("/api/finrl/pipeline")
+@router.get("/api/finrl/pipeline")
 def get_finrl_pipeline():
     return {
         "pipeline": [
@@ -862,7 +864,7 @@ def get_finrl_pipeline():
 
 
 
-@app.get("/api/approvals")
+@router.get("/api/approvals")
 def get_approvals(limit: int = 50):
     if limit < 1:
         raise HTTPException(status_code=400, detail="limit must be greater than 0")
@@ -880,7 +882,7 @@ def get_approvals(limit: int = 50):
 
 
 
-@app.post("/api/approvals")
+@router.post("/api/approvals")
 def create_approval(payload: dict = Body(...)):
     action = str(payload.get("action", "")).lower()
     if action not in {"buy", "sell"}:
@@ -930,7 +932,7 @@ def create_approval(payload: dict = Body(...)):
 
 
 
-@app.post("/api/holdings/sell-all")
+@router.post("/api/holdings/sell-all")
 def sell_all_holdings(payload: dict | None = Body(default=None)):
     missing = _required_env_missing()
     if missing:
@@ -977,14 +979,14 @@ def sell_all_holdings(payload: dict | None = Body(default=None)):
 
 
 
-@app.post("/api/approvals/{approval_id}/approve")
+@router.post("/api/approvals/{approval_id}/approve")
 def approve_order(approval_id: int):
     return _approve_pending_approval(approval_id, "수동승인")
 
 
 
 
-@app.post("/api/approvals/{approval_id}/reject")
+@router.post("/api/approvals/{approval_id}/reject")
 def reject_order(approval_id: int):
     _load_pending_approval(approval_id)
     now = trader.datetime.now(trader.KST).strftime("%Y-%m-%d %H:%M:%S")
@@ -998,7 +1000,7 @@ def reject_order(approval_id: int):
 
 
 
-@app.post("/api/trades/order-status/sync")
+@router.post("/api/trades/order-status/sync")
 def sync_trade_order_status(days: int = 30):
     if trader.DRY_RUN:
         raise HTTPException(status_code=400, detail="Order status sync requires DRY_RUN=false")
@@ -1012,7 +1014,7 @@ def sync_trade_order_status(days: int = 30):
 
 
 
-@app.post("/api/trades/sync")
+@router.post("/api/trades/sync")
 def sync_trades(days: int = 90):
     if trader.DRY_RUN:
         raise HTTPException(status_code=400, detail="紐⑥쓽 ?ㅽ뻾(DRY_RUN) 紐⑤뱶?먯꽌??利앷텒??怨꾩쥖 ?숆린?붾? ?ъ슜?????놁뒿?덈떎.")
@@ -1137,7 +1139,7 @@ def sync_trades(days: int = 90):
 
 
 
-@app.get("/api/trades")
+@router.get("/api/trades")
 def get_trades(limit: int = 50):
     try:
         cloud_trades = fetch_cloud_trades() or []
@@ -1182,7 +1184,7 @@ def get_trades(limit: int = 50):
 
 
 
-@app.get("/api/performance/periodic")
+@router.get("/api/performance/periodic")
 def get_periodic_performance():
     try:
         trades = _load_merged_trades()
@@ -1193,7 +1195,7 @@ def get_periodic_performance():
 
 
 
-@app.get("/api/performance")
+@router.get("/api/performance")
 def get_performance():
     try:
         trades = _account_trades(_load_merged_trades())
@@ -1334,7 +1336,7 @@ def get_performance():
 
 
 
-@app.get("/api/risk/status")
+@router.get("/api/risk/status")
 def get_risk_status():
     def _build():
         api = _get_api()
@@ -1369,7 +1371,7 @@ def get_risk_status():
 
 
 
-@app.get("/api/decisions/history")
+@router.get("/api/decisions/history")
 def get_decision_history(limit: int = 50):
     try:
         with trader.connect_db() as conn:
@@ -1388,7 +1390,7 @@ def get_decision_history(limit: int = 50):
 
 
 
-@app.post("/api/system/kill")
+@router.post("/api/system/kill")
 def activate_kill_switch():
     kill_file = Path(".runtime/kill_switch.json")
     kill_file.parent.mkdir(parents=True, exist_ok=True)
@@ -1398,7 +1400,7 @@ def activate_kill_switch():
 
 
 
-@app.post("/api/system/unkill")
+@router.post("/api/system/unkill")
 def deactivate_kill_switch():
     kill_file = Path(".runtime/kill_switch.json")
     if kill_file.exists():
@@ -1408,9 +1410,10 @@ def deactivate_kill_switch():
 
 
 
-@app.get("/api/scheduler/status")
+@router.get("/api/scheduler/status")
 def get_scheduler_status():
     global _scheduler_run_state
+    _dashboard_scheduler_service.refresh()
     
     config = {
         "cron_tz": os.environ.get("HANSTOCK_CRON_TZ", "Asia/Seoul"),
@@ -1465,7 +1468,7 @@ def get_scheduler_status():
 
 
 
-@app.post("/api/scheduler/run")
+@router.post("/api/scheduler/run")
 def trigger_scheduler_run(payload: dict = Body(...)):
     global _scheduler_run_state
     mode = str(payload.get("mode", "daily_auto")).lower()
@@ -1492,17 +1495,11 @@ def trigger_scheduler_run(payload: dict = Body(...)):
         except Exception:
             force_strategy_id = None
 
-    with _scheduler_running_lock:
-        if _scheduler_run_state["is_running"]:
-            raise HTTPException(status_code=409, detail="스케줄러가 이미 실행 중입니다.")
-
-        _scheduler_run_state["is_running"] = True
-        _scheduler_run_state["mode"] = mode
-        _scheduler_run_state["strategy_id"] = force_strategy_id
-        _scheduler_run_state["started_at"] = trader.datetime.now(trader.KST).isoformat()
-        _scheduler_run_state["completed_at"] = None
-        _scheduler_run_state["result"] = None
-        _scheduler_run_state["error"] = None
+    if not _dashboard_scheduler_service.claim(
+        mode=mode,
+        strategy_id=force_strategy_id,
+    ):
+        raise HTTPException(status_code=409, detail="스케줄러가 이미 실행 중입니다.")
 
     t = threading.Thread(
         target=_bg_run_scheduled_cycle,

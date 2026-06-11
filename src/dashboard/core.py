@@ -23,6 +23,7 @@ if os.environ.get("HANSTOCK_TESTING") != "1":
     load_dotenv()
 
 from src import trader  # noqa: E402
+from src.config import apply_env_updates  # noqa: E402
 from src.trader import KIStockAPI  # noqa: E402
 from src.api.kis_api import KISAccountError, KISConfigError, KISRateLimitError  # noqa: E402
 from src.api.quantconnect_api import QuantConnectAPI, QuantConnectCredentials  # noqa: E402
@@ -35,11 +36,32 @@ from src.futures_signals import (  # noqa: E402
 )
 from src.notifier.slack import slack_order as _slack_order, slack_error as _slack_error  # noqa: E402
 from src.online_access import OnlineAccessBlockedError  # noqa: E402
+from src.runtime_state import PersistentRuntimeState  # noqa: E402
+from src.dashboard.services.cache_service import DashboardCacheService  # noqa: E402
+from src.dashboard.services.futures_service import FuturesDashboardService  # noqa: E402
+from src.dashboard.services.scheduler_service import DashboardSchedulerService  # noqa: E402
+from src.dashboard.services.external_service import ExternalIntegrationService  # noqa: E402
 from src.strategy.seven_split import adjust_tick_size  # noqa: E402
 from src.utils.logger import logger  # noqa: E402
 
 
 app = FastAPI(title="Seven Split Dashboard", version="1.0.0")
+DashboardOperationError = (
+    OSError,
+    RuntimeError,
+    ValueError,
+    TypeError,
+    KeyError,
+    AttributeError,
+    ImportError,
+    sqlite3.Error,
+    subprocess.SubprocessError,
+    KISAccountError,
+    KISConfigError,
+    KISRateLimitError,
+    FuturesSignalParseError,
+    OnlineAccessBlockedError,
+)
 
 
 @app.exception_handler(OnlineAccessBlockedError)
@@ -269,6 +291,16 @@ def _public_value(name: str, default):
     return getattr(module, name, default)
 
 
+_external_integration_service = ExternalIntegrationService(
+    env_path_fn=lambda: _public_value("ENV_PATH", ENV_PATH),
+    auth_cache_path_fn=lambda: _public_value(
+        "QUANTCONNECT_AUTH_CACHE",
+        QUANTCONNECT_AUTH_CACHE,
+    ),
+    now_fn=lambda: trader.datetime.now(trader.KST),
+)
+
+
 def _required_env_missing() -> list[str]:
     override = _public_override("_required_env_missing", _required_env_missing)
     if override is not None:
@@ -402,23 +434,7 @@ def _account_cache_key() -> str:
 
 
 def _save_balance_cache(balance_data: dict) -> None:
-    envelope = {
-        "cached_at": trader.datetime.now(trader.KST).isoformat(),
-        "trading_env": trader.TRADING_ENV,
-        "account_key": _account_cache_key(),
-        "data": balance_data,
-    }
-    BALANCE_CACHE.parent.mkdir(parents=True, exist_ok=True)
-    BALANCE_CACHE.write_text(json.dumps(envelope, ensure_ascii=False), encoding="utf-8")
-    # DB write-through: 파일 캐시가 유실되어도 마지막 성공본을 DB에서 복구한다.
-    try:
-        from src.db.repository import save_account_snapshot
-
-        save_account_snapshot(
-            envelope["account_key"], envelope["trading_env"], "balance", envelope, envelope["cached_at"]
-        )
-    except Exception:
-        pass
+    _dashboard_cache_service.save_balance(balance_data)
 
 
 # 잔고(보유/현금)에 의존하는 탭 스냅샷들. 주문/매도 등으로 잔고가 바뀌면 함께 무효화한다.
@@ -431,55 +447,26 @@ _BALANCE_DERIVED_SNAPSHOT_KINDS = (
     "execution_plan",
 )
 
+_dashboard_cache_service = DashboardCacheService(
+    BALANCE_CACHE,
+    account_key_fn=_account_cache_key,
+    trading_env_fn=lambda: trader.TRADING_ENV,
+    captured_at_fn=lambda: trader.datetime.now(trader.KST).isoformat(),
+    derived_kinds=_BALANCE_DERIVED_SNAPSHOT_KINDS,
+)
+
 
 def _clear_balance_cache() -> None:
-    try:
-        BALANCE_CACHE.unlink(missing_ok=True)
-    except Exception:
-        pass
-    try:
-        from src.db.repository import delete_account_snapshot
-
-        for kind in _BALANCE_DERIVED_SNAPSHOT_KINDS:
-            delete_account_snapshot(_account_cache_key(), trader.TRADING_ENV, kind)
-    except Exception:
-        pass
+    _dashboard_cache_service.clear_balance()
 
 
 def _balance_envelope_to_data(cached) -> dict | None:
     """파일/DB 어느 쪽 envelope든 동일하게 검증해 잔고 data를 복원한다."""
-    if not isinstance(cached, dict):
-        return None
-    if cached.get("trading_env") != trader.TRADING_ENV:
-        return None
-    if cached.get("account_key") != _account_cache_key():
-        return None
-    data = cached.get("data")
-    if not isinstance(data, dict):
-        return None
-    data["_cache"] = {"stale": True, "cached_at": cached.get("cached_at", "")}
-    return data
+    return _dashboard_cache_service.balance_envelope_to_data(cached)
 
 
 def _load_balance_cache() -> dict | None:
-    # 1) 파일 캐시 우선
-    if BALANCE_CACHE.exists():
-        try:
-            data = _balance_envelope_to_data(json.loads(BALANCE_CACHE.read_text(encoding="utf-8")))
-            if data is not None:
-                return data
-        except Exception:
-            pass
-    # 2) DB 스냅샷 폴백 (.runtime 유실/재배포 등으로 파일이 없을 때)
-    try:
-        from src.db.repository import load_account_snapshot
-
-        snap = load_account_snapshot(_account_cache_key(), trader.TRADING_ENV, "balance")
-        if snap is not None:
-            return _balance_envelope_to_data(snap["payload"])
-    except Exception:
-        pass
-    return None
+    return _dashboard_cache_service.load_balance()
 
 
 def _snapshot_age_seconds(captured_at: str) -> float | None:
@@ -487,7 +474,7 @@ def _snapshot_age_seconds(captured_at: str) -> float | None:
         return None
     try:
         return (trader.datetime.now(trader.KST) - trader.datetime.fromisoformat(captured_at)).total_seconds()
-    except Exception:
+    except DashboardOperationError:
         return None
 
 
@@ -516,7 +503,7 @@ def snapshot_read_through(
     snap = None
     try:
         snap = load_account_snapshot(account_key, env, kind)
-    except Exception:
+    except DashboardOperationError:
         snap = None
 
     if snap is not None:
@@ -547,12 +534,12 @@ def snapshot_read_through(
         captured_at = trader.datetime.now(trader.KST).isoformat()
         try:
             save_account_snapshot(account_key, env, kind, payload, captured_at)
-        except Exception:
-            pass
+        except (sqlite3.DatabaseError, OSError, ValueError, TypeError) as exc:
+            logger.warning(f"Failed to persist {kind} snapshot: {exc}")
         result = dict(payload)
         result["_snapshot"] = {"stale": False, "captured_at": captured_at, "source": "live"}
         return result
-    except Exception as exc:
+    except DashboardOperationError as exc:
         if snap is not None:
             payload = dict(snap["payload"])
             payload["_snapshot"] = {
@@ -573,8 +560,8 @@ def invalidate_snapshot(kind: str, *, account_scoped: bool = True, env: str | No
         env = env or trader.TRADING_ENV
         account_key = _account_cache_key() if account_scoped else "_global_"
         delete_account_snapshot(account_key, env, kind)
-    except Exception:
-        pass
+    except (sqlite3.DatabaseError, OSError, ValueError, TypeError) as exc:
+        logger.warning(f"Failed to invalidate {kind} snapshot: {exc}")
 
 
 # ---------------------------------------------------------------------------
@@ -607,7 +594,7 @@ def _snapshot_refresher_loop() -> None:
     while not _snapshot_refresher_stop.wait(SNAPSHOT_REFRESH_INTERVAL_SECONDS):
         try:
             _refresh_balance_snapshot_once()
-        except Exception as exc:
+        except DashboardOperationError as exc:
             logger.warning(f"snapshot refresher: balance refresh failed: {exc}")
 
 
@@ -672,7 +659,7 @@ def _reclaim_stale_executing_approvals(max_age_seconds: int | None = None) -> in
                 (now.strftime("%Y-%m-%d %H:%M:%S"), cutoff),
             )
             return cursor.rowcount or 0
-    except Exception as exc:
+    except DashboardOperationError as exc:
         logger.warning(f"reclaim stale executing approvals failed: {exc}")
         return 0
 
@@ -694,7 +681,7 @@ def _auto_approval_sweeper_loop() -> None:
                     f"auto-approval sweeper: processed {len(processed)} pending "
                     f"({len(done)} executed)"
                 )
-        except Exception as exc:
+        except DashboardOperationError as exc:
             logger.warning(f"auto-approval sweeper failed: {exc}")
 
 
@@ -722,7 +709,7 @@ def _balance_cache_age_seconds(balance_data: dict) -> float | None:
         return None
     try:
         return (trader.datetime.now(trader.KST) - trader.datetime.fromisoformat(cached_at)).total_seconds()
-    except Exception:
+    except DashboardOperationError:
         return None
 
 
@@ -768,7 +755,7 @@ def _get_balance_data(api: KIStockAPI, allow_cache: bool = True) -> dict:
                 if cached is not None:
                     return cached
             raise
-        except Exception:
+        except DashboardOperationError:
             if allow_cache:
                 cached = _load_balance_cache()
                 if cached is not None:
@@ -776,7 +763,7 @@ def _get_balance_data(api: KIStockAPI, allow_cache: bool = True) -> dict:
             raise
         try:
             _parse_balance(balance_data)
-        except Exception:
+        except DashboardOperationError:
             if allow_cache:
                 cached = _load_balance_cache()
                 if cached is not None:
@@ -791,7 +778,7 @@ def _candidate_strategy_cache_signature(ranker: str) -> dict | None:
         from src.db.repository import load_ai_strategies
 
         strategy = next((item for item in load_ai_strategies() if item.get("id") == ranker), None)
-    except Exception:
+    except DashboardOperationError:
         strategy = None
     if not strategy:
         return None
@@ -834,8 +821,8 @@ def _load_candidate_cache(
             )
             if result is not None:
                 return result
-    except Exception:
-        pass
+    except (OSError, UnicodeError, json.JSONDecodeError, TypeError, ValueError) as exc:
+        logger.warning(f"Failed to read candidate cache: {exc}")
 
     # 2) DB 스냅샷 폴백 (.runtime 유실/재배포 등으로 파일이 없을 때)
     try:
@@ -846,8 +833,8 @@ def _load_candidate_cache(
         )
         if snap is not None:
             return _candidate_envelope_to_result(snap["payload"], min_score, ranker, optimizer)
-    except Exception:
-        pass
+    except (sqlite3.DatabaseError, OSError, ValueError, TypeError) as exc:
+        logger.warning(f"Failed to load candidate snapshot: {exc}")
     return None
 
 
@@ -941,8 +928,8 @@ def _save_candidate_cache(
             envelope,
             envelope["cached_at"],
         )
-    except Exception:
-        pass
+    except (sqlite3.DatabaseError, OSError, ValueError, TypeError) as exc:
+        logger.warning(f"Failed to persist candidate snapshot: {exc}")
 
 
 def build_dashboard_signals(api, parsed: dict) -> list[dict]:
@@ -1154,8 +1141,8 @@ def _init_approval_db() -> None:
             _ensure_column(conn, "approvals", "strategy_version", "INTEGER")
             _ensure_column(conn, "approvals", "profile_hash", "TEXT")
             _ensure_column(conn, "approvals", "source_candidate_id", "INTEGER")
-        except Exception:
-            pass
+        except sqlite3.DatabaseError as exc:
+            logger.warning(f"Failed to migrate approval columns: {exc}")
 
 
 def _approval_row(row) -> dict:
@@ -1174,13 +1161,13 @@ def _auto_approval_enabled() -> bool:
     try:
         from src.db.repository import load_auto_approval_state
         return load_auto_approval_state()
-    except Exception:
+    except DashboardOperationError:
         if not AUTO_APPROVAL_STATE.exists():
             return False
         try:
             state = json.loads(AUTO_APPROVAL_STATE.read_text(encoding="utf-8"))
             return bool(state.get("enabled"))
-        except Exception:
+        except DashboardOperationError:
             return False
 
 
@@ -1194,14 +1181,14 @@ def _save_auto_approval(enabled: bool) -> None:
             }, ensure_ascii=False),
             encoding="utf-8",
         )
-    except Exception:
-        pass
+    except (OSError, TypeError, ValueError) as exc:
+        logger.warning(f"Failed to persist auto approval file: {exc}")
         
     try:
         from src.db.repository import save_auto_approval_state
         save_auto_approval_state(enabled)
-    except Exception:
-        pass
+    except (sqlite3.DatabaseError, OSError, TypeError, ValueError) as exc:
+        logger.warning(f"Failed to persist auto approval state: {exc}")
 
 
 def _read_env_values(path: Path = ENV_PATH) -> dict[str, str]:
@@ -1299,62 +1286,34 @@ def _expand_virtual_env_updates(updates: dict[str, str]) -> dict[str, str]:
 
 
 def _apply_runtime_env_updates(updates: dict[str, str]) -> None:
+    previous_account = trader.config.kistock_account
+    previous_app_key = trader.config.kistock_app_key
+    previous_app_secret = trader.config.kistock_app_secret
+    apply_env_updates({
+        key: value
+        for key, value in updates.items()
+        if not key.startswith("MISTOCK_") and key != "USDKRW_FALLBACK_RATE"
+    })
+    trader.sync_legacy_config_aliases()
+
+    credentials_changed = (
+        previous_account != trader.config.kistock_account
+        or previous_app_key != trader.config.kistock_app_key
+        or previous_app_secret != trader.config.kistock_app_secret
+    )
+    if previous_account != trader.config.kistock_account:
+        _clear_balance_cache()
+    if credentials_changed:
+        (Path("data") / "kis_token.json").unlink(missing_ok=True)
+        try:
+            import src.mistock.trader as mistock_trader
+        except ImportError:
+            mistock_trader = None
+        if mistock_trader is not None:
+            mistock_trader._kis_client_cache = None
+
     for key, value in updates.items():
-        if key == "TRADING_ENV":
-            trader.config.trading_env = value
-            trader.TRADING_ENV = value
-        elif key == "KISTOCK_ACCOUNT":
-            trader.config.kistock_account = value
-            trader.KISTOCK_ACCOUNT = value
-            _clear_balance_cache()
-            try:
-                from pathlib import Path
-                Path("data/kis_token.json").unlink(missing_ok=True)
-            except Exception:
-                pass
-            try:
-                import src.mistock.trader as mistock_trader
-                mistock_trader._kis_client_cache = None
-            except Exception:
-                pass
-        elif key == "KISTOCK_APP_KEY":
-            trader.config.kistock_app_key = value
-            try:
-                from pathlib import Path
-                Path("data/kis_token.json").unlink(missing_ok=True)
-            except Exception:
-                pass
-            try:
-                import src.mistock.trader as mistock_trader
-                mistock_trader._kis_client_cache = None
-            except Exception:
-                pass
-        elif key == "KISTOCK_APP_SECRET":
-            trader.config.kistock_app_secret = value
-            try:
-                from pathlib import Path
-                Path("data/kis_token.json").unlink(missing_ok=True)
-            except Exception:
-                pass
-            try:
-                import src.mistock.trader as mistock_trader
-                mistock_trader._kis_client_cache = None
-            except Exception:
-                pass
-        elif key == "DRY_RUN":
-            parsed = _env_bool_value({"value": value}, "value")
-            trader.config.dry_run = parsed
-            trader.DRY_RUN = parsed
-        elif key == "ENABLE_LIVE_TRADING":
-            parsed = _env_bool_value({"value": value}, "value")
-            trader.config.enable_live_trading = parsed
-            trader.ENABLE_LIVE_TRADING = parsed
-        elif key == "ONLINE_ACCESS_BLOCKED":
-            parsed = _env_bool_value({"value": value}, "value")
-            os.environ["ONLINE_ACCESS_BLOCKED"] = "true" if parsed else "false"
-            trader.config.online_access_blocked = parsed
-            trader.ONLINE_ACCESS_BLOCKED = parsed
-        elif key == "MISTOCK_TRADING_ENV":
+        if key == "MISTOCK_TRADING_ENV":
             from src.mistock.config import config as mistock_config
             mistock_config.trading_env = value
         elif key == "MISTOCK_DRY_RUN":
@@ -1394,17 +1353,6 @@ def _apply_runtime_env_updates(updates: dict[str, str]) -> None:
             except (ValueError, ImportError):
                 pass
 
-    trader.REAL_ORDERS_ENABLED = (
-        (not trader.ONLINE_ACCESS_BLOCKED)
-        and (not trader.DRY_RUN)
-        and trader.TRADING_ENV == "real"
-        and trader.ENABLE_LIVE_TRADING
-    )
-    trader.ORDER_SUBMISSION_ENABLED = (
-        (not trader.ONLINE_ACCESS_BLOCKED)
-        and (not trader.DRY_RUN)
-        and (trader.TRADING_ENV == "demo" or trader.REAL_ORDERS_ENABLED)
-    )
 
 
 STRATEGY_ENV_BINDINGS = {
@@ -1559,7 +1507,7 @@ def _is_poll_running() -> bool:
             if any('poll.py' in str(c) for c in cmdline):
                 return True
         return False
-    except Exception:
+    except DashboardOperationError:
         # psutil 없으면 상태 파일로 확인
         state_file = Path(".runtime/poll_running")
         return state_file.exists()
@@ -1685,80 +1633,21 @@ def _futures_signal_record_to_api(record) -> dict:
     }
 
 
+_futures_dashboard_service = FuturesDashboardService(
+    lambda: trader.datetime.now(trader.KST)
+)
+
+
 def _db_futures_signal_to_api(row: dict) -> dict:
-    direction = str(row.get("direction") or "").lower()
-    is_exit = direction == "exit"
-    message_id = str(row.get("message_id") or row.get("id") or "")
-    channel_key = str(row.get("channel_key") or "telegram")
-    confidence = row.get("confidence")
-    try:
-        confidence_value = float(confidence) if confidence is not None else 0.65
-    except (TypeError, ValueError):
-        confidence_value = 0.65
-    target_price = row.get("target_price")
-    targets = [] if target_price in (None, "") else [target_price]
-    status = "parsed"
-    return {
-        "id": f"{channel_key}-{message_id}",
-        "internal_id": f"{channel_key}-{message_id}",
-        "received_at": row.get("message_date"),
-        "source": channel_key,
-        "channel": channel_key,
-        "symbol": row.get("symbol") or "-",
-        "market": _futures_market_name(str(row.get("symbol") or "")),
-        "side": "exit" if is_exit else ("buy" if direction == "long" else "sell"),
-        "direction": direction or "-",
-        "entry": row.get("entry_price"),
-        "entry_price": row.get("entry_price"),
-        "stop": row.get("stop_loss"),
-        "stop_loss": row.get("stop_loss"),
-        "targets": targets,
-        "take_profit_1": target_price,
-        "confidence": confidence_value,
-        "parse_status": status,
-        "status": status,
-        "verification_status": "pending",
-        "verification": {
-            "status": "pending",
-            "outcome": "pending",
-            "hit_at": None,
-            "hit_price": None,
-            "hit_target_index": None,
-            "reason": row.get("notes") or "",
-            "rule_match": True,
-            "risk_reward": None,
-            "duplicate": False,
-            "requires_manual_review": False,
-        },
-        "raw_text": row.get("raw_text") or "",
-    }
+    return _futures_dashboard_service.db_signal_to_api(row)
 
 
 def _list_db_futures_signals(limit: int | None = 100) -> list[dict]:
-    try:
-        from src.futures_signals import db as futures_signals_db
-
-        rows = futures_signals_db.list_signals(limit=limit or 500)
-    except Exception:
-        return []
-    return [_db_futures_signal_to_api(row) for row in rows]
+    return _futures_dashboard_service.list_persisted_signals(limit)
 
 
 def _futures_market_name(symbol: str) -> str:
-    letters = "".join(char for char in symbol if char.isalpha())
-    has_contract_year = any(char.isdigit() for char in symbol)
-    root = letters[:-1] if has_contract_year and len(letters) > 1 else letters
-    names = {
-        "MNQ": "CME Micro E-mini Nasdaq-100",
-        "NQ": "CME E-mini Nasdaq-100",
-        "MES": "CME Micro E-mini S&P 500",
-        "ES": "CME E-mini S&P 500",
-        "MCL": "NYMEX Micro WTI Crude Oil",
-        "CL": "NYMEX WTI Crude Oil",
-        "MGC": "COMEX Micro Gold",
-        "GC": "COMEX Gold",
-    }
-    return names.get(root, "Overseas futures")
+    return _futures_dashboard_service.market_name(symbol)
 
 
 def _find_futures_signal_record(public_or_internal_id: str):
@@ -1773,80 +1662,19 @@ def _find_futures_signal_record(public_or_internal_id: str):
 
 
 def _futures_signals_summary(records: list, *, telegram_connected: bool = False) -> dict:
-    signals = [
-        _futures_signal_record_to_api(record) if not isinstance(record, dict) else record
-        for record in records
-    ]
-    status_counts = {}
-    for signal in signals:
-        status = signal["status"]
-        status_counts[status] = status_counts.get(status, 0) + 1
-    latest = max((signal["received_at"] for signal in signals if signal.get("received_at")), default=None)
-    total = len(signals)
-    verified = status_counts.get("verified", 0)
-    needs_review = (
-        status_counts.get("needs_review", 0)
-        + status_counts.get("pending", 0)
-        + status_counts.get("parsed", 0)
+    return _futures_dashboard_service.summarize(
+        records,
+        converter=_futures_signal_record_to_api,
+        telegram_connected=telegram_connected,
     )
-    rejected = status_counts.get("rejected", 0)
-    confidence_values = [signal["confidence"] for signal in signals if signal.get("confidence") is not None]
-    avg_confidence = sum(confidence_values) / len(confidence_values) if confidence_values else None
-    win_rate = verified / (verified + rejected) if (verified + rejected) > 0 else None
-    return {
-        "as_of": trader.datetime.now(trader.KST).isoformat(),
-        "source": "service",
-        "telegram_connected": telegram_connected,
-        "total": total,
-        "verified": verified,
-        "needs_review": needs_review,
-        "rejected": rejected,
-        "parse_success_rate": 1.0 if total else None,
-        "win_rate": win_rate,
-        "avg_parse_confidence": avg_confidence,
-        "avg_pnl_points": None,
-        "status_counts": status_counts,
-        "latest_signal_at": latest,
-        "performance": {
-            "labels": [str(signal.get("received_at") or "")[11:16] for signal in signals[:20]][::-1],
-            "pnl": [0 for _ in signals[:20]][::-1],
-            "win_rate": [0 for _ in signals[:20]][::-1],
-        },
-    }
 
 
 def _read_json_file(path: Path, default):
-    if not path.exists():
-        return default
-    try:
-        return json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return default
+    return _external_integration_service.read_json(path, default)
 
 
 def _quantconnect_auth_status(credentials: QuantConnectCredentials) -> dict:
-    now = trader.datetime.now(trader.KST)
-    cached = _read_json_file(QUANTCONNECT_AUTH_CACHE, {})
-    if not isinstance(cached, dict):
-        cached = {}
-    cached_at = cached.get("checked_at")
-    if cached_at:
-        try:
-            age = (now - trader.datetime.fromisoformat(cached_at)).total_seconds()
-        except ValueError:
-            age = None
-        if age is not None and age < 300:
-            status = cached.get("status", {})
-            if status:
-                return {**status, "cached": True}
-
-    status = QuantConnectAPI(credentials).authenticate(timeout=5.0)
-    QUANTCONNECT_AUTH_CACHE.parent.mkdir(parents=True, exist_ok=True)
-    QUANTCONNECT_AUTH_CACHE.write_text(
-        json.dumps({"checked_at": now.isoformat(), "status": status}, ensure_ascii=False),
-        encoding="utf-8",
-    )
-    return {**status, "cached": False}
+    return _external_integration_service.quantconnect_auth_status(credentials)
 
 
 def _first_item(value):
@@ -2169,12 +1997,7 @@ def _quantconnect_credentials() -> QuantConnectCredentials:
     override = _public_override("_quantconnect_credentials", _quantconnect_credentials)
     if override is not None:
         return override()
-    load_dotenv(dotenv_path=_public_value("ENV_PATH", ENV_PATH), override=True)
-    return QuantConnectCredentials(
-        user_id=os.environ.get("QUANTCONNECT_USER_ID") or os.environ.get("QC_USER_ID") or "",
-        api_token=os.environ.get("QUANTCONNECT_API_TOKEN") or os.environ.get("QC_API_TOKEN") or "",
-        project_id=os.environ.get("QUANTCONNECT_PROJECT_ID") or os.environ.get("QC_PROJECT_ID") or "",
-    )
+    return _external_integration_service.quantconnect_credentials()
 
 
 def _quantconnect_mnq_deploy(payload: dict | None = None) -> dict:
@@ -2431,7 +2254,7 @@ async def run_futures_signal_collector(payload: dict | None = Body(default=None)
     limit = max(1, min(int(payload.get("limit_per_channel", 50) or 50), 200))
     try:
         messages = await TelegramSignalCollector().fetch_recent_messages(limit_per_channel=limit)
-    except Exception as exc:
+    except DashboardOperationError as exc:
         raise HTTPException(status_code=500, detail=str(exc))
 
     from src.futures_signals import db as futures_signals_db
@@ -2456,8 +2279,8 @@ async def run_futures_signal_collector(payload: dict | None = Body(default=None)
             try:
                 from src.futures_signals.parser import parse_signal
                 parsed = parse_signal(raw_text)
-            except Exception:
-                pass
+            except (FuturesSignalParseError, TypeError, ValueError) as exc:
+                logger.warning(f"Failed to parse collected futures signal: {exc}")
 
             inserted = futures_signals_db.insert_signal(
                 channel_key=channel,
@@ -2474,7 +2297,7 @@ async def run_futures_signal_collector(payload: dict | None = Body(default=None)
             )
             if inserted:
                 ingested += 1
-        except Exception as exc:
+        except DashboardOperationError as exc:
             parse_errors.append({
                 "telegram_message_id": message.get("telegram_message_id"),
                 "error": str(exc),
@@ -2618,7 +2441,7 @@ async def trigger_watchlist_ai_scan():
             "added_count": len(added_symbols),
             "added_symbols": added_symbols
         }
-    except Exception as e:
+    except DashboardOperationError as e:
         logger.error(f"Failed to manually trigger watchlist AI scan: {e}")
         raise HTTPException(status_code=500, detail=f"AI 스캔 및 자동추가 실행 중 오류 발생: {str(e)}")
 
@@ -2637,7 +2460,7 @@ async def get_signals():
 
     try:
         return snapshot_read_through("signals", _build)
-    except Exception as e:
+    except DashboardOperationError as e:
         raise HTTPException(status_code=502, detail=f"Signal analysis failed: {e}") from e
 
 
@@ -2793,11 +2616,11 @@ async def get_candidates(
                     if needs_save:
                         save_watchlist_data(watchlist_data)
                         sync_watchlist_runtime()
-            except Exception as w_err:
+            except DashboardOperationError as w_err:
                 logger.warning(f"Failed to auto-add high score candidate to watchlist: {w_err}")
                 
         return payload
-    except Exception as e:
+    except DashboardOperationError as e:
         raise HTTPException(status_code=502, detail=f"Candidate scan failed: {e}") from e
 
 
@@ -2808,7 +2631,7 @@ async def get_candidates_history(limit: int = 100, days: int = 30):
         from src.db.repository import get_scanned_candidates_history
         history = get_scanned_candidates_history(limit=limit, days=days)
         return {"history": history}
-    except Exception as e:
+    except DashboardOperationError as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -2818,7 +2641,7 @@ async def refresh_candidate_forward_returns(limit: int = 500):
         from src.db.repository import refresh_scanned_candidate_forward_returns
 
         return refresh_scanned_candidate_forward_returns(limit=limit)
-    except Exception as e:
+    except DashboardOperationError as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -2833,7 +2656,7 @@ async def delete_candidate_history(candidate_id: int):
         return {"ok": True, "deleted_count": deleted_count}
     except HTTPException:
         raise
-    except Exception as e:
+    except DashboardOperationError as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -2845,7 +2668,7 @@ async def get_execution_plan():
         raise HTTPException(status_code=503, detail=f"Missing environment variables: {', '.join(missing)}")
     try:
         return snapshot_read_through("execution_plan", build_dashboard_execution_plan)
-    except Exception as e:
+    except DashboardOperationError as e:
         raise HTTPException(status_code=502, detail=f"Execution plan failed: {e}") from e
 
 
@@ -2913,7 +2736,7 @@ def _approval_response_msg(result: dict, *, ok: bool) -> str:
 def _current_holding_qty_from_balance(api, symbol: str) -> int:
     try:
         parsed = _parse_balance(_get_balance_data(api, allow_cache=True))
-    except Exception:
+    except DashboardOperationError:
         return 0
     for holding in parsed.get("holdings", []):
         if str(holding.get("symbol") or "") == str(symbol):
@@ -2981,7 +2804,7 @@ def _approve_pending_approval(approval_id: int, approval_label: str = "수동승
             profile_hash=item.get("profile_hash"),
             source_approval_id=approval_id,
         )
-    except Exception as e:
+    except DashboardOperationError as e:
         status = "failed"
         response_msg = str(e)
 
@@ -3002,8 +2825,8 @@ def _approve_pending_approval(approval_id: int, approval_label: str = "수동승
             status == "executed",
             indicators,
         )
-    except Exception:
-        pass
+    except (OSError, RuntimeError, TypeError, ValueError) as exc:
+        logger.warning(f"Failed to send approval notification: {exc}")
 
     # 주문이 실제 체결/제출되었으면 잔고가 바뀌므로 잔고·파생 탭 스냅샷을 무효화해
     # 다음 read에서 최신 상태를 다시 받아오게 한다.
@@ -3045,7 +2868,7 @@ def fetch_cloud_trades():
         _cloud_trades_cache = trades
         _cloud_trades_cache_time = time.time()
         return [dict(t) for t in trades]
-    except Exception as e:
+    except DashboardOperationError as e:
         if _cloud_trades_cache is not None:
             return [dict(t) for t in _cloud_trades_cache]
         return []
@@ -3449,7 +3272,7 @@ def _sync_order_status_from_history(api, *, days: int = MIN_ORDER_HISTORY_SYNC_D
     start_date, end_date = _order_history_window(days)
     try:
         history = api.get_trade_history(start_date, end_date)
-    except Exception as exc:
+    except DashboardOperationError as exc:
         fallback = _sync_order_status_from_balance(api, tracked, reason=str(exc))
         return {
             **fallback,
@@ -3510,7 +3333,7 @@ def _sync_order_status_from_history(api, *, days: int = MIN_ORDER_HISTORY_SYNC_D
 def _sync_order_status_from_balance(api, tracked: list[dict], *, reason: str = "") -> dict:
     try:
         parsed = _parse_balance(_get_balance_data(api, allow_cache=False))
-    except Exception as exc:
+    except DashboardOperationError as exc:
         return {
             "ok": False,
             "checked_count": len(tracked),
@@ -3635,7 +3458,7 @@ async def get_paper_performance():
             "executions": executions,
             "demo": True,
         }
-    except Exception as e:
+    except DashboardOperationError as e:
         return {"status": "error", "message": str(e), "demo": True}
 
 
@@ -3657,7 +3480,7 @@ async def get_live_performance():
             "positions": positions,
             "demo": False,
         }
-    except Exception as e:
+    except DashboardOperationError as e:
         return {"status": "error", "message": str(e), "demo": False}
 
 
@@ -3707,7 +3530,7 @@ async def telegram_auth_start(request: Request):
         }
         await client.disconnect()
         return {"ok": True, "message": f"{phone}으로 인증 코드가 발송되었습니다"}
-    except Exception as e:
+    except DashboardOperationError as e:
         return {"ok": False, "error": str(e)}
 
 
@@ -3748,7 +3571,7 @@ async def telegram_auth_verify(request: Request):
 
         _telegram_auth_state = {"step": "authenticated"}
         return {"ok": True, "message": "Telegram 인증이 완료되었습니다. 서버를 재시작하거나 폴링을 수동으로 시작하세요."}
-    except Exception as e:
+    except DashboardOperationError as e:
         return {"ok": False, "error": str(e)}
 
 
@@ -3757,35 +3580,20 @@ async def telegram_auth_verify(request: Request):
 # Scheduler Run and Status Management APIs
 # ----------------------------------------------------
 
-_scheduler_running_lock = threading.Lock()
-_scheduler_run_state = {
-    "is_running": False,
-    "mode": None,
-    "strategy_id": None,
-    "started_at": None,
-    "completed_at": None,
-    "result": None,
-    "error": None
-}
+_dashboard_scheduler_service = DashboardSchedulerService(
+    "domestic_scheduler",
+    now_fn=lambda: trader.datetime.now(trader.KST).isoformat(),
+)
+_scheduler_running_lock = _dashboard_scheduler_service.lock
+_scheduler_run_state = _dashboard_scheduler_service.state
 
 def _bg_run_scheduled_cycle(mode: str, include_ai_rebalance: bool, auto_approve: bool, force_strategy_id: str | None = None):
-    global _scheduler_run_state
-    try:
-        from src.scheduler import run_scheduled_cycle
-        result = run_scheduled_cycle(
-            mode=mode,
-            include_ai_rebalance=include_ai_rebalance,
-            auto_approve=auto_approve,
-            force_strategy_id=force_strategy_id
-        )
-        with _scheduler_running_lock:
-            _scheduler_run_state["is_running"] = False
-            _scheduler_run_state["completed_at"] = trader.datetime.now(trader.KST).isoformat()
-            _scheduler_run_state["result"] = result
-            _scheduler_run_state["error"] = None
-    except Exception as e:
-        with _scheduler_running_lock:
-            _scheduler_run_state["is_running"] = False
-            _scheduler_run_state["completed_at"] = trader.datetime.now(trader.KST).isoformat()
-            _scheduler_run_state["result"] = None
-            _scheduler_run_state["error"] = str(e)
+    from src.scheduler import run_scheduled_cycle
+
+    _dashboard_scheduler_service.run(
+        run_scheduled_cycle,
+        mode=mode,
+        include_ai_rebalance=include_ai_rebalance,
+        auto_approve=auto_approve,
+        strategy_id=force_strategy_id,
+    )

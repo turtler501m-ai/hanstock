@@ -1,9 +1,11 @@
 # -*- coding: utf-8 -*-
-from fastapi import Body, HTTPException, Request
+from fastapi import APIRouter, Body, HTTPException, Request
 from fastapi.responses import FileResponse
 import src.dashboard.core as _core
 from src.dashboard.core import *
 globals().update({k: v for k, v in _core.__dict__.items() if not k.startswith('__')})
+
+router = APIRouter(tags=["settings"])
 
 _kis_websocket_client = None
 _kis_websocket_lock = threading.Lock()
@@ -50,13 +52,13 @@ def _stop_kis_websocket() -> dict:
         return {"ok": True, **_kis_websocket_status()}
 
 
-@app.on_event("startup")
+@router.on_event("startup")
 def start_kis_websocket_if_enabled():
     if bool(getattr(trader.config, "kis_websocket_enabled", False)):
         _start_kis_websocket()
 
 
-@app.on_event("startup")
+@router.on_event("startup")
 def start_snapshot_refresher_if_enabled():
     # DASHBOARD_SNAPSHOT_REFRESH_ENABLED=true일 때만 백그라운드로 DB 스냅샷을 데운다.
     try:
@@ -65,7 +67,7 @@ def start_snapshot_refresher_if_enabled():
         pass
 
 
-@app.on_event("startup")
+@router.on_event("startup")
 def start_auto_approval_sweeper_on_boot():
     # 자동승인 토글이 켜져 있으면 cron이 만든 대기 승인도 주기적으로 일괄 처리한다.
     try:
@@ -173,7 +175,7 @@ def _current_env_field_value(key: str, raw_values: dict[str, str]) -> str:
     return "" if value is None else str(value)
 
 
-@app.get("/api/config")
+@router.get("/api/config")
 def get_config():
     return {
         "trading_env": trader.TRADING_ENV,
@@ -210,7 +212,7 @@ def get_config():
 
 
 
-@app.get("/api/env")
+@router.get("/api/env")
 def get_env_settings():
     env_path = _public_value("ENV_PATH", ENV_PATH)
     values = _read_env_values(env_path)
@@ -264,7 +266,7 @@ def get_env_settings():
 
 
 
-@app.post("/api/env")
+@router.post("/api/env")
 def update_env_settings(payload: dict = Body(...)):
     raw_updates = payload.get("values")
     if not isinstance(raw_updates, dict):
@@ -295,7 +297,7 @@ def update_env_settings(payload: dict = Body(...)):
 
 
 
-@app.post("/api/circuit-breaker/reset")
+@router.post("/api/circuit-breaker/reset")
 def reset_circuit_breaker():
     KIStockAPI.reset_circuit()
     return {"ok": True, "circuit_breaker": KIStockAPI.circuit_status()}
@@ -303,7 +305,7 @@ def reset_circuit_breaker():
 
 
 
-@app.post("/api/auto-approval")
+@router.post("/api/auto-approval")
 def set_auto_approval(payload: dict = Body(...)):
     enabled = bool(payload.get("enabled"))
     _save_auto_approval(enabled)
@@ -313,7 +315,7 @@ def set_auto_approval(payload: dict = Body(...)):
 
 
 
-@app.post("/api/runtime/order-mode")
+@router.post("/api/runtime/order-mode")
 def set_runtime_order_mode(payload: dict = Body(...)):
     key = str(payload.get("key", "")).strip()
     enabled = bool(payload.get("enabled"))
@@ -333,7 +335,7 @@ def set_runtime_order_mode(payload: dict = Body(...)):
     }
 
 
-@app.get("/api/kis/condition-search/list")
+@router.get("/api/kis/condition-search/list")
 def get_kis_condition_search_list(user_id: str | None = None):
     from src.online_access import require_online_access
 
@@ -345,7 +347,7 @@ def get_kis_condition_search_list(user_id: str | None = None):
     return {"ok": True, "user_id": lookup_user_id, "conditions": api.get_condition_search_list(lookup_user_id)}
 
 
-@app.get("/api/kis/condition-search/result")
+@router.get("/api/kis/condition-search/result")
 def get_kis_condition_search_result(
     seq: str | None = None,
     name: str | None = None,
@@ -366,12 +368,12 @@ def get_kis_condition_search_result(
     return {"ok": True, "user_id": lookup_user_id, "seq": condition_seq, "name": condition_name, "codes": codes, "count": len(codes)}
 
 
-@app.get("/api/kis/websocket/status")
+@router.get("/api/kis/websocket/status")
 def get_kis_websocket_status():
     return {"ok": True, **_kis_websocket_status()}
 
 
-@app.post("/api/kis/websocket/start")
+@router.post("/api/kis/websocket/start")
 def start_kis_websocket():
     from src.online_access import require_online_access
 
@@ -383,12 +385,12 @@ def start_kis_websocket():
     return _start_kis_websocket()
 
 
-@app.post("/api/kis/websocket/stop")
+@router.post("/api/kis/websocket/stop")
 def stop_kis_websocket():
     return _stop_kis_websocket()
 
 
-@app.post("/api/kis/websocket/subscribe")
+@router.post("/api/kis/websocket/subscribe")
 def subscribe_kis_websocket(payload: dict = Body(...)):
     from src.online_access import require_online_access
 
@@ -409,7 +411,7 @@ def subscribe_kis_websocket(payload: dict = Body(...)):
     return {"ok": True, **_kis_websocket_status()}
 
 
-@app.post("/api/kis/orders/cancel")
+@router.post("/api/kis/orders/cancel")
 def cancel_kis_stock_order(payload: dict = Body(...)):
     from src.online_access import require_online_access
 
@@ -429,7 +431,7 @@ def cancel_kis_stock_order(payload: dict = Body(...)):
     return {"ok": result.get("rt_cd") == "0", "result": result}
 
 
-@app.post("/api/kis/orders/revise")
+@router.post("/api/kis/orders/revise")
 def revise_kis_stock_order(payload: dict = Body(...)):
     from src.online_access import require_online_access
 
@@ -452,7 +454,7 @@ def revise_kis_stock_order(payload: dict = Body(...)):
     return {"ok": result.get("rt_cd") == "0", "result": result}
 
 
-@app.get("/api/kis/rehearsal")
+@router.get("/api/kis/rehearsal")
 def get_kis_rehearsal():
     checks = []
     required = {
@@ -494,7 +496,7 @@ def get_kis_rehearsal():
     }
 
 
-@app.post("/api/config/reset-database")
+@router.post("/api/config/reset-database")
 def reset_database_and_clear_cache():
     import shutil
     from datetime import datetime
