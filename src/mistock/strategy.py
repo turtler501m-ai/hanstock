@@ -23,9 +23,14 @@ def fetch_wikipedia_universe() -> list[str]:
         if resp.status_code == 200:
             tables = pd.read_html(resp.text)
             for table in tables:
-                if "Ticker" in table.columns or "Symbol" in table.columns:
-                    col = "Ticker" if "Ticker" in table.columns else "Symbol"
-                    tickers = table[col].dropna().tolist()
+                cols = [str(c).lower().strip() for c in table.columns]
+                target_col = None
+                for i, col in enumerate(cols):
+                    if "symbol" in col or "ticker" in col:
+                        target_col = table.columns[i]
+                        break
+                if target_col is not None:
+                    tickers = table[target_col].dropna().tolist()
                     if len(tickers) >= 80:
                         symbols.extend([str(t).strip().upper() for t in tickers])
                         break
@@ -41,9 +46,14 @@ def fetch_wikipedia_universe() -> list[str]:
             if resp.status_code == 200:
                 tables = pd.read_html(resp.text)
                 for table in tables:
-                    if "Symbol" in table.columns or "Ticker" in table.columns:
-                        col = "Symbol" if "Symbol" in table.columns else "Ticker"
-                        tickers = table[col].dropna().tolist()
+                    cols = [str(c).lower().strip() for c in table.columns]
+                    target_col = None
+                    for i, col in enumerate(cols):
+                        if "symbol" in col or "ticker" in col:
+                            target_col = table.columns[i]
+                            break
+                    if target_col is not None:
+                        tickers = table[target_col].dropna().tolist()
                         if len(tickers) >= 400:
                             symbols.extend([str(t).strip().upper() for t in tickers[:120]])
                             break

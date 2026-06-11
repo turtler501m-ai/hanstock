@@ -30,3 +30,4 @@ psutil>=5.9.0
 # stable-baselines3>=2.3.0
 # gymnasium>=0.29.1
 # psycopg2-binary  # removed: project uses SQLite only; causes install failures on Windows
+lxml>=4.9.0
