@@ -27,7 +27,7 @@ def _order_delay_seconds() -> float:
 def run_mistock_scheduled_cycle(mode: str = "execute") -> dict:
     """
     [미장 자동매매 스케줄러]
-    미국 주식 시장(미장) 유니버스 스캔, 신호 분석 및 주문 집행(Paper 또는 KIS 실거래)을 수행합니다.
+    미국 주식 시장(미장) 유니버스 스캔, 신호 분석 및 주문 집행(KIS 모의투자 또는 실거래)을 수행합니다.
     """
     logger.info(f"[MISTOCK SCHEDULER] Starting scheduled cycle. Mode={mode}")
     
@@ -55,7 +55,7 @@ def run_mistock_scheduled_cycle(mode: str = "execute") -> dict:
             if qty > 0:
                 if mode == "execute" and (auto_approve or flags["order_submission_enabled"]) and broker_submission_available:
                     logger.info(f"[MISTOCK SCHEDULER] Sell signal for {sig['symbol']}. Qty={qty}, Price={price}")
-                    res = mistock_trader.place_paper_order(sig["symbol"], "sell", qty, price, reason=sig["reason"])
+                    res = mistock_trader.place_order(sig["symbol"], "sell", qty, price, reason=sig["reason"])
                     sold_items.append({"symbol": sig["symbol"], "qty": qty, "price": price, "result": res})
                 else:
                     logger.info(f"[MISTOCK SCHEDULER] Auto-approval and order submission disabled/skipped for sell signal. Queuing {sig['symbol']} as pending approval.")
@@ -69,7 +69,15 @@ def run_mistock_scheduled_cycle(mode: str = "execute") -> dict:
                     )
                  
     # 4. 매수 주문 조립 및 집행/대기등록
-    orders = mistock_trader.build_orders(candidates, cash)
+    # 이미 보유 중인 종목은 매수 후보에서 제외해 같은 종목을 매 사이클 재매수하지 않게 한다.
+    held_symbols = {h.get("symbol") for h in balance.get("holdings", [])}
+    buy_candidates = [c for c in candidates if c.get("symbol") not in held_symbols]
+    # 총 운용자금(total_capital) 한도에서 이미 보유한 평가액을 뺀 잔여만 신규 매수에 사용한다.
+    # demo 모의투자 계좌의 통합증거금(수억 달러)을 그대로 쓰면 주문이 폭주하므로 한도를 건다.
+    deployed = float(balance.get("stock_eval", 0.0) or 0.0)
+    cap = float(mistock_config.total_capital or 0.0)
+    sizing_cash = min(cash, max(0.0, cap - deployed)) if cap > 0 else cash
+    orders = mistock_trader.build_orders(buy_candidates, sizing_cash)
     bought_items = []
     
     if mode == "execute":
@@ -78,7 +86,7 @@ def run_mistock_scheduled_cycle(mode: str = "execute") -> dict:
                 qty = float(ord["quantity"])
                 price = float(ord["price"])
                 logger.info(f"[MISTOCK SCHEDULER] Placing buy order for {ord['symbol']}. Qty={qty}, Price={price}")
-                res = mistock_trader.place_paper_order(ord["symbol"], "buy", qty, price, reason=ord["reason"])
+                res = mistock_trader.place_order(ord["symbol"], "buy", qty, price, reason=ord["reason"])
                 bought_items.append({"symbol": ord["symbol"], "qty": qty, "price": price, "result": res})
                 if idx < len(orders) - 1:
                     time.sleep(_order_delay_seconds())

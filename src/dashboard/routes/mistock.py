@@ -33,12 +33,12 @@ def mistock_health():
         "demo_trading_ready": True,
         "demo_trading_readiness": {
             "ready": True,
-            "mode": "mistock_paper",
+            "mode": "mistock_demo",
             **flags,
             "checks": [
-                {"key": "paper_environment", "ok": True, "message": "MISTOCK_TRADING_ENV=paper", "critical": True},
+                {"key": "demo_environment", "ok": True, "message": "MISTOCK_TRADING_ENV=demo", "critical": True},
                 {"key": "separate_db", "ok": True, "message": str(mistock_config.trade_db_path), "critical": True},
-                {"key": "broker_api", "ok": True, "message": "Broker API is intentionally deferred; paper execution is active", "critical": False},
+                {"key": "broker_api", "ok": True, "message": "KIS 모의투자(demo) 주문 집행이 활성화되어 있습니다", "critical": False},
             ],
         },
         "kill_switch_active": False,
@@ -60,7 +60,7 @@ def mistock_config_api():
     flags = mistock_trader.runtime_flags()
     watchlist = [item["symbol"] for item in mistock_trader.get_watchlist()]
     from src.config import config as main_config
-    account_no = main_config.kistock_account if mistock_config.trading_env in {"demo", "real"} else "MISTOCK-PAPER"
+    account_no = main_config.kistock_account if mistock_config.trading_env in {"demo", "real"} else "MISTOCK-DEMO"
     return {
         **flags,
         "kistock_account": account_no,
@@ -176,7 +176,7 @@ def mistock_portfolio_optimizer():
                 "target_weight": target,
                 "rebalance_action": "hold",
                 "rebalance_qty": 0,
-                "reason": "Mistock paper optimizer baseline",
+                "reason": "Mistock demo optimizer baseline",
             }
             for item in holdings
         ],
@@ -187,13 +187,13 @@ def _mistock_ai_analysis() -> dict:
     return {
         "enabled": False,
         "provider": "rule_based",
-        "provider_label": "Mistock Rule-Based Paper",
+        "provider_label": "Mistock Rule-Based (Demo)",
         "model_name": "mistock_nasdaq_rule_v1",
         "model_type": "local deterministic strategy",
         "model_available": True,
-        "account_priority": "mistock_paper_account",
-        "account": "MISTOCK-PAPER",
-        "account_label": "Mistock paper account",
+        "account_priority": "mistock_demo_account",
+        "account": "MISTOCK-DEMO",
+        "account_label": "Mistock 모의투자 계좌",
         "openai_account_priority": "disabled",
         "openai_api_configured": False,
         "score_weight": 0.0,
@@ -204,10 +204,10 @@ def _mistock_ai_analysis() -> dict:
         "require_backtest_pass": False,
         "fallback_mode": "rule_based",
         "flow": [
-            "Read separate Mistock paper cash and holdings.",
+            "Read Mistock demo cash and holdings.",
             "Scan NASDAQ watchlist and NASDAQ100 universe with yfinance.",
             "Score candidates with RSI, MACD, Bollinger, trend pullback, and volume breakout rules.",
-            "Route orders through approval queue into paper execution only.",
+            "Route orders through approval queue into KIS demo execution.",
         ],
     }
 
@@ -307,7 +307,7 @@ def mistock_apply_ai_strategy_preset(preset: str):
                 "success": True,
                 "status": "passed",
                 "metrics": {"trade_count": 30, "win_rate": 0.52, "profit_factor": 1.12, "max_drawdown_pct": 8.5},
-                "message": "Mistock local paper backtest gate passed",
+                "message": "Mistock demo backtest gate passed",
             },
         },
         "latest": {"check": "preset_apply", "result": {"ok": True, "preset": preset}},
@@ -494,7 +494,7 @@ def mistock_strategy_retire(strategy_id: str):
 
 @app.post("/api/mistock/ai-strategies/{strategy_id}/performance/review")
 def mistock_strategy_performance_review(strategy_id: str, days: int = 30):
-    return {"ok": True, "strategy_id": strategy_id, "days": days, "status": "reviewed", "message": "Mistock local paper performance reviewed."}
+    return {"ok": True, "strategy_id": strategy_id, "days": days, "status": "reviewed", "message": "Mistock demo performance reviewed."}
 
 
 @app.get("/api/mistock/strategy-context")
@@ -699,7 +699,7 @@ def _execute_approval(approval_id: int, *, approve: bool) -> dict:
         )
         updated = mistock_db.row("SELECT * FROM approvals WHERE id = ?", (approval_id,))
         return {**updated, "ok": True}
-    result = mistock_trader.place_paper_order(item["symbol"], item["action"], item["qty"], item["price"], item.get("reason") or "")
+    result = mistock_trader.place_order(item["symbol"], item["action"], item["qty"], item["price"], item.get("reason") or "")
     status = "executed" if result.get("ok") else "failed"
     mistock_db.execute(
         "UPDATE approvals SET status = ?, updated_at = ?, response_msg = ? WHERE id = ?",
@@ -747,12 +747,12 @@ def mistock_trades(limit: int = 20):
 
 @app.post("/api/mistock/trades/sync")
 def mistock_trades_sync():
-    return {"ok": True, "synced_count": 0, "message": "Broker API is deferred; Mistock paper DB is already authoritative."}
+    return {"ok": True, "synced_count": 0, "message": "Mistock demo DB is authoritative."}
 
 
 def _mistock_account_trades(trades: list[dict]) -> list[dict]:
     account_rows = []
-    show_dry_run = mistock_config.dry_run or (mistock_config.trading_env in {"paper", "demo"})
+    show_dry_run = mistock_config.dry_run or (mistock_config.trading_env == "demo")
     for trade in trades:
         ok_val = trade.get("ok")
         if ok_val is not None:

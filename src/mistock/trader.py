@@ -112,7 +112,7 @@ def _get_kis_client():
 
 def runtime_flags() -> dict[str, Any]:
     real_orders_enabled = (not config.dry_run) and config.trading_env == "real" and config.enable_live_trading
-    order_submission_enabled = (not config.dry_run) and (config.trading_env in {"paper", "demo"} or real_orders_enabled)
+    order_submission_enabled = (not config.dry_run) and (config.trading_env == "demo" or real_orders_enabled)
     return {
         "trading_env": config.trading_env,
         "dry_run": config.dry_run,
@@ -344,7 +344,11 @@ def scan_candidates(min_score: int = 2, limit: int | None = None) -> dict[str, A
 
 def build_orders(candidates: list[dict[str, Any]], cash: float) -> list[dict[str, Any]]:
     orders = []
-    budget = max(0.0, cash * (1.0 - config.cash_buffer))
+    # 사이징은 설정된 운용자금(total_capital)을 상한으로 한다. demo 모의투자 계좌의
+    # 통합증거금은 수억 달러로 잡혀 그대로 쓰면 주문이 비정상적으로 커지므로 상한을 건다.
+    cap = float(config.total_capital or 0.0)
+    sizing_cash = min(cash, cap) if cap > 0 else cash
+    budget = max(0.0, sizing_cash * (1.0 - config.cash_buffer))
     slots = max(1, min(config.max_positions, len(candidates)))
     per_order = budget / slots if slots else 0.0
     for candidate in candidates[:slots]:
@@ -430,7 +434,7 @@ def execution_plan() -> dict[str, Any]:
     scan = scan_candidates()
     orders = build_orders(scan["candidates"], balance["cash"])
     return {
-        "mode": "mistock-paper",
+        "mode": "mistock-demo",
         "plan": orders,
         "cash": balance["cash"],
         "remaining_cash": balance["cash"] - sum(item["estimated_cost"] for item in orders),
@@ -486,7 +490,7 @@ def notify_slack_order(symbol: str, action: str, qty: float, price: float, reaso
         logger.error(f"Failed to send Slack order notification: {e}")
 
 
-def place_paper_order(symbol: str, action: str, qty: float, price: float, reason: str = "") -> dict[str, Any]:
+def place_order(symbol: str, action: str, qty: float, price: float, reason: str = "") -> dict[str, Any]:
     symbol = normalize_symbol(symbol)
     action = str(action).lower()
     qty = float(qty)
@@ -501,8 +505,8 @@ def place_paper_order(symbol: str, action: str, qty: float, price: float, reason
         if action == "buy":
             cost = qty * price
             if cost > cash:
-                notify_slack_order(symbol, action, qty, price, "insufficient paper cash", False)
-                return {"ok": False, "status": "failed", "message": "insufficient paper cash"}
+                notify_slack_order(symbol, action, qty, price, "insufficient cash", False)
+                return {"ok": False, "status": "failed", "message": "insufficient cash"}
             if existing:
                 old_qty = float(existing["qty"])
                 old_avg = float(existing["avg_price"])
@@ -517,8 +521,8 @@ def place_paper_order(symbol: str, action: str, qty: float, price: float, reason
             db.set_setting("cash", str(cash - cost))
         elif action == "sell":
             if not existing or float(existing["qty"]) < qty:
-                notify_slack_order(symbol, action, qty, price, "insufficient paper holdings", False)
-                return {"ok": False, "status": "failed", "message": "insufficient paper holdings"}
+                notify_slack_order(symbol, action, qty, price, "insufficient holdings", False)
+                return {"ok": False, "status": "failed", "message": "insufficient holdings"}
             remaining = float(existing["qty"]) - qty
             if remaining > 0:
                 db.execute("UPDATE holdings SET qty = ?, updated_at = ? WHERE symbol = ?", (remaining, db.now_text(), symbol))
@@ -528,9 +532,9 @@ def place_paper_order(symbol: str, action: str, qty: float, price: float, reason
         else:
             notify_slack_order(symbol, action, qty, price, "action must be buy or sell", False)
             return {"ok": False, "status": "failed", "message": "action must be buy or sell"}
-        save_trade(symbol, symbol_name(symbol), action, qty, price, reason, True, "filled", "paper order filled")
-        notify_slack_order(symbol, action, qty, price, reason or "paper order filled", True)
-        return {"ok": True, "status": "filled", "msg1": "paper order filled"}
+        save_trade(symbol, symbol_name(symbol), action, qty, price, reason, True, "filled", "simulated order filled")
+        notify_slack_order(symbol, action, qty, price, reason or "simulated order filled", True)
+        return {"ok": True, "status": "filled", "msg1": "simulated order filled"}
     else:
         real_orders_enabled = (not config.dry_run) and config.trading_env == "real" and config.enable_live_trading
         order_submission_enabled = (not config.dry_run) and (config.trading_env == "demo" or real_orders_enabled)
@@ -595,7 +599,7 @@ def save_trade(symbol: str, name: str, action: str, qty: float, price: float, re
         """,
         (
             db.now_text(), symbol, name, action, qty, price, reason, int(ok), config.trading_env,
-            int(config.dry_run), order_status, response_msg, json.dumps({"paper": True}, ensure_ascii=False),
+            int(config.dry_run), order_status, response_msg, json.dumps({"env": config.trading_env}, ensure_ascii=False),
             fee, tax, exchange_rate,
         ),
     )

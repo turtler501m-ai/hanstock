@@ -1,2 +1,2 @@
-"""Mistock NASDAQ paper trading domain."""
+"""Mistock NASDAQ demo trading domain."""
 

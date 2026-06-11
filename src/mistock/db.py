@@ -185,7 +185,7 @@ def init_db() -> None:
                 "none",
                 "rule_based",
                 0.0,
-                "NASDAQ paper strategy cloned from Hanstock workflow with yfinance market data.",
+                "NASDAQ demo strategy cloned from Hanstock workflow with yfinance market data.",
                 json.dumps({"market": "NASDAQ", "universe": "NASDAQ100", "ai_weight": 0.0}, ensure_ascii=False),
                 now_text(),
                 now_text(),

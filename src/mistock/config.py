@@ -13,7 +13,7 @@ load_dotenv(override=True)
 @dataclass
 class MistockConfig:
     market: str = os.environ.get("MISTOCK_MARKET", "NASDAQ")
-    trading_env: str = os.environ.get("MISTOCK_TRADING_ENV", "paper")
+    trading_env: str = os.environ.get("MISTOCK_TRADING_ENV", "demo")
     dry_run: bool = os.environ.get("MISTOCK_DRY_RUN", "true").lower() in {"1", "true", "yes", "on"}
     enable_live_trading: bool = os.environ.get("MISTOCK_ENABLE_LIVE_TRADING", "false").lower() in {"1", "true", "yes", "on"}
     require_approval: bool = os.environ.get("MISTOCK_REQUIRE_APPROVAL", "true").lower() in {"1", "true", "yes", "on"}

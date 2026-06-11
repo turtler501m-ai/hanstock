@@ -41,12 +41,14 @@ class MistockDashboardTests(unittest.TestCase):
         watchlist = mistock.mistock_watchlist()
 
         self.assertTrue(health["ok"])
-        self.assertEqual(health["trading_env"], "paper")
+        self.assertEqual(health["trading_env"], "demo")
         self.assertTrue(str(mistock_config.trade_db_path).endswith("mistock.sqlite"))
         self.assertGreaterEqual(len(watchlist["symbols"]), 1)
         self.assertTrue(mistock_config.trade_db_path.exists())
 
     def test_paper_approval_executes_against_mistock_holdings(self):
+        # 로컬 시뮬 실행 경로(브로커 미경유) 검증 — demo/real이 아닌 환경에서 동작.
+        object.__setattr__(mistock_config, "trading_env", "sim")
         mistock_trader.add_watchlist("AAPL", "Apple")
         approval = mistock.mistock_create_approval({
             "symbol": "AAPL",
@@ -269,7 +271,7 @@ class MistockDashboardTests(unittest.TestCase):
                 patch.object(mistock_trader, "signals", return_value=[]), \
                 patch.object(mistock_trader, "build_orders", return_value=[order]), \
                 patch.object(mistock_trader, "broker_submission_available", return_value=True), \
-                patch.object(mistock_trader, "place_paper_order", return_value=failed_order), \
+                patch.object(mistock_trader, "place_order", return_value=failed_order), \
                 patch.object(mistock_db, "get_setting", return_value="true"), \
                 patch.object(mistock_scheduler, "send_mistock_slack"):
             result = mistock_scheduler.run_mistock_scheduled_cycle(mode="execute")
@@ -292,7 +294,7 @@ class MistockDashboardTests(unittest.TestCase):
                 patch.object(mistock_trader, "signals", return_value=[]), \
                 patch.object(mistock_trader, "build_orders", return_value=[order]), \
                 patch.object(mistock_db, "get_setting", return_value="true"), \
-                patch.object(mistock_trader, "place_paper_order") as place_order, \
+                patch.object(mistock_trader, "place_order") as place_order, \
                 patch.object(mistock_scheduler, "send_mistock_slack"):
             result = mistock_scheduler.run_mistock_scheduled_cycle(mode="execute")
 
@@ -307,7 +309,7 @@ class MistockDashboardTests(unittest.TestCase):
         mistock_db.set_setting("auto_approval", "true")
 
         with patch.object(mistock_trader, "broker_submission_available", return_value=False), \
-                patch.object(mistock_trader, "place_paper_order") as place_order:
+                patch.object(mistock_trader, "place_order") as place_order:
             result = mistock.mistock_create_approval({
                 "symbol": "AAPL",
                 "name": "Apple",
