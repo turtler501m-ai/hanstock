@@ -1,6 +1,8 @@
 #!/bin/bash
 ACTION="${1:-restart}"
 PORT="${PORT:-8000}"
+HOST="${HOST:-127.0.0.1}"
+RELOAD="${RELOAD:-false}"
 LINES="${LINES:-80}"
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -96,15 +98,20 @@ start_server() {
         exit 1
     fi
 
-    echo "[server] starting server on http://0.0.0.0:$PORT"
+    echo "[server] starting server on http://$HOST:$PORT"
 
-    nohup "$python" -m uvicorn src.dashboard:app --host 0.0.0.0 --port "$PORT" --reload \
+    args=(-m uvicorn src.dashboard:app --host "$HOST" --port "$PORT")
+    if [ "$RELOAD" = "true" ]; then
+        args+=(--reload)
+    fi
+
+    nohup "$python" "${args[@]}" \
         > "$STDOUT_LOG" 2> "$STDERR_LOG" &
 
     new_pid=$!
     echo "$new_pid" > "$PID_FILE"
 
-    echo "[server] started PID $new_pid -- http://0.0.0.0:$PORT"
+    echo "[server] started PID $new_pid -- http://$HOST:$PORT"
     echo "[server] stdout: $STDOUT_LOG"
     echo "[server] stderr: $STDERR_LOG"
 
@@ -122,7 +129,7 @@ show_status() {
     server_pids=$(get_server_pids)
 
     if [ -n "$listening_pids" ]; then
-        echo "[server] running: http://0.0.0.0:$PORT"
+        echo "[server] running: http://$HOST:$PORT"
         echo "[server] listening PID: $listening_pids"
     else
         echo "[server] stopped on port $PORT"

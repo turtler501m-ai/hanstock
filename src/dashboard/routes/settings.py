@@ -174,7 +174,7 @@ def get_config():
         "require_approval": trader.REQUIRE_APPROVAL,
         "order_submission_enabled": trader.ORDER_SUBMISSION_ENABLED,
         "real_orders_enabled": trader.REAL_ORDERS_ENABLED,
-        "kistock_account": trader.config.kistock_account,
+        "kistock_account": _mask_env_value(trader.config.kistock_account),
         "split_n": trader.SPLIT_N,
         "stop_loss_pct": trader.STOP_LOSS_PCT,
         "take_profit": trader.TAKE_PROFIT,
@@ -210,17 +210,18 @@ def get_env_settings():
         key = field["key"]
         text = ENV_FIELD_TEXT.get(key, {})
         value = _virtual_env_value(key, values) if field.get("virtual") else _current_env_field_value(key, values)
+        is_secret = field["type"] == "secret"
         item = {
             "key": key,
             "label": text.get("label", field["label"]),
             "type": field["type"],
             "options": field.get("options", []),
             "hint": text.get("hint", field.get("hint", "")),
-            "secret": field["type"] == "secret",
+            "secret": is_secret,
             "virtual": bool(field.get("virtual")),
             "has_value": bool(value),
-            "value": value,
-            "masked": "",
+            "value": "" if is_secret else value,
+            "masked": _mask_env_value(value) if is_secret else "",
         }
         fields.append(item)
     # Get live exchange rate metrics for display

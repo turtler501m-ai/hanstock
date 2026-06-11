@@ -1,8 +1,11 @@
 import json
 import hashlib
+import base64
+import binascii
 import concurrent.futures
 import os
 import re
+import secrets
 import socket
 import sqlite3
 import subprocess
@@ -13,7 +16,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 from fastapi import Body, FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 load_dotenv()
@@ -35,6 +38,64 @@ from src.utils.logger import logger  # noqa: E402
 
 
 app = FastAPI(title="Seven Split Dashboard", version="1.0.0")
+
+
+def _dashboard_auth_config() -> dict[str, str | bool]:
+    enabled = str(os.environ.get("DASHBOARD_AUTH_ENABLED", "false")).lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+    return {
+        "enabled": enabled,
+        "username": os.environ.get("DASHBOARD_AUTH_USERNAME", ""),
+        "password": os.environ.get("DASHBOARD_AUTH_PASSWORD", ""),
+    }
+
+
+def _dashboard_basic_credentials(request: Request) -> tuple[str, str] | None:
+    authorization = request.headers.get("authorization", "")
+    scheme, _, encoded = authorization.partition(" ")
+    if scheme.lower() != "basic" or not encoded:
+        return None
+    try:
+        decoded = base64.b64decode(encoded, validate=True).decode("utf-8")
+    except (binascii.Error, UnicodeDecodeError, ValueError):
+        return None
+    username, separator, password = decoded.partition(":")
+    if not separator:
+        return None
+    return username, password
+
+
+@app.middleware("http")
+async def require_dashboard_auth(request: Request, call_next):
+    auth = _dashboard_auth_config()
+    if not auth["enabled"]:
+        return await call_next(request)
+
+    username = str(auth["username"])
+    password = str(auth["password"])
+    if not username or not password:
+        return JSONResponse(
+            status_code=503,
+            content={"detail": "dashboard authentication is enabled but not configured"},
+        )
+
+    credentials = _dashboard_basic_credentials(request)
+    if credentials is not None:
+        supplied_username, supplied_password = credentials
+        if secrets.compare_digest(supplied_username, username) and secrets.compare_digest(
+            supplied_password, password
+        ):
+            return await call_next(request)
+
+    return JSONResponse(
+        status_code=401,
+        content={"detail": "dashboard authentication required"},
+        headers={"WWW-Authenticate": 'Basic realm="Hanstock Dashboard"'},
+    )
 
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 WEB_DIR = BASE_DIR / "web"
@@ -1386,7 +1447,7 @@ def _ai_analysis_config() -> dict:
         "model_type": "OpenAI text model",
         "model_available": bool(api_key),
         "account_priority": "current_kis_account",
-        "account": trader.config.kistock_account,
+        "account": _mask_env_value(trader.config.kistock_account),
         "account_label": "현재 KIS 계좌 1순위",
         "openai_account_priority": "openai_api_first",
         "openai_api_configured": bool(api_key),

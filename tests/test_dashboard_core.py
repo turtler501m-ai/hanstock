@@ -208,6 +208,26 @@ class DashboardCoreTests(unittest.TestCase):
     def test_secret_env_values_are_masked_for_response(self):
         self.assertEqual(dashboard._mask_env_value("1234567801"), "12******01")
 
+    def test_env_settings_do_not_return_secret_values(self):
+        original_env_path = dashboard.ENV_PATH
+        try:
+            dashboard.ENV_PATH = MemoryTextPath(
+                "KISTOCK_APP_KEY=app-key-secret\n"
+                "KISTOCK_ACCOUNT=1234567801\n"
+                "TRADING_ENV=demo\n"
+            )
+            with patch("src.utils.exchange_rate.get_usd_krw_rate", return_value=1380.0):
+                data = dashboard.get_env_settings()
+            fields = {field["key"]: field for field in data["fields"]}
+
+            self.assertEqual(fields["KISTOCK_APP_KEY"]["value"], "")
+            self.assertEqual(fields["KISTOCK_APP_KEY"]["masked"], "ap**********et")
+            self.assertTrue(fields["KISTOCK_APP_KEY"]["has_value"])
+            self.assertEqual(fields["KISTOCK_ACCOUNT"]["value"], "")
+            self.assertEqual(fields["KISTOCK_ACCOUNT"]["masked"], "12******01")
+        finally:
+            dashboard.ENV_PATH = original_env_path
+
     def test_env_settings_labels_are_korean_for_ai_fields(self):
         original_env_path = dashboard.ENV_PATH
         try:
@@ -244,13 +264,13 @@ class DashboardCoreTests(unittest.TestCase):
             dashboard.trader.config.ai_require_backtest_pass = original_backtest
             dashboard.trader.config.openai_model = original_model
 
-    def test_config_response_includes_account(self):
+    def test_config_response_masks_account(self):
         original_account = dashboard.trader.config.kistock_account
         try:
             dashboard.trader.config.kistock_account = "1234567801"
             config = dashboard.get_config()
-            self.assertEqual(config["kistock_account"], "1234567801")
-            self.assertEqual(config["ai_analysis"]["account"], "1234567801")
+            self.assertEqual(config["kistock_account"], "12******01")
+            self.assertEqual(config["ai_analysis"]["account"], "12******01")
             self.assertEqual(config["ai_analysis"]["account_priority"], "current_kis_account")
             self.assertEqual(config["ai_analysis"]["provider"], "openai_responses")
         finally:

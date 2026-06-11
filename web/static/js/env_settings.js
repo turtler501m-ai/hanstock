@@ -47,7 +47,7 @@ function buildEnvControl(field) {
     const key = escapeHtml(field.key);
     const label = escapeHtml(field.label || field.key);
     const value = escapeHtml(field.value || '');
-    const hint = escapeHtml(field.hint || (field.secret ? '민감 정보입니다. 값은 그대로 저장되며 화면에 표시됩니다.' : ''));
+    const hint = escapeHtml(field.hint || (field.secret ? '민감 정보는 화면에 표시되지 않습니다. 변경할 때만 새 값을 입력하세요.' : ''));
 
     if (field.type === 'bool') {
         const selected = String(field.value || '').toLowerCase() === 'true';
@@ -79,9 +79,11 @@ function buildEnvControl(field) {
         `;
     }
 
-    const inputType = field.type === 'secret' ? 'text' : (field.type === 'int' || field.type === 'float' ? 'number' : 'text');
+    const inputType = field.type === 'secret' ? 'password' : (field.type === 'int' || field.type === 'float' ? 'number' : 'text');
     const step = field.type === 'float' ? ' step="any"' : '';
-    const placeholder = field.secret ? '값 입력' : '';
+    const placeholder = field.secret
+        ? (field.has_value ? `${field.masked || '설정됨'} (변경 시 새 값 입력)` : '새 값 입력')
+        : '';
     return `
         <div class="env-field">
             <label for="env-${key}">${label}</label>
