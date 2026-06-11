@@ -89,7 +89,7 @@ start_server() {
     listening_pids=$(get_listening_pids)
 
     if [ -n "$listening_pids" ]; then
-        echo "[server] already listening on http://0.0.0.0:$PORT (PID $listening_pids)"
+        echo "[server] already listening on port $PORT (PID $listening_pids)"
         return
     fi
 

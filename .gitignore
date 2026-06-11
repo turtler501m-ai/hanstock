@@ -29,9 +29,10 @@ hanstock_vm/
 # Android build and local settings exclusions
 android/.gradle/
 android/app/build/
+android/build/
 android/.idea/
 android/local.properties
+tensorboard_logs/
 
 # Scratch files and directories
 scratch/
-

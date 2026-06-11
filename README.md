@@ -18,7 +18,7 @@ VM/Linux:
 
 ## 자동 배포
 
-기본 VM 대상은 신규 운영 VM(`instance-20260610-stock1`, http://34.69.241.175:8000, user `turtler801`)입니다. 자세한 대상/환경변수는 `scripts/local/README.md` 참조.
+기본 VM 대상은 신규 운영 VM(`instance-20260610-stock1`, user `turtler801`)입니다. 대시보드는 VM의 `127.0.0.1:8000`에 바인딩되므로 `scripts/local/connect-vm.ps1` 또는 SSH 터널을 통해 접속합니다. 자세한 대상/환경변수는 `scripts/local/README.md` 참조.
 
 ```powershell
 .\scripts\local\deploy-vm.ps1
@@ -34,7 +34,7 @@ VM 폴더를 백업하고 새로 clone해서 현행화:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File tools\verify-local.ps1
-python -m unittest discover -s tests
+python -m unittest discover -s tests -t .
 ```
 
 ## 문서
