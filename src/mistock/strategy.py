@@ -11,6 +11,7 @@ from src.strategy.indicators import calc_bollinger, calc_macd, calc_rsi, calc_sm
 def fetch_wikipedia_universe() -> list[str]:
     import pandas as pd
     import requests
+    import io
     from src.utils.logger import logger
 
     symbols = []
@@ -21,7 +22,7 @@ def fetch_wikipedia_universe() -> list[str]:
         headers = {"User-Agent": "Mozilla/5.0"}
         resp = requests.get(url, headers=headers, timeout=5)
         if resp.status_code == 200:
-            tables = pd.read_html(resp.text)
+            tables = pd.read_html(io.StringIO(resp.text))
             for table in tables:
                 cols = [str(c).lower().strip() for c in table.columns]
                 target_col = None
@@ -44,7 +45,7 @@ def fetch_wikipedia_universe() -> list[str]:
             headers = {"User-Agent": "Mozilla/5.0"}
             resp = requests.get(url, headers=headers, timeout=5)
             if resp.status_code == 200:
-                tables = pd.read_html(resp.text)
+                tables = pd.read_html(io.StringIO(resp.text))
                 for table in tables:
                     cols = [str(c).lower().strip() for c in table.columns]
                     target_col = None
