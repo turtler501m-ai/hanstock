@@ -120,6 +120,9 @@ def strategy_profile(prices: list[float], highs: list[float] | None = None, volu
 
 
 def fetch_history(symbol: str, period: str = "6mo") -> dict[str, list[float]]:
+    from src.online_access import require_online_access
+
+    require_online_access("Mistock market-data download")
     data = yf.download(
         normalize_symbol(symbol),
         period=period,
@@ -149,4 +152,3 @@ def quote(symbol: str) -> dict[str, float]:
     hist = fetch_history(symbol, period="5d")
     price = hist["close"][-1] if hist["close"] else 0.0
     return {"current": price, "ask1": price, "bid1": price}
-

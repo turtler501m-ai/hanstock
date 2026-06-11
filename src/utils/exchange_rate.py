@@ -12,6 +12,10 @@ _USD_KRW_CACHE_TTL: float = 3600.0  # 1 hour cache
 
 def get_usd_krw_rate() -> float:
     global _USD_KRW_RATE, _USD_KRW_LAST_FETCH
+    from src.online_access import is_online_access_blocked
+
+    if is_online_access_blocked():
+        return _USD_KRW_RATE
     if os.environ.get("HANSTOCK_TESTING") == "1":
         return _USD_KRW_RATE
     now = time.time()

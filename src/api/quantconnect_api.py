@@ -46,6 +46,9 @@ class QuantConnectAPI:
         }
 
     def authenticate(self, timeout: float = 10.0) -> dict:
+        from src.online_access import require_online_access
+
+        require_online_access("QuantConnect authentication")
         if not self.credentials.configured:
             return {
                 "success": False,
@@ -88,6 +91,9 @@ class QuantConnectAPI:
         }
 
     def _post(self, path: str, payload: dict | None = None, timeout: float = 10.0) -> dict:
+        from src.online_access import require_online_access
+
+        require_online_access("QuantConnect API access")
         if not self.credentials.configured:
             return {
                 "success": False,

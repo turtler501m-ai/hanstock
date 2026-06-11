@@ -127,6 +127,9 @@ class FuturesExecutor:
 
     def execute(self, signal) -> ExecutionResult:
         """signal: FuturesSignal 객체"""
+        from src.online_access import require_online_access
+
+        require_online_access("futures signal execution")
         result = ExecutionResult(
             signal_id=signal.id,
             timestamp=datetime.now().isoformat(),

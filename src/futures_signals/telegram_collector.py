@@ -156,6 +156,9 @@ class TelegramSignalCollector:
         self.config = config or TelegramCollectorConfig.from_env()
 
     async def fetch_recent_messages(self, *, limit_per_channel: int = 100) -> list[dict[str, Any]]:
+        from src.online_access import require_online_access
+
+        require_online_access("Telegram collection")
         status = collector_status(self.config)
         if not status["ready"]:
             raise RuntimeError(status["message"])

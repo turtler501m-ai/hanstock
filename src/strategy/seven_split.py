@@ -675,6 +675,9 @@ def find_candidates(
     전략 성격(focus/avoid/risk_level/min_ai_confidence 등)이 반영된다. 둘 다
     비어 있으면 현재 선택된(active) AI 전략의 profile을 자동으로 로드한다.
     """
+    from src.online_access import require_online_access
+
+    require_online_access("candidate market-data scan")
     if not strategy_model or strategy_profile is None or not strategy_description:
         try:
             from src.db.repository import load_ai_strategies

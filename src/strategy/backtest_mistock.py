@@ -8,6 +8,9 @@ from src.utils.logger import logger
 from src.mistock import db as mistock_db
 
 def run_mistock_backtest(strategy_profile: dict, days: int = 250) -> dict:
+    from src.online_access import require_online_access
+
+    require_online_access("Mistock backtest data download")
     """Runs a real historical backtest using yfinance US stock data for Mistock watchlist."""
     rows = mistock_db.rows("SELECT symbol FROM watchlist")
     symbols = [r["symbol"] for r in rows] if rows else ["AAPL", "MSFT", "TSLA", "AMZN", "GOOG"]

@@ -70,6 +70,9 @@ class KISFuturesAPI:
     }
 
     def __init__(self, demo: bool = True, notify_errors: bool = True):
+        from src.online_access import require_online_access
+
+        require_online_access("KIS futures API access")
         self.demo = demo
         self.notify_errors = notify_errors
 
@@ -339,6 +342,9 @@ class KISFuturesAPI:
         - 모의 TR ID: VTFO1001U
         - 실전 TR ID: OTFO1001U
         """
+        from src.online_access import require_online_access
+
+        require_online_access("KIS futures order submission")
         if not self._configured:
             return self._not_configured()
 

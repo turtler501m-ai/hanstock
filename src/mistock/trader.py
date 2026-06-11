@@ -492,6 +492,9 @@ def notify_slack_order(symbol: str, action: str, qty: float, price: float, reaso
 
 
 def place_order(symbol: str, action: str, qty: float, price: float, reason: str = "") -> dict[str, Any]:
+    from src.online_access import require_online_access
+
+    require_online_access("Mistock order execution")
     symbol = normalize_symbol(symbol)
     action = str(action).lower()
     qty = float(qty)

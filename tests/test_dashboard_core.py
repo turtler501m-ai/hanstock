@@ -163,6 +163,34 @@ class DashboardCoreTests(unittest.TestCase):
             for key, value in original_values.items():
                 setattr(dashboard.trader.config, key, value)
 
+    def test_online_access_setting_applies_without_restart(self):
+        original_env_path = dashboard.ENV_PATH
+        original_config = dashboard.trader.config.online_access_blocked
+        original_runtime = dashboard.trader.ONLINE_ACCESS_BLOCKED
+        original_submission = dashboard.trader.ORDER_SUBMISSION_ENABLED
+        try:
+            dashboard.ENV_PATH = MemoryTextPath("ONLINE_ACCESS_BLOCKED=false\n")
+            dashboard.trader.config.online_access_blocked = False
+            dashboard.trader.ONLINE_ACCESS_BLOCKED = False
+            dashboard.trader.ORDER_SUBMISSION_ENABLED = True
+
+            with patch("src.dashboard.routes.settings._stop_kis_websocket") as stop_websocket:
+                result = dashboard.update_env_settings({
+                    "values": {"ONLINE_ACCESS_BLOCKED": "true"}
+                })
+
+            self.assertTrue(result["ok"])
+            self.assertTrue(dashboard.trader.config.online_access_blocked)
+            self.assertTrue(dashboard.trader.ONLINE_ACCESS_BLOCKED)
+            self.assertFalse(dashboard.trader.ORDER_SUBMISSION_ENABLED)
+            self.assertIn("ONLINE_ACCESS_BLOCKED=true", dashboard.ENV_PATH.content)
+            stop_websocket.assert_called_once()
+        finally:
+            dashboard.ENV_PATH = original_env_path
+            dashboard.trader.config.online_access_blocked = original_config
+            dashboard.trader.ONLINE_ACCESS_BLOCKED = original_runtime
+            dashboard.trader.ORDER_SUBMISSION_ENABLED = original_submission
+
     def test_runtime_order_mode_updates_apply_without_restart(self):
         original_env_path = dashboard.ENV_PATH
         original_trading_env = dashboard.trader.TRADING_ENV

@@ -10,6 +10,7 @@ from pathlib import Path
 from src.config import config
 from src.utils.logger import logger
 from src.notifier.slack import slack_error
+from src.online_access import require_online_access
 
 HTTP = requests.Session()
 HTTP.trust_env = False
@@ -61,6 +62,7 @@ class KIStockAPI:
         return hashlib.sha256(config.kistock_app_key.encode("utf-8")).hexdigest()
     
     def __init__(self, notify_errors: bool = True) -> None:
+        require_online_access("KIS API access")
         self.notify_errors = notify_errors
         self.base_url = "https://openapi.koreainvestment.com:9443" if config.trading_env == "real" else "https://openapivts.koreainvestment.com:29443"
         if config.trading_env == "real":
@@ -284,6 +286,7 @@ class KIStockAPI:
         wait=wait_exponential(multiplier=1, min=2, max=10),
     )
     def place_order(self, symbol: str, order_type: str, price: int, qty: int) -> dict:
+        require_online_access("KIS order submission")
         real_orders_enabled = (not config.dry_run) and config.trading_env == "real" and config.enable_live_trading
         order_submission_enabled = (not config.dry_run) and (config.trading_env == "demo" or real_orders_enabled)
         if not order_submission_enabled:

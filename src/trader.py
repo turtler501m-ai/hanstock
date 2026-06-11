@@ -36,6 +36,7 @@ TRADING_ENV = config.trading_env
 DRY_RUN = config.dry_run
 ENABLE_LIVE_TRADING = config.enable_live_trading
 REQUIRE_APPROVAL = config.require_approval
+ONLINE_ACCESS_BLOCKED = config.online_access_blocked
 
 SPLIT_N = config.split_n
 STOP_LOSS_PCT = config.stop_loss_pct
@@ -50,8 +51,17 @@ CASH_BUFFER = config.cash_buffer
 MAX_DAILY_LOSS_PCT = config.max_daily_loss_pct
 SCAN_UNIVERSE_SIZE = config.scan_universe_size
 
-REAL_ORDERS_ENABLED = (not DRY_RUN) and TRADING_ENV == "real" and ENABLE_LIVE_TRADING
-ORDER_SUBMISSION_ENABLED = (not DRY_RUN) and (TRADING_ENV == "demo" or REAL_ORDERS_ENABLED)
+REAL_ORDERS_ENABLED = (
+    not ONLINE_ACCESS_BLOCKED
+    and (not DRY_RUN)
+    and TRADING_ENV == "real"
+    and ENABLE_LIVE_TRADING
+)
+ORDER_SUBMISSION_ENABLED = (
+    not ONLINE_ACCESS_BLOCKED
+    and (not DRY_RUN)
+    and (TRADING_ENV == "demo" or REAL_ORDERS_ENABLED)
+)
 
 RUNTIME_DIR = Path(".runtime")
 DB_PATH = Path(config.trade_db_path)

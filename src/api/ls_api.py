@@ -50,6 +50,9 @@ class LSSecuritiesAPI:
     TOKEN_CACHE = Path("data") / "ls_token.json"
 
     def __init__(self, notify_errors: bool = True) -> None:
+        from src.online_access import require_online_access
+
+        require_online_access("LS Securities API access")
         self.notify_errors = notify_errors
         # LS OpenAPI URL: 실전/모의 공통 도메인 사용 (포트는 실전/모의 설정에 따름)
         self.base_url = "https://openapi.ls-sec.co.kr:8080"

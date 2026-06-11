@@ -18,6 +18,9 @@ SYMBOL_MAP = {
 
 class BybitTrader:
     def __init__(self, symbol: str = "BTCUSDT", qty: float = 0.001):
+        from src.online_access import require_online_access
+
+        require_online_access("Bybit API access")
         from pybit.unified_trading import HTTP
 
         self.symbol = symbol

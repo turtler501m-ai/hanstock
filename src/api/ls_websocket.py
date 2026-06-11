@@ -16,6 +16,9 @@ class LSWebSocketClient(threading.Thread):
         self.daemon = True
 
     def run(self) -> None:
+        from src.online_access import require_online_access
+
+        require_online_access("LS Securities WebSocket")
         self.running = True
         logger.info(f"Connecting to LS Securities WebSocket: {self.url}")
         self.ws = websocket.WebSocketApp(

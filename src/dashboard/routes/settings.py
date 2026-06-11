@@ -28,6 +28,9 @@ def _kis_websocket_status() -> dict:
 
 def _start_kis_websocket() -> dict:
     global _kis_websocket_client
+    from src.online_access import require_online_access
+
+    require_online_access("KIS WebSocket")
     with _kis_websocket_lock:
         if _kis_websocket_client and _kis_websocket_client.running and _kis_websocket_client.is_alive():
             return {"ok": True, **_kis_websocket_status()}
@@ -84,6 +87,10 @@ ENV_FIELD_TEXT = {
     "DRY_RUN": {"label": "주문 차단 모드", "hint": "true이면 실제 KIS 주문 API를 호출하지 않습니다."},
     "ENABLE_LIVE_TRADING": {"label": "실전 주문 허용", "hint": "실전 환경에서 실제 주문을 허용하는 최종 보호 스위치입니다."},
     "REQUIRE_APPROVAL": {"label": "주문 승인 필요", "hint": "true이면 주문을 승인 대기열에 먼저 등록합니다."},
+    "ONLINE_ACCESS_BLOCKED": {
+        "label": "온라인 접속 차단",
+        "hint": "true이면 외부 API, 웹소켓, 시세 갱신과 모든 주문 실행을 차단합니다. DB 저장 정보는 계속 표시됩니다.",
+    },
     "SPLIT_N": {"label": "분할 매수 횟수"},
     "STOP_LOSS_PCT": {"label": "손절 기준 %"},
     "TAKE_PROFIT": {"label": "익절 기준 %"},
@@ -125,6 +132,7 @@ def _current_env_field_value(key: str, raw_values: dict[str, str]) -> str:
         "DRY_RUN": str(bool(getattr(trader.config, "dry_run", trader.DRY_RUN))).lower(),
         "ENABLE_LIVE_TRADING": str(bool(getattr(trader.config, "enable_live_trading", trader.ENABLE_LIVE_TRADING))).lower(),
         "REQUIRE_APPROVAL": str(bool(getattr(trader.config, "require_approval", trader.REQUIRE_APPROVAL))).lower(),
+        "ONLINE_ACCESS_BLOCKED": str(bool(getattr(trader.config, "online_access_blocked", False))).lower(),
         "SPLIT_N": getattr(trader.config, "split_n", trader.SPLIT_N),
         "STOP_LOSS_PCT": getattr(trader.config, "stop_loss_pct", trader.STOP_LOSS_PCT),
         "TAKE_PROFIT": getattr(trader.config, "take_profit", trader.TAKE_PROFIT),
@@ -172,6 +180,7 @@ def get_config():
         "dry_run": trader.DRY_RUN,
         "enable_live_trading": trader.ENABLE_LIVE_TRADING,
         "require_approval": trader.REQUIRE_APPROVAL,
+        "online_access_blocked": bool(getattr(trader.config, "online_access_blocked", False)),
         "order_submission_enabled": trader.ORDER_SUBMISSION_ENABLED,
         "real_orders_enabled": trader.REAL_ORDERS_ENABLED,
         "kistock_account": _mask_env_value(trader.config.kistock_account),
@@ -274,6 +283,8 @@ def update_env_settings(payload: dict = Body(...)):
         _write_env_values(updates, _public_value("ENV_PATH", ENV_PATH))
         _apply_runtime_env_updates(updates)
         _apply_strategy_env_updates(updates)
+        if _env_bool_value(updates, "ONLINE_ACCESS_BLOCKED", False):
+            _stop_kis_websocket()
     return {
         "ok": True,
         "updated": sorted(updates.keys()),
@@ -314,6 +325,7 @@ def set_runtime_order_mode(payload: dict = Body(...)):
         "trading_env": trader.TRADING_ENV,
         "dry_run": trader.DRY_RUN,
         "enable_live_trading": trader.ENABLE_LIVE_TRADING,
+        "online_access_blocked": bool(getattr(trader.config, "online_access_blocked", False)),
         "order_submission_enabled": trader.ORDER_SUBMISSION_ENABLED,
         "real_orders_enabled": trader.REAL_ORDERS_ENABLED,
         "requires_restart": False,
@@ -322,6 +334,9 @@ def set_runtime_order_mode(payload: dict = Body(...)):
 
 @app.get("/api/kis/condition-search/list")
 def get_kis_condition_search_list(user_id: str | None = None):
+    from src.online_access import require_online_access
+
+    require_online_access("KIS condition search")
     lookup_user_id = (user_id or getattr(trader.config, "kis_condition_user_id", "") or getattr(trader.config, "kistock_hts_id", "") or "").strip()
     if not lookup_user_id:
         raise HTTPException(status_code=400, detail="KIS condition user_id or KISTOCK_HTS_ID is required")
@@ -335,6 +350,9 @@ def get_kis_condition_search_result(
     name: str | None = None,
     user_id: str | None = None,
 ):
+    from src.online_access import require_online_access
+
+    require_online_access("KIS condition search")
     lookup_user_id = (user_id or getattr(trader.config, "kis_condition_user_id", "") or getattr(trader.config, "kistock_hts_id", "") or "").strip()
     condition_seq = (seq or getattr(trader.config, "kis_condition_seq", "") or "").strip()
     condition_name = (name or getattr(trader.config, "kis_condition_name", "") or "").strip()
@@ -354,6 +372,9 @@ def get_kis_websocket_status():
 
 @app.post("/api/kis/websocket/start")
 def start_kis_websocket():
+    from src.online_access import require_online_access
+
+    require_online_access("KIS WebSocket")
     if not bool(getattr(trader.config, "kis_websocket_enabled", False)):
         raise HTTPException(status_code=409, detail="KIS_WEBSOCKET_ENABLED is false")
     if not (getattr(trader.config, "kistock_hts_id", "") or trader.config.kistock_account):

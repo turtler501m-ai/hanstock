@@ -178,6 +178,9 @@ class ModelPredictor:
                 }
             },
         }
+        from src.online_access import require_online_access
+
+        require_online_access("OpenAI prediction")
         response = requests.post(
             "https://api.openai.com/v1/responses",
             headers={

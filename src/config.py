@@ -52,6 +52,7 @@ class Settings(BaseSettings):
     dry_run: bool = True
     enable_live_trading: bool = False
     require_approval: bool = True
+    online_access_blocked: bool = False
     
     # Strategy Params
     split_n: int = 7

@@ -10,6 +10,7 @@ class ExecutionContext:
     trading_env: str
     enable_live_trading: bool
     require_approval: bool
+    online_access_blocked: bool = False
     analysis_only: bool = False
 
 
@@ -33,6 +34,9 @@ def resolve_execution_decision(
     *,
     allow_approval_bypass: bool = False,
 ) -> ExecutionDecision:
+    if context.online_access_blocked:
+        return ExecutionDecision("reject", "online access is blocked")
+
     import os
     if os.environ.get("HANSTOCK_SCHEDULE_FORCE") == "1" or os.environ.get("MISTOCK_SCHEDULE_FORCE") == "1":
         return ExecutionDecision("execute", "execution allowed by forced testing bypass")

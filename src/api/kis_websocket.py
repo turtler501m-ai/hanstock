@@ -39,6 +39,9 @@ class KISWebSocketClient(threading.Thread):
 
     def get_approval_key(self) -> str:
         """[3편/11편 구현] 웹소켓 등록용 실시간 Approval Key 발급 (REST API)"""
+        from src.online_access import require_online_access
+
+        require_online_access("KIS WebSocket")
         if self.approval_key:
             return self.approval_key
         
@@ -59,6 +62,9 @@ class KISWebSocketClient(threading.Thread):
             raise
 
     def run(self):
+        from src.online_access import require_online_access
+
+        require_online_access("KIS WebSocket")
         self.running = True
         while self.running:
             try:

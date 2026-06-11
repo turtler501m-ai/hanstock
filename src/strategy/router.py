@@ -22,6 +22,7 @@ class OrderRouter:
             trading_env=self.env,
             enable_live_trading=self.enable_live,
             require_approval=self.require_approval,
+            online_access_blocked=bool(getattr(config, "online_access_blocked", False)),
         )
 
     def _current_holding_qty(self, symbol: str) -> int:
@@ -51,6 +52,10 @@ class OrderRouter:
         save_decision_log(symbol, name, action, qty, price, reason, indicators, True)
 
         decision = resolve_execution_decision(self._execution_context())
+        if decision.decision == "reject":
+            logger.warning(f"[ROUTER] Order Rejected: {decision.reason}")
+            return {"ok": False, "msg": decision.reason, "status": "rejected"}
+
         if self.dry_run:
             logger.info(f"[ROUTER] Paper Trading: {action} {name} qty={qty}")
             save_trade(symbol, name, action, qty, price, reason, True, False, strategy_id=strategy_id)
@@ -75,10 +80,6 @@ class OrderRouter:
                 "status": "pending",
                 "approval_id": approval_id,
             }
-
-        if decision.decision == "reject":
-            logger.warning(f"[ROUTER] Order Rejected: {decision.reason}")
-            return {"ok": False, "msg": decision.reason, "status": "rejected"}
 
         pre_order_qty = self._current_holding_qty(symbol)
         result = self.api.place_order(symbol, action, price, qty)

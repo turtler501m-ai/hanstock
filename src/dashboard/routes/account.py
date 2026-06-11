@@ -21,6 +21,7 @@ def health():
         "require_approval": trader.REQUIRE_APPROVAL,
         "order_submission_enabled": trader.ORDER_SUBMISSION_ENABLED,
         "real_orders_enabled": trader.REAL_ORDERS_ENABLED,
+        "online_access_blocked": bool(getattr(trader.config, "online_access_blocked", False)),
         "circuit_breaker": KIStockAPI.circuit_status(),
         "active_model_version": getattr(trader.config, "active_model_version", "v1"),
         "ai_analysis": _ai_analysis_config(),
@@ -101,8 +102,12 @@ def get_mock_trading_positions():
     
     positions = data.get("positions", [])
     
+    from src.online_access import is_online_access_blocked
+
     # 실시간 시세 조회
     try:
+        if is_online_access_blocked():
+            raise RuntimeError("online access blocked")
         resp = requests.get("https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT", timeout=5)
         current_price = float(resp.json()["price"])
     except:
@@ -146,6 +151,18 @@ def get_mock_trading_trades(limit: int = 200):
 
 @app.get("/api/balance")
 def get_balance():
+    from src.online_access import is_online_access_blocked
+
+    if is_online_access_blocked():
+        balance_data = _load_balance_cache()
+        if balance_data is None:
+            raise HTTPException(status_code=503, detail="Online access is blocked and no balance snapshot is available")
+        parsed = _parse_balance(balance_data)
+        for holding in parsed["holdings"]:
+            holding.pop("_raw", None)
+        parsed["_offline"] = True
+        return parsed
+
     missing = _required_env_missing()
     if missing:
         if "KISTOCK_ACCOUNT_FORMAT" in missing:
@@ -193,6 +210,4 @@ def get_portfolio_optimizer():
         return snapshot_read_through("portfolio_optimizer", _build)
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"Portfolio optimizer failed: {e}") from e
-
-
 

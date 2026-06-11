@@ -175,6 +175,27 @@ class OrderRouterTests(unittest.TestCase):
         self.assertEqual(result["status"], "failed")
         self.assertNotIn("approval_id", result)
 
+    def test_online_access_block_rejects_without_order_or_approval(self):
+        self._set_config(
+            dry_run=True,
+            trading_env="demo",
+            enable_live_trading=False,
+            require_approval=True,
+            online_access_blocked=True,
+        )
+        api = Mock()
+        approval_service = Mock()
+        order_router = router.OrderRouter(api, approval_service=approval_service)
+
+        with patch.object(router, "save_decision_log"), patch.object(router, "save_trade") as save_trade:
+            result = order_router.route("005930", "Samsung", "buy", 1, 70000, "test", {})
+
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["status"], "rejected")
+        api.place_order.assert_not_called()
+        approval_service.queue_approval.assert_not_called()
+        save_trade.assert_not_called()
+
 
 if __name__ == "__main__":
     unittest.main()

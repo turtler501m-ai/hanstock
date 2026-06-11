@@ -44,6 +44,10 @@ def post_slack_payload(
     timeout: int = 10,
     log_fn: Callable[[str], None] | None = None,
 ) -> bool:
+    from src.online_access import is_online_access_blocked
+
+    if is_online_access_blocked():
+        return False
     if not webhook_url:
         return False
     try:

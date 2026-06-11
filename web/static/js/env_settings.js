@@ -99,6 +99,7 @@ const CATEGORIES = [
         title: "🇰🇷 국내주식 자동매매 설정 (한스톡)",
         short: "국내주식 (한스톡)",
         keys: [
+            "ONLINE_ACCESS_BLOCKED",
             "TRADING_ENV",
             "DRY_RUN",
             "ENABLE_LIVE_TRADING",
@@ -289,6 +290,9 @@ async function renderEnvSettings() {
             envGridEl.innerHTML = html;
         }
         document.getElementById('env-meta').textContent = `${data.path || '.env'} · 저장 즉시 런타임 반영, 일부 값은 서버 재시작 필요`;
+        if (String(fieldMap.ONLINE_ACCESS_BLOCKED?.value || '').toLowerCase() === 'true') {
+            setStatus('온라인 접속 차단 중: 주문과 외부 API 갱신은 중지되며 DB 저장 정보만 표시됩니다.');
+        }
     } catch (err) {
         setStatus(`환경설정 불러오기 실패: ${err.message}`);
     }

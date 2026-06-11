@@ -8,6 +8,9 @@ from src.utils.logger import logger
 from src.db.repository import load_watchlist_data
 
 def run_historical_backtest(strategy_profile: dict, days: int = 250) -> dict:
+    from src.online_access import require_online_access
+
+    require_online_access("historical backtest data download")
     """Runs a real historical backtest using yfinance data for watchlist symbols."""
     watchlist_data = load_watchlist_data()
     symbols = watchlist_data.get("symbols", ["005930", "000660", "035420", "005380", "035720"])

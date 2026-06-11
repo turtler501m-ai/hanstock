@@ -34,11 +34,17 @@ from src.futures_signals import (  # noqa: E402
     collector_status,
 )
 from src.notifier.slack import slack_order as _slack_order, slack_error as _slack_error  # noqa: E402
+from src.online_access import OnlineAccessBlockedError  # noqa: E402
 from src.strategy.seven_split import adjust_tick_size  # noqa: E402
 from src.utils.logger import logger  # noqa: E402
 
 
 app = FastAPI(title="Seven Split Dashboard", version="1.0.0")
+
+
+@app.exception_handler(OnlineAccessBlockedError)
+async def online_access_blocked_handler(_request: Request, exc: OnlineAccessBlockedError):
+    return JSONResponse(status_code=409, content={"detail": str(exc)})
 
 
 def _dashboard_auth_config() -> dict[str, str | bool]:
@@ -134,6 +140,7 @@ ENV_FIELDS = [
     {"key": "DRY_RUN", "label": "二쇰Ц李⑤떒", "type": "bool", "hint": "true?대㈃ 二쇰Ц李⑤떒 ON ?곹깭濡?KIS 二쇰Ц API ?꾩넚??留됯퀬 湲곕줉留??④퉩?덈떎."},
     {"key": "ENABLE_LIVE_TRADING", "label": "?ㅼ쟾留ㅻℓ 理쒖쥌?덉슜", "type": "bool", "hint": "?ㅼ쟾二쇰Ц???덉슜?섎뒗 理쒖쥌 ?덉쟾 ?ㅼ쐞移섏엯?덈떎."},
     {"key": "REQUIRE_APPROVAL", "label": "二쇰Ц?뱀씤 ?꾩슂", "type": "bool"},
+    {"key": "ONLINE_ACCESS_BLOCKED", "label": "Online Access Blocked", "type": "bool", "hint": "true이면 외부 API, 웹소켓, 주문 실행을 차단하고 DB에 저장된 정보만 표시합니다."},
     {"key": "SPLIT_N", "label": "Split N", "type": "int"},
     {"key": "STOP_LOSS_PCT", "label": "Stop Loss %", "type": "float"},
     {"key": "TAKE_PROFIT", "label": "Take Profit %", "type": "float"},
@@ -510,11 +517,25 @@ def snapshot_read_through(
 
     if snap is not None:
         age = _snapshot_age_seconds(snap.get("captured_at", ""))
+        from src.online_access import is_online_access_blocked
+
+        if is_online_access_blocked():
+            payload = dict(snap["payload"])
+            payload["_snapshot"] = {
+                "stale": True,
+                "captured_at": snap.get("captured_at", ""),
+                "source": "db",
+                "offline": True,
+            }
+            return payload
         if age is not None and age < ttl:
             payload = dict(snap["payload"])
             payload["_snapshot"] = {"stale": False, "captured_at": snap.get("captured_at", ""), "source": "db"}
             return payload
 
+    from src.online_access import require_online_access
+
+    require_online_access(f"{kind} refresh")
     try:
         payload = builder()
         if not isinstance(payload, dict):
@@ -568,7 +589,9 @@ _snapshot_refresher_stop = threading.Event()
 
 def _refresh_balance_snapshot_once() -> None:
     """잔고를 라이브로 한 번 받아 DB 스냅샷에 반영(write-through)한다."""
-    if _required_env_missing():
+    from src.online_access import is_online_access_blocked
+
+    if is_online_access_blocked() or _required_env_missing():
         return
     api = _get_api()
     balance_data = _get_balance_data(api, allow_cache=False)
@@ -1322,6 +1345,10 @@ def _apply_runtime_env_updates(updates: dict[str, str]) -> None:
             parsed = _env_bool_value({"value": value}, "value")
             trader.config.enable_live_trading = parsed
             trader.ENABLE_LIVE_TRADING = parsed
+        elif key == "ONLINE_ACCESS_BLOCKED":
+            parsed = _env_bool_value({"value": value}, "value")
+            trader.config.online_access_blocked = parsed
+            trader.ONLINE_ACCESS_BLOCKED = parsed
         elif key == "MISTOCK_TRADING_ENV":
             from src.mistock.config import config as mistock_config
             mistock_config.trading_env = value
@@ -1363,12 +1390,14 @@ def _apply_runtime_env_updates(updates: dict[str, str]) -> None:
                 pass
 
     trader.REAL_ORDERS_ENABLED = (
-        (not trader.DRY_RUN)
+        (not trader.ONLINE_ACCESS_BLOCKED)
+        and (not trader.DRY_RUN)
         and trader.TRADING_ENV == "real"
         and trader.ENABLE_LIVE_TRADING
     )
     trader.ORDER_SUBMISSION_ENABLED = (
-        (not trader.DRY_RUN)
+        (not trader.ONLINE_ACCESS_BLOCKED)
+        and (not trader.DRY_RUN)
         and (trader.TRADING_ENV == "demo" or trader.REAL_ORDERS_ENABLED)
     )
 
@@ -2909,6 +2938,13 @@ def _auto_approve_pending_approvals(limit: int = 200) -> list[dict]:
 
 
 def _approve_pending_approval(approval_id: int, approval_label: str = "수동승인") -> dict:
+    from src.online_access import is_online_access_blocked
+
+    if is_online_access_blocked():
+        raise HTTPException(
+            status_code=409,
+            detail="Online access is blocked. Approval remains pending.",
+        )
     item = _claim_pending_approval(approval_id)
     result: dict = {}
     try:
@@ -2982,6 +3018,10 @@ def fetch_cloud_trades():
     global _cloud_trades_cache, _cloud_trades_cache_time
     if _cloud_trades_cache is not None and time.time() - _cloud_trades_cache_time < 10:
         return [dict(t) for t in _cloud_trades_cache]
+    from src.online_access import is_online_access_blocked
+
+    if is_online_access_blocked():
+        return [dict(t) for t in (_cloud_trades_cache or [])]
         
     try:
         subprocess.run(
