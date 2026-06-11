@@ -16,14 +16,34 @@ def get_usd_krw_rate() -> float:
         try:
             ticker = yf.Ticker("USDKRW=X")
             info = ticker.fast_info
-            rate = info.get("last_price") or info.get("lastPrice")
+            rate = None
+            
+            # fast_info can be a dictionary-like object or a FastInfo object.
+            # Handle both cases safely.
+            if hasattr(info, "last_price"):
+                rate = info.last_price
+            elif hasattr(info, "lastPrice"):
+                rate = info.lastPrice
+            elif isinstance(info, dict):
+                rate = info.get("last_price") or info.get("lastPrice")
+            elif hasattr(info, "get"):
+                try:
+                    rate = info.get("last_price") or info.get("lastPrice")
+                except Exception:
+                    pass
+            
             if not rate:
-                hist = ticker.history(period="1d")
+                # Use 3d period to guarantee closed/weekend markets return data
+                hist = ticker.history(period="3d")
                 if not hist.empty:
-                    rate = float(hist["Close"].iloc[-1])
-            if rate and rate > 0:
+                    rate = float(hist["Close"].dropna().iloc[-1])
+                    
+            if rate and float(rate) > 0:
                 _USD_KRW_RATE = float(rate)
                 _USD_KRW_LAST_FETCH = now
+                logger.info(f"Successfully updated USD/KRW exchange rate to {_USD_KRW_RATE:.2f} using yfinance.")
+            else:
+                raise ValueError("Exchange rate returned 0 or None")
         except Exception as e:
             logger.warning(f"Failed to fetch USD/KRW rate from yfinance: {e}")
             _USD_KRW_LAST_FETCH = now - _USD_KRW_CACHE_TTL + 300  # retry in 5 mins

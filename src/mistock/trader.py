@@ -6,6 +6,7 @@ from typing import Any
 from src.mistock.config import config
 from src.mistock import db
 from src.mistock.strategy import NASDAQ_UNIVERSE, fetch_history, normalize_symbol, quote, strategy_profile, symbol_name
+from src.utils.exchange_rate import get_usd_krw_rate
 
 
 _kis_client_cache = None
@@ -36,10 +37,10 @@ def _first_positive(mapping: dict[str, Any], keys: list[str]) -> float:
     return 0.0
 
 
-def _configured_capital_usd(exchange_rate: float = 1380.0) -> float:
+def _configured_capital_usd(exchange_rate: float | None = None) -> float:
     capital = float(config.total_capital or 0.0)
     if str(config.currency or "").upper() == "KRW":
-        rate = exchange_rate if exchange_rate > 0 else 1380.0
+        rate = exchange_rate if (exchange_rate and exchange_rate > 0) else get_usd_krw_rate()
         return capital / rate
     return capital
 
@@ -234,9 +235,9 @@ def get_balance() -> dict[str, Any]:
                 else:
                     output3 = {}
                     
-            exchange_rate = _to_float(summary.get("frst_rt") or output3.get("frst_rt"), 1380.0)
+            exchange_rate = _to_float(summary.get("frst_rt") or output3.get("frst_rt"), 0.0)
             if exchange_rate <= 0:
-                exchange_rate = 1380.0
+                exchange_rate = get_usd_krw_rate()
                 
             krw_cash = _first_positive(output3, ["tot_dncl_amt", "dncl_amt"])
             if krw_cash > 0:
@@ -590,7 +591,7 @@ def save_trade(symbol: str, name: str, action: str, qty: float, price: float, re
     # 수수료/세금 예상 계산 (미장 기본 수수료 0.1%, 매도시 SEC Fee 등 0.03% 추가)
     fee = (qty * price * 0.001) if ok else 0.0
     tax = (qty * price * 0.0003) if (ok and action.lower() == "sell") else 0.0
-    exchange_rate = 1380.0
+    exchange_rate = get_usd_krw_rate()
     
     db.execute(
         """

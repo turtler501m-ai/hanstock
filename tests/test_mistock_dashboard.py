@@ -165,7 +165,8 @@ class MistockDashboardTests(unittest.TestCase):
         object.__setattr__(mistock_config, "trading_env", "demo")
         object.__setattr__(mistock_config, "total_capital", 100000000.0)
         object.__setattr__(mistock_config, "currency", "KRW")
-        with patch.object(mistock_trader, "_get_kis_client", return_value=FakeClient()):
+        with patch.object(mistock_trader, "_get_kis_client", return_value=FakeClient()), \
+             patch("src.mistock.trader.get_usd_krw_rate", return_value=1380.0):
             balance = mistock_trader.get_balance()
 
         self.assertAlmostEqual(balance["cash"], 72463.7681, places=3)
