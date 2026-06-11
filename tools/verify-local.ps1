@@ -29,7 +29,7 @@ $python = Get-PythonPath
 powershell -ExecutionPolicy Bypass -File tools\check-encoding.ps1
 & $python -c "import pathlib; [compile(p.read_text(encoding='utf-8'), str(p), 'exec') for root in ('src','tests') for p in pathlib.Path(root).rglob('*.py')]"
 & $python -m py_compile tools\demo-trading-rehearsal.py
-& $python -m unittest discover -s tests
+& $python -m unittest discover -s tests -t .
 & $python tools\demo-trading-rehearsal.py --no-db --allow-not-ready
 
 node --check web\static\js\app.js

@@ -1,4 +1,5 @@
 import unittest
+from unittest.mock import patch
 
 from fastapi import HTTPException
 
@@ -61,7 +62,15 @@ class AiStrategyLifecycleTests(unittest.TestCase):
         static_result = dashboard.static_verify_ai_strategy("lifecycle_rule")
         self.assertTrue(static_result["result"]["success"])
 
-        backtest_result = dashboard.backtest_ai_strategy("lifecycle_rule")
+        backtest_fixture = {
+            "ok": True,
+            "success": True,
+            "status": "passed",
+            "return_pct": 3.2,
+            "max_drawdown_pct": 2.1,
+        }
+        with patch("src.dashboard.routes.stock._build_strategy_backtest", return_value=backtest_fixture):
+            backtest_result = dashboard.backtest_ai_strategy("lifecycle_rule")
         self.assertTrue(backtest_result["result"]["success"])
         self.assertEqual(backtest_result["strategy"]["status"], "backtested")
 

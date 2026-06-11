@@ -7,7 +7,8 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 
-load_dotenv(override=True)
+if os.environ.get("HANSTOCK_TESTING") != "1":
+    load_dotenv(override=True)
 
 
 @dataclass

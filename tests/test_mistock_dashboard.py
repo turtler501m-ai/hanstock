@@ -206,7 +206,11 @@ class MistockDashboardTests(unittest.TestCase):
         self.assertTrue(env_result["requires_restart"])
         self.assertTrue(mistock.mistock_static_verify(strategy_id)["ok"])
         self.assertTrue(mistock.mistock_api_verify(strategy_id)["ok"])
-        self.assertTrue(mistock.mistock_backtest(strategy_id)["ok"])
+        with patch(
+            "src.strategy.backtest_mistock.run_mistock_backtest",
+            return_value={"ok": True, "success": True, "status": "passed"},
+        ):
+            self.assertTrue(mistock.mistock_backtest(strategy_id)["ok"])
         self.assertTrue(mistock.mistock_paper_start(strategy_id)["ok"])
         self.assertTrue(mistock.mistock_paper_complete(strategy_id, {"days": 20})["ok"])
         self.assertEqual(mistock.mistock_strategy_approve(strategy_id)["status"], "approved")

@@ -1,5 +1,8 @@
 import unittest
 from datetime import datetime, timezone, timedelta
+from unittest.mock import Mock, patch
+
+import pandas as pd
 from src.db.repository import save_daily_charts, load_daily_charts, connect_db, init_db
 from src.strategy.seven_split import find_candidates
 
@@ -46,7 +49,16 @@ class TestHybridScanner(unittest.TestCase):
         
         # yfinance를 일부러 mock이나 bypass해서 Fallback DB가 도는지 테스트
         # universe=['005930'] 로 지정해 스캔 테스트
-        res = find_candidates(held_symbols=set(), universe=["005930"], min_score=0, ranker="rule_only", api=None)
+        api = Mock()
+        api.get_daily.return_value = []
+        with patch("src.strategy.seven_split.yf.download", return_value=pd.DataFrame()):
+            res = find_candidates(
+                held_symbols=set(),
+                universe=["005930"],
+                min_score=0,
+                ranker="rule_only",
+                api=api,
+            )
         
         self.assertIn("scanned", res)
         # 005930이 정상적으로 1종목 scanned 완료되었는지 검증

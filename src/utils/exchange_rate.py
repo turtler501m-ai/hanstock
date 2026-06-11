@@ -12,6 +12,8 @@ _USD_KRW_CACHE_TTL: float = 3600.0  # 1 hour cache
 
 def get_usd_krw_rate() -> float:
     global _USD_KRW_RATE, _USD_KRW_LAST_FETCH
+    if os.environ.get("HANSTOCK_TESTING") == "1":
+        return _USD_KRW_RATE
     now = time.time()
     if now - _USD_KRW_LAST_FETCH > _USD_KRW_CACHE_TTL:
         try:

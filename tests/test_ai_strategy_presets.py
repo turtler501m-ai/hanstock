@@ -15,7 +15,11 @@ class AiStrategyPresetTests(unittest.TestCase):
             with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
                 dashboard.trader.config.trade_db_path = str(Path(tmpdir) / "trades.sqlite")
                 backup_path = Path(tmpdir) / "ai_strategies.json"
-                with patch.object(repository, "AI_STRATEGIES_FILE", backup_path):
+                with patch.object(repository, "AI_STRATEGIES_FILE", backup_path), patch.object(
+                    stock,
+                    "_build_strategy_backtest",
+                    return_value={"ok": True, "success": True, "status": "passed"},
+                ):
                     result = stock.apply_ai_strategy_preset("balanced")
                     strategies = repository.load_ai_strategies()
         finally:

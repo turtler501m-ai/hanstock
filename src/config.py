@@ -1,9 +1,13 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing import Optional
 from dotenv import load_dotenv
+import os
 
 
-load_dotenv(override=True)
+_TESTING = os.environ.get("HANSTOCK_TESTING") == "1"
+
+if not _TESTING:
+    load_dotenv(override=True)
 
 class Settings(BaseSettings):
     # KIS API Credentials (국내주식)
@@ -81,7 +85,7 @@ class Settings(BaseSettings):
     ai_candidate_limit: int = 5
 
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=None if _TESTING else ".env",
         env_file_encoding="utf-8",
         extra="ignore"
     )

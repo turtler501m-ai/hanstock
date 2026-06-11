@@ -19,7 +19,8 @@ from fastapi import Body, FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-load_dotenv()
+if os.environ.get("HANSTOCK_TESTING") != "1":
+    load_dotenv()
 
 from src import trader  # noqa: E402
 from src.trader import KIStockAPI  # noqa: E402
