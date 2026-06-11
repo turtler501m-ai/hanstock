@@ -78,6 +78,10 @@ def _dashboard_basic_credentials(request: Request) -> tuple[str, str] | None:
 
 @app.middleware("http")
 async def require_dashboard_auth(request: Request, call_next):
+    # Temporarily disabled: allow direct VM dashboard access while external routing is restored.
+    # Re-enable by removing this early return.
+    return await call_next(request)
+
     auth = _dashboard_auth_config()
     if not auth["enabled"]:
         return await call_next(request)
