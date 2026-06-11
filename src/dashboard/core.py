@@ -133,7 +133,7 @@ _balance_fetch_lock = threading.Lock()
 ENV_FIELDS = [
     {"key": "KISTOCK_APP_KEY", "label": "KIS App Key", "type": "secret"},
     {"key": "KISTOCK_APP_SECRET", "label": "KIS App Secret", "type": "secret"},
-    {"key": "KISTOCK_ACCOUNT", "label": "KIS Account", "type": "secret", "hint": "怨꾩쥖踰덊샇 8?먮━ ?먮뒗 怨꾩쥖踰덊샇 8?먮━ + ?곹뭹肄붾뱶 2?먮━, ?? 12345678 ?먮뒗 1234567801"},
+    {"key": "KISTOCK_ACCOUNT", "label": "KIS Account", "type": "text", "hint": "怨꾩쥖踰덊샇 8?먮━ ?먮뒗 怨꾩쥖踰덊샇 8?먮━ + ?곹뭹肄붾뱶 2?먮━, ?? 12345678 ?먮뒗 1234567801"},
     {"key": "KISTOCK_HTS_ID", "label": "KIS HTS ID", "type": "text", "hint": "실시간 주문체결 통보와 조건검색식 조회에 사용할 HTS ID입니다."},
     {"key": "KIS_WEBSOCKET_ENABLED", "label": "KIS WebSocket Enabled", "type": "bool", "hint": "true이면 서버에서 KIS 실시간 주문체결 통보 웹소켓을 시작할 수 있습니다."},
     {"key": "KIS_CONDITION_SEARCH_ENABLED", "label": "KIS Condition Search Enabled", "type": "bool", "hint": "true이면 매수 후보 스캔 유니버스에 KIS 조건검색식 결과를 우선 반영합니다."},
@@ -1482,7 +1482,7 @@ def _ai_analysis_config() -> dict:
         "model_type": "OpenAI text model",
         "model_available": bool(api_key),
         "account_priority": "current_kis_account",
-        "account": _mask_env_value(trader.config.kistock_account),
+        "account": trader.config.kistock_account,
         "account_label": "현재 KIS 계좌 1순위",
         "openai_account_priority": "openai_api_first",
         "openai_api_configured": bool(api_key),

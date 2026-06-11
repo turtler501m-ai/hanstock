@@ -82,17 +82,18 @@
                         <h2>환경설정</h2>
                         <p class="section-help">gpt-5-mini 연결은 AI Strategy Enabled, OpenAI API Key, OpenAI Model 값을 저장한 뒤 AI 전략의 API검증으로 확인할 수 있습니다.</p>
                     </div>
-                    <button type="button" id="btn-env-reload" class="button-ghost">다시 불러오기</button>
+                    <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; justify-content: flex-end;">
+                        <button type="button" id="btn-env-online-block" class="button-ghost">온라인 차단</button>
+                        <button type="button" id="btn-env-reset-db" class="button-ghost" style="background-color: rgba(239, 68, 68, 0.1); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.2); transition: all 0.2s ease;">DB 및 캐시 완전 초기화</button>
+                        <button type="button" id="btn-env-reload" class="button-ghost">다시 불러오기</button>
+                    </div>
                 </div>
                 <div class="env-tabs" id="env-tabs"></div>
                 <form id="env-form" class="env-form">
                     <div class="env-grid env-page-grid" id="env-grid"></div>
                     <div class="env-actions">
                         <span class="time-muted" id="env-meta">-</span>
-                        <div style="display: flex; gap: 0.5rem; align-items: center;">
-                            <button type="button" id="btn-env-reset-db" class="button-ghost" style="background-color: rgba(239, 68, 68, 0.1); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.2); transition: all 0.2s ease;">DB 및 캐시 완전 초기화</button>
-                            <button type="submit" id="btn-env-save">저장</button>
-                        </div>
+                        <button type="submit" id="btn-env-save">저장</button>
                     </div>
                 </form>
             </section>

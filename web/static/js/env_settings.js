@@ -21,6 +21,8 @@ const setButtonBusy = (id, busy) => {
     }
 };
 
+let currentEnvFieldMap = {};
+
 async function fetchJson(url) {
     const response = await fetch(url);
     const data = await response.json();
@@ -47,7 +49,7 @@ function buildEnvControl(field) {
     const key = escapeHtml(field.key);
     const label = escapeHtml(field.label || field.key);
     const value = escapeHtml(field.value || '');
-    const hint = escapeHtml(field.hint || (field.secret ? '민감 정보는 화면에 표시되지 않습니다. 변경할 때만 새 값을 입력하세요.' : ''));
+    const hint = escapeHtml(field.hint || '');
 
     if (field.type === 'bool') {
         const selected = String(field.value || '').toLowerCase() === 'true';
@@ -79,15 +81,12 @@ function buildEnvControl(field) {
         `;
     }
 
-    const inputType = field.type === 'secret' ? 'password' : (field.type === 'int' || field.type === 'float' ? 'number' : 'text');
+    const inputType = field.type === 'int' || field.type === 'float' ? 'number' : 'text';
     const step = field.type === 'float' ? ' step="any"' : '';
-    const placeholder = field.secret
-        ? (field.has_value ? `${field.masked || '설정됨'} (변경 시 새 값 입력)` : '새 값 입력')
-        : '';
     return `
         <div class="env-field">
             <label for="env-${key}">${label}</label>
-            <input id="env-${key}" type="${inputType}"${step} value="${value}" placeholder="${placeholder}"
+            <input id="env-${key}" type="${inputType}"${step} value="${value}"
                 data-env-key="${key}" data-original="${value}" autocomplete="off">
             <small>${hint}</small>
         </div>
@@ -196,6 +195,7 @@ async function renderEnvSettings() {
         fields.forEach(f => {
             fieldMap[f.key] = f;
         });
+        currentEnvFieldMap = fieldMap;
 
         let html = '';
         let tabsHtml = '';
@@ -290,7 +290,9 @@ async function renderEnvSettings() {
             envGridEl.innerHTML = html;
         }
         document.getElementById('env-meta').textContent = `${data.path || '.env'} · 저장 즉시 런타임 반영, 일부 값은 서버 재시작 필요`;
-        if (String(fieldMap.ONLINE_ACCESS_BLOCKED?.value || '').toLowerCase() === 'true') {
+        const onlineBlocked = String(fieldMap.ONLINE_ACCESS_BLOCKED?.value || '').toLowerCase() === 'true';
+        updateOnlineBlockButton(onlineBlocked);
+        if (onlineBlocked) {
             setStatus('온라인 접속 차단 중: 주문과 외부 API 갱신은 중지되며 DB 저장 정보만 표시됩니다.');
         }
     } catch (err) {
@@ -359,10 +361,48 @@ async function resetDatabaseAndClearCache() {
     }
 }
 
+function updateOnlineBlockButton(blocked) {
+    const button = document.getElementById('btn-env-online-block');
+    if (!button) {
+        return;
+    }
+    button.textContent = blocked ? '온라인 차단 해제' : '온라인 차단';
+    button.dataset.blocked = blocked ? 'true' : 'false';
+}
+
+async function toggleOnlineAccessBlocked() {
+    const button = document.getElementById('btn-env-online-block');
+    const currentlyBlocked = String(button?.dataset.blocked || currentEnvFieldMap.ONLINE_ACCESS_BLOCKED?.value || '').toLowerCase() === 'true';
+    const nextValue = currentlyBlocked ? 'false' : 'true';
+    const confirmed = window.confirm(
+        currentlyBlocked
+            ? '온라인 접속 차단을 해제하시겠습니까?'
+            : '온라인 접속을 차단하시겠습니까?\n\n주문, 승인 실행, 외부 API, 웹소켓, 알림 연동이 차단됩니다.'
+    );
+    if (!confirmed) {
+        return;
+    }
+
+    setButtonBusy('btn-env-online-block', true);
+    try {
+        await postJson('/api/env', { values: { ONLINE_ACCESS_BLOCKED: nextValue } });
+        await renderEnvSettings();
+        setStatus(nextValue === 'true' ? '온라인 접속 차단을 켰습니다.' : '온라인 접속 차단을 해제했습니다.', true);
+    } catch (err) {
+        setStatus(`온라인 접속 차단 설정 실패: ${err.message}`);
+    } finally {
+        setButtonBusy('btn-env-online-block', false);
+    }
+}
+
 document.getElementById('env-form').addEventListener('submit', saveEnvSettings);
 document.getElementById('btn-env-reload').addEventListener('click', renderEnvSettings);
 const resetBtn = document.getElementById('btn-env-reset-db');
 if (resetBtn) {
     resetBtn.addEventListener('click', resetDatabaseAndClearCache);
+}
+const onlineBlockBtn = document.getElementById('btn-env-online-block');
+if (onlineBlockBtn) {
+    onlineBlockBtn.addEventListener('click', toggleOnlineAccessBlocked);
 }
 renderEnvSettings();
