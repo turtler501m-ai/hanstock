@@ -227,12 +227,13 @@ def get_env_settings():
     try:
         import src.utils.exchange_rate as ex_rate
         from datetime import datetime, timezone, timedelta
+        current_rate = ex_rate.get_usd_krw_rate()
         last_fetch = ex_rate._USD_KRW_LAST_FETCH
         last_fetch_str = "미수집"
         if last_fetch > 0:
             last_fetch_str = datetime.fromtimestamp(last_fetch, timezone(timedelta(hours=9))).strftime("%Y-%m-%d %H:%M:%S")
         rate_info = {
-            "current_rate": round(ex_rate._USD_KRW_RATE, 2),
+            "current_rate": round(current_rate, 2),
             "last_fetch_time": last_fetch_str
         }
     except Exception:
