@@ -1,7 +1,7 @@
 #!/bin/bash
 ACTION="${1:-restart}"
 PORT="${PORT:-8000}"
-HOST="${HOST:-127.0.0.1}"
+HOST="${HOST:-0.0.0.0}"
 RELOAD="${RELOAD:-false}"
 LINES="${LINES:-80}"
 
