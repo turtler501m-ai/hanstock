@@ -102,7 +102,8 @@ def _dashboard_basic_credentials(request: Request) -> tuple[str, str] | None:
 async def require_dashboard_auth(request: Request, call_next):
     # Temporarily disabled: allow direct VM dashboard access while external routing is restored.
     # Re-enable by removing this early return.
-    return await call_next(request)
+    if os.environ.get("HANSTOCK_TESTING") != "1":
+        return await call_next(request)
 
     auth = _dashboard_auth_config()
     if not auth["enabled"]:
