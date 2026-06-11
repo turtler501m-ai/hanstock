@@ -389,6 +389,9 @@ def stop_kis_websocket():
 
 @app.post("/api/kis/websocket/subscribe")
 def subscribe_kis_websocket(payload: dict = Body(...)):
+    from src.online_access import require_online_access
+
+    require_online_access("KIS WebSocket subscription")
     client = _kis_websocket_client
     if not client:
         raise HTTPException(status_code=409, detail="KIS WebSocket is not running")
@@ -407,6 +410,9 @@ def subscribe_kis_websocket(payload: dict = Body(...)):
 
 @app.post("/api/kis/orders/cancel")
 def cancel_kis_stock_order(payload: dict = Body(...)):
+    from src.online_access import require_online_access
+
+    require_online_access("KIS order cancellation")
     order_no = str(payload.get("order_no") or payload.get("original_order_no") or "").strip()
     if not order_no:
         raise HTTPException(status_code=400, detail="order_no is required")
@@ -424,6 +430,9 @@ def cancel_kis_stock_order(payload: dict = Body(...)):
 
 @app.post("/api/kis/orders/revise")
 def revise_kis_stock_order(payload: dict = Body(...)):
+    from src.online_access import require_online_access
+
+    require_online_access("KIS order revision")
     order_no = str(payload.get("order_no") or payload.get("original_order_no") or "").strip()
     qty = _to_int(payload.get("qty"))
     price = _to_int(payload.get("price"))

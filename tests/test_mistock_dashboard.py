@@ -5,6 +5,7 @@ from unittest.mock import patch
 
 from src.dashboard import app
 from src.dashboard.routes import mistock
+from src.config import config as main_config
 from src.mistock.config import config as mistock_config
 from src.mistock import db as mistock_db
 from src.mistock import scheduler as mistock_scheduler
@@ -18,6 +19,7 @@ class MistockDashboardTests(unittest.TestCase):
         self.original_trading_env = mistock_config.trading_env
         self.original_total_capital = mistock_config.total_capital
         self.original_currency = mistock_config.currency
+        self.original_online_blocked = main_config.online_access_blocked
         object.__setattr__(mistock_config, "trade_db_path", Path(self.tmp.name) / "mistock.sqlite")
 
     def tearDown(self):
@@ -25,6 +27,7 @@ class MistockDashboardTests(unittest.TestCase):
         object.__setattr__(mistock_config, "trading_env", self.original_trading_env)
         object.__setattr__(mistock_config, "total_capital", self.original_total_capital)
         object.__setattr__(mistock_config, "currency", self.original_currency)
+        main_config.online_access_blocked = self.original_online_blocked
         self.tmp.cleanup()
 
     def test_mistock_routes_are_registered(self):
@@ -327,6 +330,29 @@ class MistockDashboardTests(unittest.TestCase):
         self.assertTrue(result["ok"])
         self.assertFalse(result["auto_approved"])
         self.assertEqual(result["status"], "pending")
+        place_order.assert_not_called()
+
+    def test_online_access_block_keeps_mistock_approval_pending(self):
+        main_config.online_access_blocked = True
+        mistock_db.set_setting("auto_approval", "true")
+
+        with patch.object(mistock_trader, "place_order") as place_order:
+            result = mistock.mistock_create_approval({
+                "symbol": "AAPL",
+                "name": "Apple",
+                "action": "buy",
+                "qty": 1,
+                "price": 100,
+                "reason": "blocked",
+            })
+            with self.assertRaises(mistock.HTTPException) as raised:
+                mistock.mistock_approve(result["id"])
+
+        row = mistock_db.row("SELECT status, response_msg FROM approvals WHERE id = ?", (result["id"],))
+        self.assertEqual(raised.exception.status_code, 409)
+        self.assertEqual(result["status"], "pending")
+        self.assertEqual(row["status"], "pending")
+        self.assertEqual(row["response_msg"], "")
         place_order.assert_not_called()
 
 

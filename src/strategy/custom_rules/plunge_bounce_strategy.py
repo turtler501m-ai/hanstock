@@ -42,6 +42,9 @@ class PlungeBounceStrategy:
             return self._index_cache[index_ticker]
             
         try:
+            from src.online_access import require_online_access
+
+            require_online_access("yfinance index trend lookup")
             df = yf.download(index_ticker, period="1y", progress=False, auto_adjust=True)
             if not df.empty and len(df) >= 200:
                 closes = df["Close"].squeeze()

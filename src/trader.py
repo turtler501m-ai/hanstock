@@ -10,6 +10,7 @@ from pathlib import Path
 
 from src.config import config
 from src.utils.logger import logger
+from src.online_access import require_online_access
 from src.api.kis_api import HTTP
 from src.kis_client import KISClient, KISClientConfig
 from src.db.repository import init_db, connect_db, save_trade, update_trade_order_status
@@ -116,6 +117,7 @@ class KIStockAPI:
     MAX_ERRORS: int = 5
 
     def __init__(self, notify_errors: bool = True) -> None:
+        require_online_access("KIS API access")
         self.notify_errors = notify_errors
         self.client_config = build_kis_client_config()
         self.access_token = self._load_or_fetch_token()
@@ -274,6 +276,7 @@ class KIStockAPI:
         return result
 
     def place_order(self, symbol: str, order_type: str, price: int, qty: int) -> dict:
+        require_online_access("KIS order submission")
         if not ORDER_SUBMISSION_ENABLED:
             return {"rt_cd": "0", "msg1": "DRY_RUN"}
         is_demo = TRADING_ENV == "demo"

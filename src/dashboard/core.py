@@ -1347,6 +1347,7 @@ def _apply_runtime_env_updates(updates: dict[str, str]) -> None:
             trader.ENABLE_LIVE_TRADING = parsed
         elif key == "ONLINE_ACCESS_BLOCKED":
             parsed = _env_bool_value({"value": value}, "value")
+            os.environ["ONLINE_ACCESS_BLOCKED"] = "true" if parsed else "false"
             trader.config.online_access_blocked = parsed
             trader.ONLINE_ACCESS_BLOCKED = parsed
         elif key == "MISTOCK_TRADING_ENV":
@@ -3675,6 +3676,9 @@ async def telegram_auth_start(request: Request):
     body = await request.json()
     phone = body.get("phone", "")
 
+    from src.online_access import require_online_access
+
+    require_online_access("Telegram authentication")
     try:
         from telethon import TelegramClient
     except ImportError:
@@ -3714,6 +3718,9 @@ async def telegram_auth_verify(request: Request):
     body = await request.json()
     code = body.get("code", "")
 
+    from src.online_access import require_online_access
+
+    require_online_access("Telegram authentication")
     if _telegram_auth_state.get("step") != "code_sent":
         return {"ok": False, "error": "먼저 인증 코드를 발송해주세요"}
 

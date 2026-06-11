@@ -1,5 +1,6 @@
 (function () {
     const BADGE_ID = "dashboard-runtime-badge";
+    const ONLINE_BADGE_ID = "online-access-blocked-badge";
 
     function escapeHtml(value) {
         return String(value ?? "")
@@ -44,6 +45,34 @@
                 color: #fde68a;
                 font-size: 11px;
             }
+            #${ONLINE_BADGE_ID} {
+                position: fixed;
+                top: 10px;
+                left: 10px;
+                z-index: 9999;
+                display: inline-flex;
+                align-items: center;
+                gap: 8px;
+                max-width: min(420px, calc(100vw - 20px));
+                padding: 8px 11px;
+                border-radius: 8px;
+                border: 1px solid rgba(239, 68, 68, 0.72);
+                background: rgba(69, 10, 10, 0.94);
+                color: #fee2e2;
+                box-shadow: 0 14px 32px rgba(15, 23, 42, 0.28);
+                font-family: "Noto Sans KR", "Inter", system-ui, sans-serif;
+                font-size: 12px;
+                line-height: 1.2;
+                letter-spacing: 0;
+            }
+            #${ONLINE_BADGE_ID} strong {
+                font-size: 12px;
+                font-weight: 800;
+            }
+            #${ONLINE_BADGE_ID} span {
+                color: #fecaca;
+                font-size: 11px;
+            }
             @media (max-width: 760px) {
                 #${BADGE_ID} {
                     top: auto;
@@ -51,9 +80,33 @@
                     bottom: 8px;
                     max-width: calc(100vw - 16px);
                 }
+                #${ONLINE_BADGE_ID} {
+                    top: auto;
+                    left: 8px;
+                    bottom: 48px;
+                    max-width: calc(100vw - 16px);
+                }
             }
         `;
         document.head.appendChild(style);
+    }
+
+    function renderOnlineBlockedBadge(blocked) {
+        const existing = document.getElementById(ONLINE_BADGE_ID);
+        if (existing) {
+            existing.remove();
+        }
+        if (!blocked) {
+            return;
+        }
+        installStyles();
+        const badge = document.createElement("div");
+        badge.id = ONLINE_BADGE_ID;
+        badge.innerHTML = `
+            <strong>온라인 접속 차단</strong>
+            <span>외부 API, 웹소켓, 주문 실행 중지</span>
+        `;
+        document.body.appendChild(badge);
     }
 
     function renderBadge(runtime) {
@@ -83,6 +136,7 @@
             }
             const health = await response.json();
             renderBadge(health.dashboard_runtime);
+            renderOnlineBlockedBadge(Boolean(health.online_access_blocked));
         } catch (error) {
             if (window.location.port === "18000") {
                 renderBadge({ is_vm: true, label: "VM DASHBOARD", hostname: "tunnel" });

@@ -90,6 +90,9 @@ def _holdings_from_overseas_balance(balance_data: dict[str, Any]) -> list[dict[s
 
 
 def _get_kis_client():
+    from src.online_access import require_online_access
+
+    require_online_access("KIS overseas stock API access")
     global _kis_client_cache
     if _kis_client_cache is None:
         from src.kis_client import KISClient, KISClientConfig

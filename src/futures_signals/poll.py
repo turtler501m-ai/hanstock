@@ -407,6 +407,9 @@ async def fetch_new_and_context(client, target, last_message_id: int, context_si
 
 async def poll_channel(channel_key: str, target: str, label: str):
     """Poll a single channel for new messages."""
+    from src.online_access import require_online_access
+
+    require_online_access("Telegram polling")
     signals_db.init_db()
 
     state = signals_db.get_channel_state(channel_key)

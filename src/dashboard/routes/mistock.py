@@ -655,10 +655,14 @@ def mistock_execution_plan():
 
 @app.post("/api/mistock/approvals")
 def mistock_create_approval(payload: dict = Body(...)):
+    from src.online_access import is_online_access_blocked
+
     symbol = normalize_symbol(str(payload.get("symbol", "")))
     action = str(payload.get("action", "")).lower()
     qty = float(payload.get("qty") or 0)
-    price = float(payload.get("price") or 0) or quote(symbol)["current"]
+    price = float(payload.get("price") or 0)
+    if price <= 0 and not is_online_access_blocked():
+        price = quote(symbol)["current"]
     if not symbol or action not in {"buy", "sell"} or qty <= 0:
         raise HTTPException(status_code=400, detail="symbol, action, qty required")
     name = str(payload.get("name") or symbol_name(symbol))
@@ -671,7 +675,8 @@ def mistock_create_approval(payload: dict = Body(...)):
         (now, now, symbol, name, action, qty, price, str(payload.get("reason") or ""), str(payload.get("source") or "mistock_dashboard")),
     )
     if (
-        mistock_db.get_setting("auto_approval", "false") == "true"
+        not is_online_access_blocked()
+        and mistock_db.get_setting("auto_approval", "false") == "true"
         and mistock_trader.broker_submission_available()
     ):
         result = _execute_approval(approval_id, approve=True)
@@ -687,6 +692,8 @@ def mistock_approvals(limit: int = 50):
 
 
 def _execute_approval(approval_id: int, *, approve: bool) -> dict:
+    from src.online_access import is_online_access_blocked
+
     item = mistock_db.row("SELECT * FROM approvals WHERE id = ?", (approval_id,))
     if not item:
         raise HTTPException(status_code=404, detail="approval not found")
@@ -699,6 +706,8 @@ def _execute_approval(approval_id: int, *, approve: bool) -> dict:
         )
         updated = mistock_db.row("SELECT * FROM approvals WHERE id = ?", (approval_id,))
         return {**updated, "ok": True}
+    if is_online_access_blocked():
+        raise HTTPException(status_code=409, detail="Online access is blocked. Approval remains pending.")
     result = mistock_trader.place_order(item["symbol"], item["action"], item["qty"], item["price"], item.get("reason") or "")
     status = "executed" if result.get("ok") else "failed"
     mistock_db.execute(

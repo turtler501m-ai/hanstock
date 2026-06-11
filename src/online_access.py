@@ -7,18 +7,22 @@ class OnlineAccessBlockedError(RuntimeError):
     pass
 
 
+def _env_blocked() -> bool:
+    return os.environ.get("ONLINE_ACCESS_BLOCKED", "false").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+
 def is_online_access_blocked() -> bool:
     try:
         from src.config import config
 
         return bool(getattr(config, "online_access_blocked", False))
     except Exception:
-        return os.environ.get("ONLINE_ACCESS_BLOCKED", "false").strip().lower() in {
-            "1",
-            "true",
-            "yes",
-            "on",
-        }
+        return _env_blocked()
 
 
 def require_online_access(operation: str = "online operation") -> None:

@@ -48,6 +48,9 @@ class SimpleStockTradingEnv(gym.Env):
         self.weight = 0.0
 
     def _fetch_and_prepare_data(self, tickers: List[str], start_date: str, end_date: str) -> Dict[str, pd.DataFrame]:
+        from src.online_access import require_online_access
+
+        require_online_access("yfinance RL data download")
         print(f"Downloading data for {tickers} from {start_date} to {end_date}...")
         data_dict = {}
         for ticker in tickers:

@@ -1,4 +1,5 @@
 import unittest
+import os
 from unittest.mock import Mock, patch
 
 from src.config import config
@@ -9,9 +10,14 @@ from src.online_access import OnlineAccessBlockedError
 class OnlineAccessTests(unittest.TestCase):
     def setUp(self):
         self.original_blocked = config.online_access_blocked
+        self.original_env_blocked = os.environ.get("ONLINE_ACCESS_BLOCKED")
 
     def tearDown(self):
         config.online_access_blocked = self.original_blocked
+        if self.original_env_blocked is None:
+            os.environ.pop("ONLINE_ACCESS_BLOCKED", None)
+        else:
+            os.environ["ONLINE_ACCESS_BLOCKED"] = self.original_env_blocked
 
     def test_execution_policy_rejects_before_approval_or_dry_run(self):
         decision = resolve_execution_decision(
@@ -34,6 +40,16 @@ class OnlineAccessTests(unittest.TestCase):
         with patch.object(kis_api.HTTP, "post") as post:
             with self.assertRaises(OnlineAccessBlockedError):
                 kis_api.KIStockAPI()
+
+        post.assert_not_called()
+
+    def test_trader_kis_client_is_blocked_even_with_token_cache(self):
+        config.online_access_blocked = True
+        import src.trader as trader
+
+        with patch.object(trader.HTTP, "post") as post:
+            with self.assertRaises(OnlineAccessBlockedError):
+                trader.KIStockAPI()
 
         post.assert_not_called()
 
