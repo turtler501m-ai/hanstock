@@ -392,10 +392,55 @@ def get_plunge_bounce_scans_history(limit: int = 100):
         return {"ok": False, "error": str(e)}
 
 
+def _trim_scheduler_items(items, limit: int = 50):
+    if not isinstance(items, list):
+        return []
+    return items[:limit]
+
+
+def _summarize_candidate_scan(candidate_scan):
+    if not isinstance(candidate_scan, dict):
+        return {}
+    candidates = candidate_scan.get("candidates")
+    scan_summary = candidate_scan.get("scan_summary")
+    scanned = candidate_scan.get("scanned", candidate_scan.get("scanned_count"))
+    candidates_count = candidate_scan.get("candidates_count")
+    if candidates_count is None and isinstance(candidates, list):
+        candidates_count = len(candidates)
+    return {
+        "scanned": scanned,
+        "scanned_count": scanned,
+        "candidates_count": candidates_count,
+        "candidates": _trim_scheduler_items(candidates, 20),
+        "scan_error": candidate_scan.get("scan_error"),
+        "summary_count": len(scan_summary) if isinstance(scan_summary, list) else candidate_scan.get("summary_count"),
+    }
+
+
+def _summarize_scheduler_result(result):
+    if not isinstance(result, dict):
+        return result
+    return {
+        "plan": _trim_scheduler_items(result.get("plan"), 50),
+        "results": _trim_scheduler_items(result.get("results"), 50),
+        "auto_approved": _trim_scheduler_items(result.get("auto_approved"), 50),
+        "errors": _trim_scheduler_items(result.get("errors"), 10),
+        "auto_approval_errors": _trim_scheduler_items(result.get("auto_approval_errors"), 10),
+        "candidate_scan": _summarize_candidate_scan(result.get("candidate_scan")),
+        "remaining_cash": result.get("remaining_cash"),
+        "daily_loss_halt": result.get("daily_loss_halt"),
+        "cash": result.get("cash"),
+        "held_symbols": _trim_scheduler_items(result.get("held_symbols"), 50),
+        "strategy_id": result.get("strategy_id"),
+        "order_status_sync": result.get("order_status_sync"),
+    }
+
+
 @app.get("/api/strategy/plunge_bounce/schedule-history")
-def get_plunge_bounce_schedule_history(limit: int = 50):
+def get_plunge_bounce_schedule_history(limit: int = 10):
     """Retrieves the execution history of scheduler runs for plunge_bounce_strategy."""
     try:
+        limit = max(1, min(int(limit), 50))
         from src.db.repository import connect_db
         with connect_db() as conn:
             conn.row_factory = sqlite3.Row
@@ -416,7 +461,7 @@ def get_plunge_bounce_schedule_history(limit: int = 50):
                 row_dict = dict(row)
                 if row_dict.get("result"):
                     try:
-                        row_dict["result"] = json.loads(row_dict["result"])
+                        row_dict["result"] = _summarize_scheduler_result(json.loads(row_dict["result"]))
                     except Exception:
                         pass
                 parsed_history.append(row_dict)
