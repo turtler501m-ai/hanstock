@@ -275,6 +275,7 @@ class KISClient:
 
     def mark_failure(self, error: Any = None) -> None:
         import sys
+        from src.utils.logger import logger
         err_str = ""
         if error is not None:
             err_str = str(error)
@@ -285,6 +286,7 @@ class KISClient:
         if "EGW00201" in err_str or "거래건수를 초과" in err_str:
             return
         self.circuit.record_failure(self.now(), self.config.circuit_max_errors)
+        logger.error(f"[KIS CLIENT] API call failed: {err_str}. Circuit error count: {self.circuit.error_count}")
 
     def circuit_status(self) -> dict[str, Any]:
         return self.circuit.status(
@@ -566,7 +568,7 @@ class KISClient:
                 last_error = str(data.get("msg1", "unknown KIS balance error"))
             except Exception as exc:
                 last_error = str(exc)
-        self.mark_failure()
+        self.mark_failure(last_error)
         return {"output1": [], "output2": {}, "_error": last_error or "unknown KIS balance error"}
 
     @staticmethod
@@ -715,7 +717,10 @@ class KISClient:
                 data = {}
             status_code = getattr(response, "status_code", 0)
             if status_code and status_code >= 400:
-                self.mark_failure()
+                err_msg = data.get("msg1") if isinstance(data, dict) else ""
+                if not err_msg:
+                    err_msg = getattr(response, "text", "")
+                self.mark_failure(f"HTTP {status_code}: {err_msg}")
                 raw_text = getattr(response, "text", "")
                 return {
                     "rt_cd": "1",
