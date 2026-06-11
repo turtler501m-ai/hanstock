@@ -1,19 +1,28 @@
-import json
-from src.config import config
-from src.utils.logger import logger
-from src.db.repository import save_trade, save_decision_log
 from src.api.kis_api import KIStockAPI
+from src.approval_service import ApprovalService
+from src.config import config
+from src.db.repository import connect_db, save_decision_log, save_trade
+from src.execution_service import ExecutionContext, resolve_execution_decision
+from src.repositories import ApprovalRepository
+from src.utils.logger import logger
+
 
 class OrderRouter:
-    def __init__(self, api: KIStockAPI):
+    def __init__(self, api: KIStockAPI, approval_service: ApprovalService | None = None):
         self.api = api
         self.dry_run = config.dry_run
         self.env = config.trading_env
         self.enable_live = config.enable_live_trading
         self.require_approval = config.require_approval
-        
-        self.real_orders_enabled = (not self.dry_run) and self.env == "real" and self.enable_live
-        self.submission_enabled = (not self.dry_run) and (self.env == "demo" or self.real_orders_enabled)
+        self.approval_service = approval_service or ApprovalService(ApprovalRepository(connect_db))
+
+    def _execution_context(self) -> ExecutionContext:
+        return ExecutionContext(
+            dry_run=self.dry_run,
+            trading_env=self.env,
+            enable_live_trading=self.enable_live,
+            require_approval=self.require_approval,
+        )
 
     def _current_holding_qty(self, symbol: str) -> int:
         try:
@@ -28,22 +37,49 @@ class OrderRouter:
                     return 0
         return 0
 
-    def route(self, symbol: str, name: str, action: str, qty: int, price: int, reason: str, indicators: dict, strategy_id: str = None) -> dict:
-        # Decision Log 기록
+    def route(
+        self,
+        symbol: str,
+        name: str,
+        action: str,
+        qty: int,
+        price: int,
+        reason: str,
+        indicators: dict,
+        strategy_id: str = None,
+    ) -> dict:
         save_decision_log(symbol, name, action, qty, price, reason, indicators, True)
-        
-        if not self.submission_enabled:
+
+        decision = resolve_execution_decision(self._execution_context())
+        if self.dry_run:
             logger.info(f"[ROUTER] Paper Trading: {action} {name} qty={qty}")
             save_trade(symbol, name, action, qty, price, reason, True, False, strategy_id=strategy_id)
             return {"ok": True, "msg": "Paper trading executed", "status": "paper"}
 
-        if self.require_approval:
-            # 대기열(approvals)에 넣기
-            approval_id = self._insert_approval(symbol, name, action, qty, price, reason, strategy_id=strategy_id)
+        if decision.decision == "queue":
+            approval_id = self._insert_approval(
+                symbol,
+                name,
+                action,
+                qty,
+                price,
+                reason,
+                strategy_id=strategy_id,
+            )
+            if approval_id is None:
+                return {"ok": False, "msg": "Approval queue unavailable", "status": "failed"}
             logger.info(f"[ROUTER] Pending Approval: {action} {name} qty={qty}")
-            return {"ok": True, "msg": "Added to approval queue", "status": "pending", "approval_id": approval_id}
-            
-        # 직접 KIS API 호출
+            return {
+                "ok": True,
+                "msg": "Added to approval queue",
+                "status": "pending",
+                "approval_id": approval_id,
+            }
+
+        if decision.decision == "reject":
+            logger.warning(f"[ROUTER] Order Rejected: {decision.reason}")
+            return {"ok": False, "msg": decision.reason, "status": "rejected"}
+
         pre_order_qty = self._current_holding_qty(symbol)
         result = self.api.place_order(symbol, action, price, qty)
         ok = result.get("rt_cd") == "0"
@@ -67,46 +103,27 @@ class OrderRouter:
         )
         return {"ok": ok, "msg": result.get("msg1", ""), "status": "live"}
 
-    def _insert_approval(self, symbol: str, name: str, action: str, qty: int, price: int, reason: str, strategy_id: str = None) -> int | None:
-        from src.db.repository import connect_db
-        from datetime import datetime, timezone, timedelta
-        
-        KST = timezone(timedelta(hours=9))
-        now = datetime.now(KST).strftime("%Y-%m-%d %H:%M:%S")
-        
+    def _insert_approval(
+        self,
+        symbol: str,
+        name: str,
+        action: str,
+        qty: int,
+        price: int,
+        reason: str,
+        strategy_id: str = None,
+    ) -> int | None:
         try:
-            with connect_db() as conn:
-                conn.execute("""
-                    CREATE TABLE IF NOT EXISTS approvals (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        created_at TEXT NOT NULL,
-                        updated_at TEXT NOT NULL,
-                        symbol TEXT NOT NULL,
-                        name TEXT NOT NULL,
-                        action TEXT NOT NULL,
-                        qty INTEGER NOT NULL,
-                        price INTEGER NOT NULL,
-                        reason TEXT,
-                        source TEXT,
-                        status TEXT NOT NULL,
-                        response_msg TEXT
-                    )
-                """)
-                # Ensure strategy_id column exists
-                try:
-                    from src.db.repository import _ensure_column
-                    _ensure_column(conn, "approvals", "strategy_id", "TEXT")
-                except Exception:
-                    pass
-                cursor = conn.execute(
-                    """
-                    INSERT INTO approvals
-                    (created_at, updated_at, symbol, name, action, qty, price, reason, source, status, response_msg, strategy_id)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', '', ?)
-                    """,
-                    (now, now, symbol, name, action, qty, price, reason, 'auto_trader', strategy_id),
-                )
-                return cursor.lastrowid
-        except Exception as e:
-            logger.error(f"[ROUTER] Failed to insert approval: {e}")
+            return self.approval_service.queue_approval(
+                symbol,
+                name,
+                action,
+                qty,
+                price,
+                reason,
+                source="auto_trader",
+                strategy_id=strategy_id or "",
+            )
+        except Exception as exc:
+            logger.error(f"[ROUTER] Failed to insert approval: {exc}")
             return None

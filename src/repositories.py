@@ -5,6 +5,12 @@ import sqlite3
 from typing import Callable
 
 
+def _close_connection(conn: sqlite3.Connection) -> None:
+    if getattr(conn, "close_on_exit", False):
+        return
+    conn.close()
+
+
 def _ensure_column(conn: sqlite3.Connection, table: str, column: str, column_type: str) -> None:
     rows = conn.execute(f"PRAGMA table_info({table})").fetchall()
     existing = {row[1] for row in rows}
@@ -84,7 +90,7 @@ class ApprovalRepository:
                 _ensure_column(conn, "approvals", "profile_hash", "TEXT")
                 _ensure_column(conn, "approvals", "source_candidate_id", "INTEGER")
         finally:
-            conn.close()
+            _close_connection(conn)
 
     def create_approval(
         self,
@@ -137,7 +143,7 @@ class ApprovalRepository:
                 )
                 return int(cursor.lastrowid)
         finally:
-            conn.close()
+            _close_connection(conn)
 
     def get_approval(self, approval_id: int) -> ApprovalRecord | None:
         conn = self._connect_fn()
@@ -148,7 +154,7 @@ class ApprovalRepository:
                 (approval_id,),
             ).fetchone()
         finally:
-            conn.close()
+            _close_connection(conn)
         if row is None:
             return None
         return _approval_record_from_row(row)
@@ -162,7 +168,7 @@ class ApprovalRepository:
                 (limit,),
             ).fetchall()
         finally:
-            conn.close()
+            _close_connection(conn)
         return [_approval_record_from_row(row) for row in rows]
 
     def update_approval_status(
@@ -186,4 +192,4 @@ class ApprovalRepository:
                 )
                 return cursor.rowcount > 0
         finally:
-            conn.close()
+            _close_connection(conn)

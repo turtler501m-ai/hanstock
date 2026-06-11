@@ -1,11 +1,22 @@
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from src.config import config
 from src.strategy import router
 
 
 class OrderRouterTests(unittest.TestCase):
+    def _set_config(self, **values):
+        original = {key: getattr(config, key) for key in values}
+        for key, value in values.items():
+            setattr(config, key, value)
+
+        def restore():
+            for key, value in original.items():
+                setattr(config, key, value)
+
+        self.addCleanup(restore)
+
     def test_direct_demo_submission_records_broker_tracking_fields(self):
         original = {
             "dry_run": config.dry_run,
@@ -127,6 +138,42 @@ class OrderRouterTests(unittest.TestCase):
             config.enable_live_trading = original["enable_live_trading"]
             config.require_approval = original["require_approval"]
             config.trade_db_path = original["trade_db_path"]
+
+    def test_real_environment_without_live_switch_is_rejected(self):
+        self._set_config(
+            dry_run=False,
+            trading_env="real",
+            enable_live_trading=False,
+            require_approval=False,
+        )
+        api = Mock()
+        order_router = router.OrderRouter(api)
+
+        with patch.object(router, "save_decision_log"), patch.object(router, "save_trade") as save_trade:
+            result = order_router.route("005930", "Samsung", "buy", 1, 70000, "test", {})
+
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["status"], "rejected")
+        api.place_order.assert_not_called()
+        save_trade.assert_not_called()
+
+    def test_approval_queue_failure_is_reported(self):
+        self._set_config(
+            dry_run=False,
+            trading_env="demo",
+            enable_live_trading=False,
+            require_approval=True,
+        )
+        approval_service = Mock()
+        approval_service.queue_approval.side_effect = RuntimeError("database unavailable")
+        order_router = router.OrderRouter(Mock(), approval_service=approval_service)
+
+        with patch.object(router, "save_decision_log"):
+            result = order_router.route("005930", "Samsung", "buy", 1, 70000, "test", {})
+
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["status"], "failed")
+        self.assertNotIn("approval_id", result)
 
 
 if __name__ == "__main__":
