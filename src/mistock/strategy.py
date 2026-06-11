@@ -8,6 +8,86 @@ import yfinance as yf
 from src.mistock.config import config
 from src.strategy.indicators import calc_bollinger, calc_macd, calc_rsi, calc_sma
 
+def fetch_wikipedia_universe() -> list[str]:
+    import pandas as pd
+    import requests
+    from src.utils.logger import logger
+
+    symbols = []
+
+    # 1단계: Nasdaq-100 크롤링
+    try:
+        url = "https://en.wikipedia.org/wiki/Nasdaq-100"
+        headers = {"User-Agent": "Mozilla/5.0"}
+        resp = requests.get(url, headers=headers, timeout=5)
+        if resp.status_code == 200:
+            tables = pd.read_html(resp.text)
+            for table in tables:
+                if "Ticker" in table.columns or "Symbol" in table.columns:
+                    col = "Ticker" if "Ticker" in table.columns else "Symbol"
+                    tickers = table[col].dropna().tolist()
+                    if len(tickers) >= 80:
+                        symbols.extend([str(t).strip().upper() for t in tickers])
+                        break
+    except Exception as e:
+        logger.warning(f"Failed to fetch dynamic NASDAQ-100 from wikipedia: {e}")
+
+    # 2단계: S&P 500 크롤링 (폴백 및 확장)
+    if len(symbols) < 50:
+        try:
+            url = "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies"
+            headers = {"User-Agent": "Mozilla/5.0"}
+            resp = requests.get(url, headers=headers, timeout=5)
+            if resp.status_code == 200:
+                tables = pd.read_html(resp.text)
+                for table in tables:
+                    if "Symbol" in table.columns or "Ticker" in table.columns:
+                        col = "Symbol" if "Symbol" in table.columns else "Ticker"
+                        tickers = table[col].dropna().tolist()
+                        if len(tickers) >= 400:
+                            symbols.extend([str(t).strip().upper() for t in tickers[:120]])
+                            break
+        except Exception as e:
+            logger.warning(f"Failed to fetch dynamic S&P 500 from wikipedia: {e}")
+
+    # 중복 제거 및 정규화
+    unique_symbols = []
+    seen = set()
+    for s in symbols:
+        norm = normalize_symbol(s)
+        if norm and norm not in seen:
+            seen.add(norm)
+            unique_symbols.append(norm)
+
+    return unique_symbols
+
+
+def build_scan_universe(api: Any = None) -> list[str]:
+    from src.utils.logger import logger
+
+    # 1순위: KIS API가 제공되면 해외주식 거래대금 상위 종목을 동적으로 가져온다.
+    if api is not None:
+        try:
+            nas_symbols = api.get_overseas_volume_rank(excd="NAS", cnt=50)
+            nys_symbols = api.get_overseas_volume_rank(excd="NYS", cnt=50)
+            combined = list(dict.fromkeys(nas_symbols + nys_symbols))
+            if len(combined) >= 20:
+                logger.info(f"[MISTOCK] KIS API 해외 거래대금 상위 {len(combined)}종목 동적 수집 완료")
+                return combined
+        except Exception as exc:
+            logger.warning(f"[MISTOCK] KIS 해외 순위 API 조회 실패: {exc}")
+
+    # 2순위: Online Wikipedia 크롤링
+    wiki_symbols = fetch_wikipedia_universe()
+    if len(wiki_symbols) >= 30:
+        logger.info(f"[MISTOCK] Wikipedia Nasdaq-100 / S&P500 {len(wiki_symbols)}종목 동적 크롤링 완료")
+        return wiki_symbols
+
+    # 3순위: 하드코딩 정적 풀 폴백
+    logger.info(f"[MISTOCK] 동적 수집 실패 -> config.universe_list 정적 풀 {len(config.universe_list)}종목으로 폴백")
+    return list(config.universe_list)
+
+
 NASDAQ_UNIVERSE = list(config.universe_list)
 
 NASDAQ_NAMES = {

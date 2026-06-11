@@ -484,7 +484,7 @@ function strategySettingFields(config) {
         { key: 'TAKE_PROFIT', label: '익절 기준', value: config.take_profit, type: 'float', step: '0.1', suffix: '%' },
         { key: 'RSI_BUY', label: 'RSI 매수선', value: config.rsi_buy, type: 'int', step: '1', min: '0', max: '100' },
         { key: 'RSI_SELL', label: 'RSI 매도선', value: config.rsi_sell, type: 'int', step: '1', min: '0', max: '100' },
-        { key: 'TOTAL_CAPITAL', label: '기준 자본', value: config.total_capital, type: 'float', step: '100000', min: '0', suffix: '원' },
+        { key: 'TOTAL_CAPITAL', label: '기준 자본', value: config.total_capital, type: 'float', step: '100000', min: '0', suffix: '달러' },
         { key: 'MAX_POSITIONS', label: '최대 보유종목', value: config.max_positions, type: 'int', step: '1', min: '1', suffix: '개' },
         { key: 'MAX_SINGLE_WEIGHT', label: '종목당 최대비중', value: Number(config.max_single_weight || 0) * 100, type: 'float', step: '0.1', min: '0', max: '100', suffix: '%', percent: true },
         { key: 'CASH_BUFFER', label: '현금 보유비중', value: Number(config.cash_buffer || 0) * 100, type: 'float', step: '0.1', min: '0', max: '100', suffix: '%', percent: true },
@@ -1392,7 +1392,7 @@ function drawWatchlist() {
                     changeHtml = `<span style="color: rgba(255,255,255,0.4); font-size: 0.78rem; margin-left: 4px;">0.00%</span>`;
                 }
             }
-            priceHtml = `<span style="font-weight: 500; color: #fff;">${formatNumber(s.price)}원</span>${changeHtml}`;
+            priceHtml = `<span style="font-weight: 500; color: #fff;">$${formatNumber(s.price)}</span>${changeHtml}`;
         }
         
         // 2. AI 스코어
@@ -2321,7 +2321,7 @@ function updatePeriodicPerformanceUI() {
                 labels,
                 datasets: [
                     {
-                        label: '실현손익 (원)',
+                        label: '실현손익 ($)',
                         data: pnlData,
                         backgroundColor: barColors,
                         borderColor: borderColors,
@@ -2384,14 +2384,11 @@ function updatePeriodicPerformanceUI() {
                             color: '#94a3b8',
                             callback: function(value) {
                                 const val = Number(value);
-                                if (isNaN(val)) return '0';
-                                if (val >= 10000 || val <= -10000) {
-                                    return (val / 10000).toFixed(0) + '만';
-                                }
-                                return val.toLocaleString();
+                                if (isNaN(val)) return '$0';
+                                return '$' + val.toLocaleString();
                             }
                         },
-                        title: { display: true, text: '실현손익 (원)', color: '#22c55e' }
+                        title: { display: true, text: '실현손익 ($)', color: '#22c55e' }
                     },
                     y2: {
                         type: 'linear',
@@ -3201,7 +3198,7 @@ async function renderScheduleInfo() {
                                         <td style="padding: 0.6rem 0.75rem; font-size: 0.85rem;">${pill(row.category || 'ai_rebalance', 'hold')}</td>
                                         <td style="padding: 0.6rem 0.75rem; font-size: 0.85rem;">${pill(toKorDecision(decision), kind)}</td>
                                         <td style="padding: 0.6rem 0.75rem; font-size: 0.85rem; text-align: right;">${formatNumber(row.qty || row.signal_qty)}</td>
-                                        <td style="padding: 0.6rem 0.75rem; font-size: 0.85rem; text-align: right; font-weight: 500;">${formatNumber(row.price || row.signal_price)} 원</td>
+                                        <td style="padding: 0.6rem 0.75rem; font-size: 0.85rem; text-align: right; font-weight: 500;">$${formatNumber(row.price || row.signal_price)}</td>
                                         <td style="padding: 0.6rem 0.75rem; font-size: 0.85rem;"><div class="reason-cell" style="max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${escapeHtml(row.reason || '')}">${escapeHtml(translateReason(cleanReason))}</div></td>
                                     `;
                                     plansTbody.appendChild(tr);
@@ -3241,7 +3238,7 @@ async function renderScheduleInfo() {
                                         <td style="padding: 0.6rem 0.75rem; font-size: 0.85rem;"><div class="symbol-name" style="font-weight: 500;">${escapeHtml(nameVal)}</div></td>
                                         <td style="padding: 0.6rem 0.75rem; font-size: 0.85rem;">${actionVal !== '-' ? pill(toKorAction(actionVal), actionVal === 'sell' ? 'sell' : 'buy') : '-'}</td>
                                         <td style="padding: 0.6rem 0.75rem; font-size: 0.85rem; text-align: right;">${qtyVal !== '-' ? formatNumber(qtyVal) : '-'}</td>
-                                        <td style="padding: 0.6rem 0.75rem; font-size: 0.85rem; text-align: right; font-weight: 500;">${priceVal !== '-' ? formatNumber(priceVal) + ' 원' : '-'}</td>
+                                        <td style="padding: 0.6rem 0.75rem; font-size: 0.85rem; text-align: right; font-weight: 500;">${priceVal !== '-' ? '$' + formatNumber(priceVal) : '-'}</td>
                                         <td style="padding: 0.6rem 0.75rem; font-size: 0.85rem;">${pill('승인오류', 'sell')}</td>
                                         <td style="padding: 0.6rem 0.75rem; font-size: 0.85rem;"><div class="reason-cell text-danger" style="max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${escapeHtml(err.message || '')}">${escapeHtml(cleanMsg)}</div></td>
                                     `;
@@ -3276,7 +3273,7 @@ async function renderScheduleInfo() {
                                         <td style="padding: 0.6rem 0.75rem; font-size: 0.85rem;"><div class="symbol-name" style="font-weight: 500;">${escapeHtml(nameVal)}</div></td>
                                         <td style="padding: 0.6rem 0.75rem; font-size: 0.85rem;">${actionVal !== '-' ? pill(toKorAction(actionVal), actionVal === 'sell' ? 'sell' : 'buy') : '-'}</td>
                                         <td style="padding: 0.6rem 0.75rem; font-size: 0.85rem; text-align: right;">${qtyVal !== '-' ? formatNumber(qtyVal) : '-'}</td>
-                                        <td style="padding: 0.6rem 0.75rem; font-size: 0.85rem; text-align: right; font-weight: 500;">${priceVal !== '-' ? formatNumber(priceVal) + ' 원' : '-'}</td>
+                                        <td style="padding: 0.6rem 0.75rem; font-size: 0.85rem; text-align: right; font-weight: 500;">${priceVal !== '-' ? '$' + formatNumber(priceVal) : '-'}</td>
                                         <td style="padding: 0.6rem 0.75rem; font-size: 0.85rem;">${pill(isSuccess ? '성공' : '실패', isSuccess ? 'buy' : 'sell')}</td>
                                         <td style="padding: 0.6rem 0.75rem; font-size: 0.85rem;"><div class="reason-cell" style="max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${escapeHtml(ord.response_msg || ord.message || '')}">${escapeHtml(cleanMsg)}</div></td>
                                     `;

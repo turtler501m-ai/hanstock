@@ -162,17 +162,6 @@ def init_db() -> None:
                 "INSERT OR IGNORE INTO watchlist (symbol, name, created_at) VALUES (?, ?, ?)",
                 (symbol, name, now_text()),
             )
-        # 관심종목이 적은 경우 기본 100개 유니버스로 자동 확장 (테스트 환경 제외)
-        if os.environ.get("HANSTOCK_TESTING") != "1":
-            count_row = conn.execute("SELECT COUNT(*) as cnt FROM watchlist").fetchone()
-            if count_row and count_row["cnt"] < 15:
-                from src.mistock.strategy import symbol_name
-                for symbol in config.universe_list:
-                    name = symbol_name(symbol)
-                    conn.execute(
-                        "INSERT OR IGNORE INTO watchlist (symbol, name, created_at) VALUES (?, ?, ?)",
-                        (symbol, name, now_text()),
-                    )
         conn.execute(
             """
             INSERT OR IGNORE INTO settings (key, value)

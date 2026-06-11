@@ -1334,12 +1334,21 @@ def mistock_reset_circuit():
 
 
 def _auto_approve_mistock_pending_approvals() -> list[dict]:
+    import time
     pending = mistock_db.rows("SELECT id FROM approvals WHERE status = 'pending'")
     results = []
-    for row in pending:
+    delay = 1.2
+    try:
+        delay = max(0.0, float(os.environ.get("MISTOCK_ORDER_DELAY_SECONDS", "1.2")))
+    except Exception:
+        pass
+
+    for idx, row in enumerate(pending):
         try:
             res = _execute_approval(int(row["id"]), approve=True)
             results.append(res)
+            if idx < len(pending) - 1:
+                time.sleep(delay)
         except Exception:
             continue
     return results

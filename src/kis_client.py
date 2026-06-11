@@ -650,6 +650,33 @@ class KISClient:
             self.mark_failure()
             return {"current": 0.0, "ask1": 0.0, "bid1": 0.0}
 
+    def get_overseas_volume_rank(self, excd: str = "NAS", cnt: int = 30) -> list[str]:
+        self.check_circuit()
+        try:
+            response = self.session.get(
+                f"{self.config.base_url}/uapi/overseas-stock/v1/ranking/trade-pbmn",
+                headers=self.headers("HHDFS76320010"),
+                params={
+                    "EXCD": excd,
+                    "CNT": str(cnt),
+                },
+                timeout=self.config.request_timeout_seconds,
+            )
+            data = response.json()
+            output = data.get("output", [])
+            self.mark_success()
+            symbols = []
+            for item in output:
+                sym = item.get("symb", "").strip()
+                if sym:
+                    symbols.append(sym)
+            return symbols
+        except Exception as e:
+            from src.utils.logger import logger
+            logger.warning(f"Failed to fetch overseas volume rank (EXCD={excd}): {e}")
+            self.mark_failure()
+            return []
+
     def place_overseas_order(self, symbol: str, order_type: str, price: float, qty: float) -> dict[str, Any]:
         if self.config.is_demo:
             tr_id = "VTTT1002U" if order_type == "buy" else "VTTT1006U"

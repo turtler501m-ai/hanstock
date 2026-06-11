@@ -314,8 +314,15 @@ def get_balance() -> dict[str, Any]:
 
 
 def scan_candidates(min_score: int = 2, limit: int | None = None) -> dict[str, Any]:
+    api = None
+    try:
+        api = _get_kis_client()
+    except Exception:
+        pass
+    from src.mistock.strategy import build_scan_universe
     watchlist = [item["symbol"] for item in get_watchlist()]
-    universe = list(dict.fromkeys(watchlist + NASDAQ_UNIVERSE))[: limit or config.scan_universe_size]
+    dynamic_universe = build_scan_universe(api)
+    universe = list(dict.fromkeys(watchlist + dynamic_universe))[: limit or config.scan_universe_size]
     candidates = []
     scanned = 0
     scan_error = ""

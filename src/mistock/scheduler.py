@@ -46,27 +46,27 @@ def run_mistock_scheduled_cycle(mode: str = "execute") -> dict:
     broker_submission_available = mistock_trader.broker_submission_available(balance)
     
     # 3. 매도 신호 처리 및 주문 집행/대기등록
-    sigs = mistock_trader.signals()
+    sell_sigs = [sig for sig in mistock_trader.signals() if sig["action"] == "sell" and float(sig["signal_qty"]) > 0]
     sold_items = []
-    for sig in sigs:
-        if sig["action"] == "sell":
-            qty = float(sig["signal_qty"])
-            price = float(sig["signal_price"])
-            if qty > 0:
-                if mode == "execute" and (auto_approve or flags["order_submission_enabled"]) and broker_submission_available:
-                    logger.info(f"[MISTOCK SCHEDULER] Sell signal for {sig['symbol']}. Qty={qty}, Price={price}")
-                    res = mistock_trader.place_order(sig["symbol"], "sell", qty, price, reason=sig["reason"])
-                    sold_items.append({"symbol": sig["symbol"], "qty": qty, "price": price, "result": res})
-                else:
-                    logger.info(f"[MISTOCK SCHEDULER] Auto-approval and order submission disabled/skipped for sell signal. Queuing {sig['symbol']} as pending approval.")
-                    now = mistock_db.now_text()
-                    mistock_db.execute(
-                        """
-                        INSERT INTO approvals (created_at, updated_at, symbol, name, action, qty, price, reason, source, status, response_msg)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', '')
-                        """,
-                        (now, now, sig["symbol"], symbol_name(sig["symbol"]), "sell", qty, price, sig.get("reason") or "보유 종목 매도 신호", "scheduler"),
-                    )
+    for idx, sig in enumerate(sell_sigs):
+        qty = float(sig["signal_qty"])
+        price = float(sig["signal_price"])
+        if mode == "execute" and (auto_approve or flags["order_submission_enabled"]) and broker_submission_available:
+            logger.info(f"[MISTOCK SCHEDULER] Sell signal for {sig['symbol']}. Qty={qty}, Price={price}")
+            res = mistock_trader.place_order(sig["symbol"], "sell", qty, price, reason=sig["reason"])
+            sold_items.append({"symbol": sig["symbol"], "qty": qty, "price": price, "result": res})
+            if idx < len(sell_sigs) - 1:
+                time.sleep(_order_delay_seconds())
+        else:
+            logger.info(f"[MISTOCK SCHEDULER] Auto-approval and order submission disabled/skipped for sell signal. Queuing {sig['symbol']} as pending approval.")
+            now = mistock_db.now_text()
+            mistock_db.execute(
+                """
+                INSERT INTO approvals (created_at, updated_at, symbol, name, action, qty, price, reason, source, status, response_msg)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', '')
+                """,
+                (now, now, sig["symbol"], symbol_name(sig["symbol"]), "sell", qty, price, sig.get("reason") or "보유 종목 매도 신호", "scheduler"),
+            )
                  
     # 4. 매수 주문 조립 및 집행/대기등록
     # 이미 보유 중인 종목은 매수 후보에서 제외해 같은 종목을 매 사이클 재매수하지 않게 한다.
