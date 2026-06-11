@@ -209,11 +209,28 @@ async function renderEnvSettings() {
                 const isActive = index === currentActiveTabIndex;
                 tabsHtml += `<button type="button" class="env-tab-button ${isActive ? 'active' : ''}" data-tab-index="${index}">${cat.short}</button>`;
 
+                let rateInfoCard = '';
+                if (index === 5 && data.rate_info) {
+                    rateInfoCard = `
+                        <div class="env-info-card" style="margin-bottom: 1.5rem; padding: 1.25rem; background: rgba(96, 165, 250, 0.08); border: 1px solid rgba(96, 165, 250, 0.15); border-radius: 8px; display: flex; gap: 2rem; align-items: center;">
+                            <div style="font-size: 1.5rem;">💵</div>
+                            <div>
+                                <h4 style="margin: 0 0 0.25rem 0; font-size: 1rem; color: #f3f4f6; font-weight: 600;">실시간 적용 환율 정보</h4>
+                                <div style="display: flex; gap: 1.5rem; font-size: 0.88rem; color: #9ca3af; flex-wrap: wrap;">
+                                    <span>현재 적용 환율: <strong style="color: #60a5fa; font-size: 1rem;">₩${data.rate_info.current_rate}</strong></span>
+                                    <span>마지막 동기화 시각: <strong style="color: #f3f4f6;">${data.rate_info.last_fetch_time}</strong></span>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                }
+
                 html += `
                     <div class="env-category-section" id="env-sec-${index}" style="display: ${isActive ? 'block' : 'none'};">
                         <h3 class="env-category-title" style="margin-bottom: 1.25rem; color: #60a5fa; font-size: 1.15rem; font-weight: 600; display: flex; align-items: center; gap: 0.5rem; text-shadow: 0 0 10px rgba(96,165,250,0.1);">
                             ${cat.title}
                         </h3>
+                        ${rateInfoCard}
                         <div class="env-grid env-page-grid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 1.25rem;">
                             ${catFields.map(buildEnvControl).join('')}
                         </div>

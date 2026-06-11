@@ -223,11 +223,30 @@ def get_env_settings():
             "masked": "",
         }
         fields.append(item)
+    # Get live exchange rate metrics for display
+    try:
+        import src.utils.exchange_rate as ex_rate
+        from datetime import datetime, timezone, timedelta
+        last_fetch = ex_rate._USD_KRW_LAST_FETCH
+        last_fetch_str = "미수집"
+        if last_fetch > 0:
+            last_fetch_str = datetime.fromtimestamp(last_fetch, timezone(timedelta(hours=9))).strftime("%Y-%m-%d %H:%M:%S")
+        rate_info = {
+            "current_rate": round(ex_rate._USD_KRW_RATE, 2),
+            "last_fetch_time": last_fetch_str
+        }
+    except Exception:
+        rate_info = {
+            "current_rate": 1380.0,
+            "last_fetch_time": "미수집"
+        }
+        
     return {
         "path": str(env_path),
         "exists": env_path.exists(),
         "requires_restart": True,
         "fields": fields,
+        "rate_info": rate_info,
     }
 
 
