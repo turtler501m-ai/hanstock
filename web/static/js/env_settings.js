@@ -125,10 +125,8 @@ const CATEGORIES = [
             "MISTOCK_ENABLE_LIVE_TRADING",
             "MISTOCK_REQUIRE_APPROVAL",
             "MISTOCK_TOTAL_CAPITAL",
-            "MISTOCK_CURRENCY",
             "MISTOCK_MARKET",
-            "MISTOCK_TRADE_DB_PATH",
-            "MISTOCK_EXCHANGE_MAP"
+            "MISTOCK_TRADE_DB_PATH"
         ]
     },
     {
@@ -172,6 +170,15 @@ const CATEGORIES = [
             "TELEGRAM_API_HASH",
             "TELEGRAM_SESSION_NAME",
             "TELEGRAM_TARGET_CHANNELS"
+        ]
+    },
+    {
+        title: "💵 환율 및 통화 설정 (Exchange Rate)",
+        short: "환율 & 통화",
+        keys: [
+            "MISTOCK_CURRENCY",
+            "USDKRW_FALLBACK_RATE",
+            "MISTOCK_EXCHANGE_MAP"
         ]
     }
 ];

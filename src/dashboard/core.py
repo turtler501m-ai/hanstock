@@ -110,6 +110,7 @@ ENV_FIELDS = [
     {"key": "MISTOCK_REQUIRE_APPROVAL", "label": "Mistock Require Approval", "type": "bool", "hint": "true이면 미국주식 주문 시 승인 대기를 거칩니다."},
     {"key": "MISTOCK_TOTAL_CAPITAL", "label": "Mistock Total Capital", "type": "float", "hint": "미국주식 총 운용 자금(USD)입니다."},
     {"key": "MISTOCK_TRADE_DB_PATH", "label": "Mistock Trade DB Path", "type": "text", "hint": "미국주식 거래 기록용 SQLite DB 경로입니다."},
+    {"key": "USDKRW_FALLBACK_RATE", "label": "USD/KRW Fallback Rate", "type": "float", "hint": "yfinance 환율 수집 실패 시 사용할 고정/기본 환율입니다. 기본값: 1380.0"},
 ]
 ENV_FIELD_MAP = {field["key"]: field for field in ENV_FIELDS}
 VENDOR_PROJECTS = {
@@ -1288,6 +1289,14 @@ def _apply_runtime_env_updates(updates: dict[str, str]) -> None:
             from src.mistock.config import config as mistock_config
             from pathlib import Path
             mistock_config.trade_db_path = Path(value)
+        elif key == "USDKRW_FALLBACK_RATE":
+            from src.mistock.config import config as mistock_config
+            try:
+                mistock_config.usdkrw_fallback_rate = float(value)
+                import src.utils.exchange_rate as ex_rate
+                ex_rate._USD_KRW_RATE = float(value)
+            except (ValueError, ImportError):
+                pass
 
     trader.REAL_ORDERS_ENABLED = (
         (not trader.DRY_RUN)

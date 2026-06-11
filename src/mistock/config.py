@@ -31,6 +31,7 @@ class MistockConfig:
     yfinance_timeout_seconds: int = int(os.environ.get("MISTOCK_YFINANCE_TIMEOUT_SECONDS", "10"))
     currency: str = os.environ.get("MISTOCK_CURRENCY", "USD")
     trade_db_path: Path = Path(os.environ.get("MISTOCK_TRADE_DB_PATH", ".runtime/mistock/trades.sqlite"))
+    usdkrw_fallback_rate: float = float(os.environ.get("USDKRW_FALLBACK_RATE", "1380.0"))
 
 
 config = MistockConfig()

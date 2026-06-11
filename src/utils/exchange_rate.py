@@ -1,11 +1,12 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 
+import os
 import time
 import yfinance as yf
 from src.utils.logger import logger
 
-_USD_KRW_RATE: float = 1380.0
+_USD_KRW_RATE: float = float(os.environ.get("USDKRW_FALLBACK_RATE", "1380.0"))
 _USD_KRW_LAST_FETCH: float = 0.0
 _USD_KRW_CACHE_TTL: float = 3600.0  # 1 hour cache
 
