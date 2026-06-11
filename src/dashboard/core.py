@@ -298,10 +298,10 @@ def _parse_balance(balance_data: dict) -> dict:
     summary_stock_eval = _to_int(first_summary.get("scts_evlu_amt"))
     cash = _to_int(first_summary.get("prvs_rcdl_excc_amt"))
     if cash == 0:
+        cash = _to_int(first_summary.get("dnca_tot_amt"))
+    if cash == 0:
         if summary_total > 0:
             cash = summary_total - summary_stock_eval
-        else:
-            cash = _to_int(first_summary.get("dnca_tot_amt"))
     totals = _portfolio_totals(cash, summary_total, holdings)
     return {
         "cash": cash,
@@ -899,13 +899,15 @@ def build_dashboard_candidates(
     universe = trader.build_scan_universe(api, held_symbols)
 
     if ranker == "gpt_5_mini" and ranker_weight == 0.4 and not strategy_model:
-        scan_result = trader.find_candidates(
-            held_symbols,
-            universe=universe,
-            min_score=min_score,
-            strategy_profile=strategy_profile,
-            strategy_description=strategy_description,
-        )
+        scan_kwargs = {
+            "universe": universe,
+            "min_score": min_score,
+        }
+        if strategy_profile is not None:
+            scan_kwargs["strategy_profile"] = strategy_profile
+        if strategy_description:
+            scan_kwargs["strategy_description"] = strategy_description
+        scan_result = trader.find_candidates(held_symbols, **scan_kwargs)
     else:
         ranker_param = "rule_only" if ranker == "none" else ranker
         orig_weight = trader.config.ai_score_weight
