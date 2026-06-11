@@ -206,6 +206,7 @@ ENV_FIELDS = [
     {"key": "MISTOCK_TOTAL_CAPITAL", "label": "Mistock Total Capital", "type": "float", "hint": "미국주식 총 운용 자금(USD)입니다."},
     {"key": "MISTOCK_TRADE_DB_PATH", "label": "Mistock Trade DB Path", "type": "text", "hint": "미국주식 거래 기록용 SQLite DB 경로입니다."},
     {"key": "USDKRW_FALLBACK_RATE", "label": "USD/KRW Fallback Rate", "type": "float", "hint": "yfinance 환율 수집 실패 시 사용할 고정/기본 환율입니다. 기본값: 1380.0"},
+    {"key": "MISTOCK_UNIVERSE", "label": "미스톡 기본 스캔 유니버스", "type": "text", "hint": "미국주식 스캔 시 사용할 기본 관심종목 목록(쉼표 구분)입니다. 기본값: 60종목"},
 ]
 ENV_FIELD_MAP = {field["key"]: field for field in ENV_FIELDS}
 VENDOR_PROJECTS = {
@@ -1351,6 +1352,15 @@ def _apply_runtime_env_updates(updates: dict[str, str]) -> None:
                 import src.utils.exchange_rate as ex_rate
                 ex_rate._USD_KRW_RATE = float(value)
             except (ValueError, ImportError):
+                pass
+        elif key == "MISTOCK_UNIVERSE":
+            from src.mistock.config import config as mistock_config
+            try:
+                mistock_config.universe_list = [s.strip().upper() for s in str(value).split(",") if s.strip()]
+                import src.mistock.strategy as mistock_strat
+                mistock_strat.NASDAQ_UNIVERSE.clear()
+                mistock_strat.NASDAQ_UNIVERSE.extend(mistock_config.universe_list)
+            except Exception:
                 pass
 
 

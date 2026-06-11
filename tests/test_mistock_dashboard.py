@@ -355,6 +355,15 @@ class MistockDashboardTests(unittest.TestCase):
         self.assertEqual(row["response_msg"], "")
         place_order.assert_not_called()
 
+    def test_add_watchlist_bulk_symbols_splits_properly(self):
+        mistock_db.execute("DELETE FROM watchlist")
+        result = mistock_trader.add_watchlist("GOOG, COST, PEP")
+        added = [row["symbol"] for row in mistock_trader.get_watchlist()]
+        self.assertEqual(len(added), 13)
+        self.assertIn("GOOG", added)
+        self.assertIn("COST", added)
+        self.assertIn("PEP", added)
+
 
 if __name__ == "__main__":
     unittest.main()

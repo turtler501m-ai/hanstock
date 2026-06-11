@@ -123,6 +123,7 @@ ENV_FIELD_TEXT = {
     "TELEGRAM_SESSION_NAME": {"label": "Telegram Session Name", "hint": "로컬 Telethon 세션 경로입니다. Git에 포함하지 마세요."},
     "TELEGRAM_TARGET_CHANNELS": {"label": "Telegram Target Channels", "hint": "쉼표로 구분한 채널 사용자명, ID, 초대 링크입니다."},
     "MISTOCK_EXCHANGE_MAP": {"label": "미국주식 거래소 매핑", "hint": "예: BRK.B=NYSE,TSLA=NASD"},
+    "MISTOCK_UNIVERSE": {"label": "미스톡 기본 스캔 유니버스", "hint": "미국주식 스캔 시 사용할 기본 관심종목 목록(쉼표 구분)입니다. 예: AAPL,MSFT,NVDA,TSLA"},
 }
 
 
@@ -170,6 +171,7 @@ def _current_env_field_value(key: str, raw_values: dict[str, str]) -> str:
         "KIS_CONDITION_SEQ": getattr(trader.config, "kis_condition_seq", "") or "",
         "KIS_CONDITION_NAME": getattr(trader.config, "kis_condition_name", "") or "",
         "MISTOCK_EXCHANGE_MAP": os.environ.get("MISTOCK_EXCHANGE_MAP", ""),
+        "MISTOCK_UNIVERSE": ",".join(sys.modules["src.mistock.config"].config.universe_list) if "src.mistock.config" in sys.modules else os.environ.get("MISTOCK_UNIVERSE", ""),
     }
     value = runtime_values.get(key, "")
     return "" if value is None else str(value)

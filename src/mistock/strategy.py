@@ -8,14 +8,7 @@ import yfinance as yf
 from src.mistock.config import config
 from src.strategy.indicators import calc_bollinger, calc_macd, calc_rsi, calc_sma
 
-NASDAQ_UNIVERSE = [
-    "AAPL", "MSFT", "NVDA", "AMZN", "META", "GOOGL", "GOOG", "TSLA", "AVGO", "COST",
-    "NFLX", "AMD", "PEP", "ADBE", "CSCO", "TMUS", "INTU", "QCOM", "AMAT", "TXN",
-    "ISRG", "AMGN", "HON", "BKNG", "VRTX", "SBUX", "ADP", "PANW", "MU", "LRCX",
-    "GILD", "MDLZ", "ADI", "KLAC", "MELI", "REGN", "CRWD", "PYPL", "CDNS", "SNPS",
-    "MAR", "CSX", "ORLY", "ABNB", "FTNT", "NXPI", "MRVL", "ROP", "PCAR", "ADSK",
-    "CHTR", "WDAY", "MNST", "KDP", "PAYX", "AEP", "TEAM", "ROST", "KHC", "FAST",
-]
+NASDAQ_UNIVERSE = list(config.universe_list)
 
 NASDAQ_NAMES = {
     "AAPL": "Apple",

@@ -128,7 +128,8 @@ const CATEGORIES = [
             "MISTOCK_REQUIRE_APPROVAL",
             "MISTOCK_TOTAL_CAPITAL",
             "MISTOCK_MARKET",
-            "MISTOCK_TRADE_DB_PATH"
+            "MISTOCK_TRADE_DB_PATH",
+            "MISTOCK_UNIVERSE"
         ]
     },
     {

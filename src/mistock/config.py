@@ -33,6 +33,19 @@ class MistockConfig:
     currency: str = os.environ.get("MISTOCK_CURRENCY", "USD")
     trade_db_path: Path = Path(os.environ.get("MISTOCK_TRADE_DB_PATH", ".runtime/mistock/trades.sqlite"))
     usdkrw_fallback_rate: float = float(os.environ.get("USDKRW_FALLBACK_RATE", "1380.0"))
+    universe_list: list[str] = None
+
+    def __post_init__(self):
+        default_universe = (
+            "AAPL,MSFT,NVDA,AMZN,META,GOOGL,GOOG,TSLA,AVGO,COST,"
+            "NFLX,AMD,PEP,ADBE,CSCO,TMUS,INTU,QCOM,AMAT,TXN,"
+            "ISRG,AMGN,HON,BKNG,VRTX,SBUX,ADP,PANW,MU,LRCX,"
+            "GILD,MDLZ,ADI,KLAC,MELI,REGN,CRWD,PYPL,CDNS,SNPS,"
+            "MAR,CSX,ORLY,ABNB,FTNT,NXPI,MRVL,ROP,PCAR,ADSK,"
+            "CHTR,WDAY,MNST,KDP,PAYX,AEP,TEAM,ROST,KHC,FAST"
+        )
+        raw_univ = os.environ.get("MISTOCK_UNIVERSE", default_universe)
+        self.universe_list = [s.strip().upper() for s in raw_univ.split(",") if s.strip()]
 
 
 config = MistockConfig()

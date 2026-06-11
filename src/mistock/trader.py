@@ -139,15 +139,32 @@ def get_watchlist() -> list[dict[str, Any]]:
 
 
 def add_watchlist(symbol: str, name: str | None = None) -> dict[str, Any]:
-    symbol = normalize_symbol(symbol)
-    if not symbol:
+    import re
+    # Support multiple comma/space/newline separated symbols
+    symbols = []
+    if "," in symbol or " " in symbol or "\n" in symbol or "\r" in symbol:
+        parts = re.split(r"[,\s\r\n]+", symbol)
+        for part in parts:
+            normalized = normalize_symbol(part)
+            if normalized:
+                symbols.append(normalized)
+    else:
+        normalized = normalize_symbol(symbol)
+        if normalized:
+            symbols.append(normalized)
+
+    if not symbols:
         raise ValueError("symbol is required")
-    item_name = name or symbol_name(symbol)
-    db.execute(
-        "INSERT OR IGNORE INTO watchlist (symbol, name, created_at) VALUES (?, ?, ?)",
-        (symbol, item_name, db.now_text()),
-    )
-    return {"symbol": symbol, "name": item_name}
+
+    last_item = {}
+    for sym in symbols:
+        item_name = name or symbol_name(sym)
+        db.execute(
+            "INSERT OR IGNORE INTO watchlist (symbol, name, created_at) VALUES (?, ?, ?)",
+            (sym, item_name, db.now_text()),
+        )
+        last_item = {"symbol": sym, "name": item_name}
+    return last_item
 
 
 def delete_watchlist(symbol: str) -> None:
