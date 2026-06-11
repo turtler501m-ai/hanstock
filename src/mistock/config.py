@@ -28,7 +28,7 @@ class MistockConfig:
     take_profit: float = float(os.environ.get("MISTOCK_TAKE_PROFIT", "25"))
     rsi_buy: int = int(os.environ.get("MISTOCK_RSI_BUY", "35"))
     rsi_sell: int = int(os.environ.get("MISTOCK_RSI_SELL", "72"))
-    scan_universe_size: int = int(os.environ.get("MISTOCK_SCAN_UNIVERSE_SIZE", "60"))
+    scan_universe_size: int = int(os.environ.get("MISTOCK_SCAN_UNIVERSE_SIZE", "100"))
     yfinance_timeout_seconds: int = int(os.environ.get("MISTOCK_YFINANCE_TIMEOUT_SECONDS", "10"))
     currency: str = os.environ.get("MISTOCK_CURRENCY", "USD")
     trade_db_path: Path = Path(os.environ.get("MISTOCK_TRADE_DB_PATH", ".runtime/mistock/trades.sqlite"))
@@ -42,7 +42,11 @@ class MistockConfig:
             "ISRG,AMGN,HON,BKNG,VRTX,SBUX,ADP,PANW,MU,LRCX,"
             "GILD,MDLZ,ADI,KLAC,MELI,REGN,CRWD,PYPL,CDNS,SNPS,"
             "MAR,CSX,ORLY,ABNB,FTNT,NXPI,MRVL,ROP,PCAR,ADSK,"
-            "CHTR,WDAY,MNST,KDP,PAYX,AEP,TEAM,ROST,KHC,FAST"
+            "CHTR,WDAY,MNST,KDP,PAYX,AEP,TEAM,ROST,KHC,FAST,"
+            "ASML,AZN,NVO,PDD,MCHP,CTAS,IDXX,CPRT,ODFL,VRSK,"
+            "CSGP,LULU,EXC,XEL,BKR,GEHC,MCO,ANSS,ALGN,DDOG,"
+            "DXCM,EA,FANG,ILMN,MRNA,VRSN,ZS,CTSH,CDW,FITB,"
+            "HBAN,JCI,KEYS,NVR,PTC,VFC,WDC,WYNN,ZBRA,EBAY"
         )
         raw_univ = os.environ.get("MISTOCK_UNIVERSE", default_universe)
         self.universe_list = [s.strip().upper() for s in raw_univ.split(",") if s.strip()]
