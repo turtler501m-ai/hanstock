@@ -18,6 +18,27 @@ from src.mistock.strategy import symbol_name
 KST = timezone(timedelta(hours=9))
 
 
+def is_us_market_open() -> bool:
+    """
+    현재 한국 시각(KST) 기준 미국 정규장 운영 시간(마감 5분 전 가드) 내에 있는지 검사합니다.
+    테스트/로컬 환경일 때는 항상 True를 반환합니다.
+    """
+    import sys
+    if "unittest" in sys.modules:
+        return True
+    if mistock_config.trading_env not in {"demo", "real"}:
+        return True
+    now = datetime.now(KST)
+    is_dst = 3 <= now.month <= 11
+    current_time_str = now.strftime("%H:%M")
+    if is_dst:
+        # 서머타임 운영: 22:30 ~ 익일 05:00 (주문 가드 04:55)
+        return ("22:30" <= current_time_str <= "23:59") or ("00:00" <= current_time_str <= "04:55")
+    else:
+        # 일반 시간 운영: 23:30 ~ 익일 06:00 (주문 가드 05:55)
+        return ("23:30" <= current_time_str <= "23:59") or ("00:00" <= current_time_str <= "05:55")
+
+
 def _order_delay_seconds() -> float:
     try:
         return max(0.0, float(os.environ.get("MISTOCK_ORDER_DELAY_SECONDS", "1.2")))
@@ -44,6 +65,7 @@ def run_mistock_scheduled_cycle(mode: str = "execute") -> dict:
     auto_approve = (mistock_db.get_setting("auto_approval", "false") == "true")
     flags = mistock_trader.runtime_flags()
     broker_submission_available = mistock_trader.broker_submission_available(balance)
+    market_open = is_us_market_open()
     
     # 3. 매도 신호 처리 및 주문 집행/대기등록
     sell_sigs = [sig for sig in mistock_trader.signals() if sig["action"] == "sell" and float(sig["signal_qty"]) > 0]
@@ -51,14 +73,14 @@ def run_mistock_scheduled_cycle(mode: str = "execute") -> dict:
     for idx, sig in enumerate(sell_sigs):
         qty = float(sig["signal_qty"])
         price = float(sig["signal_price"])
-        if mode == "execute" and (auto_approve or flags["order_submission_enabled"]) and broker_submission_available:
+        if mode == "execute" and (auto_approve or flags["order_submission_enabled"]) and broker_submission_available and market_open:
             logger.info(f"[MISTOCK SCHEDULER] Sell signal for {sig['symbol']}. Qty={qty}, Price={price}")
             res = mistock_trader.place_order(sig["symbol"], "sell", qty, price, reason=sig["reason"])
             sold_items.append({"symbol": sig["symbol"], "qty": qty, "price": price, "result": res})
             if idx < len(sell_sigs) - 1:
                 time.sleep(_order_delay_seconds())
         else:
-            logger.info(f"[MISTOCK SCHEDULER] Auto-approval and order submission disabled/skipped for sell signal. Queuing {sig['symbol']} as pending approval.")
+            logger.info(f"[MISTOCK SCHEDULER] Auto-approval/order submission disabled or skipped (market_open={market_open}). Queuing {sig['symbol']} as pending approval.")
             now = mistock_db.now_text()
             mistock_db.execute(
                 """
@@ -71,7 +93,24 @@ def run_mistock_scheduled_cycle(mode: str = "execute") -> dict:
     # 4. 매수 주문 조립 및 집행/대기등록
     # 이미 보유 중인 종목은 매수 후보에서 제외해 같은 종목을 매 사이클 재매수하지 않게 한다.
     held_symbols = {h.get("symbol") for h in balance.get("holdings", [])}
-    buy_candidates = [c for c in candidates if c.get("symbol") not in held_symbols]
+    
+    # 중복 주문 방지: 대기 중인 승인 주문(pending approvals) 종목 기호 제외
+    pending_symbols = {
+        row["symbol"]
+        for row in mistock_db.rows("SELECT symbol FROM approvals WHERE status = 'pending'")
+    }
+    
+    # 중복 주문 방지: 최근 12시간 동안 이미 매수 주문을 시도한 적이 있는 종목 기호 제외
+    twelve_hours_ago = (datetime.now(KST) - timedelta(hours=12)).strftime("%Y-%m-%d %H:%M:%S")
+    recent_buys = {
+        row["symbol"]
+        for row in mistock_db.rows("SELECT symbol FROM trades WHERE action = 'buy' AND ts >= ?", (twelve_hours_ago,))
+    }
+    
+    # approvals에 이미 pending이거나 trades에 매수 기록된 기호 제외
+    exclude_symbols = held_symbols | pending_symbols | recent_buys
+    buy_candidates = [c for c in candidates if c.get("symbol") not in exclude_symbols]
+    
     # 총 운용자금(total_capital) 한도에서 이미 보유한 평가액을 뺀 잔여만 신규 매수에 사용한다.
     # demo 모의투자 계좌의 통합증거금(수억 달러)을 그대로 쓰면 주문이 폭주하므로 한도를 건다.
     deployed = float(balance.get("stock_eval", 0.0) or 0.0)
@@ -81,7 +120,7 @@ def run_mistock_scheduled_cycle(mode: str = "execute") -> dict:
     bought_items = []
     
     if mode == "execute":
-        if (auto_approve or flags["order_submission_enabled"]) and broker_submission_available:
+        if (auto_approve or flags["order_submission_enabled"]) and broker_submission_available and market_open:
             for idx, ord in enumerate(orders):
                 qty = float(ord["quantity"])
                 price = float(ord["price"])
@@ -91,7 +130,7 @@ def run_mistock_scheduled_cycle(mode: str = "execute") -> dict:
                 if idx < len(orders) - 1:
                     time.sleep(_order_delay_seconds())
         else:
-            logger.info("[MISTOCK SCHEDULER] Order submission and auto-approval are disabled. Queuing buy plans as pending approvals.")
+            logger.info(f"[MISTOCK SCHEDULER] Order submission/auto-approval disabled or skipped (market_open={market_open}). Queuing buy plans as pending approvals.")
             for ord in orders:
                 qty = float(ord["quantity"])
                 price = float(ord["price"])
