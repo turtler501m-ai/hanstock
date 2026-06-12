@@ -9,10 +9,13 @@ set -euo pipefail
 # mistock-auto.sh의 should_run_now()가 다시 거른다.
 EVENING_SPEC="${HANSTOCK_MISTOCK_EVENING_SPEC:-0 21-23 * * 1-5}"  # 저녁 세션 (월~금)
 MORNING_SPEC="${HANSTOCK_MISTOCK_MORNING_SPEC:-0 0-5 * * 2-6}"     # 새벽 세션 (화~토)
+EVENING_MONITOR_SPEC="${HANSTOCK_MISTOCK_EVENING_MONITOR_SPEC:-30 22-23 * * 1-5}"  # 모니터 저녁 세션 (월~금)
+MORNING_MONITOR_SPEC="${HANSTOCK_MISTOCK_MORNING_MONITOR_SPEC:-30 0-5 * * 2-6}"     # 모니터 새벽 세션 (화~토)
 CRON_TZ_VALUE="${HANSTOCK_CRON_TZ:-Asia/Seoul}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 RUN="cd $ROOT_DIR && $ROOT_DIR/scripts/vm/mistock-auto.sh"
+MONITOR_RUN="cd $ROOT_DIR && PYTHONPATH=. .venv/bin/python3 src/mistock/monitor.py >> logs/mistock_monitor.log 2>&1"
 
 existing="$(mktemp)"
 crontab -l 2>/dev/null | awk '
@@ -26,6 +29,8 @@ crontab -l 2>/dev/null | awk '
     echo "CRON_TZ=$CRON_TZ_VALUE"
     echo "$EVENING_SPEC $RUN"
     echo "$MORNING_SPEC $RUN"
+    echo "$EVENING_MONITOR_SPEC $MONITOR_RUN"
+    echo "$MORNING_MONITOR_SPEC $MONITOR_RUN"
     echo "# hanstock-mistock-auto end"
 } | crontab -
 rm -f "$existing"
@@ -33,6 +38,8 @@ rm -f "$existing"
 echo "[cron] Mistock US stock schedule installed: CRON_TZ=$CRON_TZ_VALUE"
 echo "[cron]   evening: $EVENING_SPEC $RUN"
 echo "[cron]   morning: $MORNING_SPEC $RUN"
+echo "[cron]   evening monitor: $EVENING_MONITOR_SPEC $MONITOR_RUN"
+echo "[cron]   morning monitor: $MORNING_MONITOR_SPEC $MONITOR_RUN"
 echo "[cron] current matching entries:"
 crontab -l | awk '
     /# hanstock-mistock-auto begin/ { show = 1 }
