@@ -1330,7 +1330,13 @@ def mistock_scheduler_run(payload: dict = Body(default={})):
 
 @router.post("/api/mistock/circuit-breaker/reset")
 def mistock_reset_circuit():
-    return {"ok": True, "circuit_breaker": {"opened": False, "error_count": 0, "max_errors": 5, "opened_at": None}}
+    try:
+        mistock_trader.reset_circuit()
+        client = mistock_trader._get_kis_client()
+        status = client.circuit_status()
+    except Exception as exc:
+        status = {"opened": False, "error_count": 0, "max_errors": 5, "opened_at": None, "error": str(exc)}
+    return {"ok": True, "circuit_breaker": status}
 
 
 def _auto_approve_mistock_pending_approvals() -> list[dict]:

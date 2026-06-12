@@ -634,3 +634,9 @@ def save_trade(symbol: str, name: str, action: str, qty: float, price: float, re
             fee, tax, exchange_rate,
         ),
     )
+
+
+def reset_circuit() -> None:
+    client = _get_kis_client()
+    if client and hasattr(client, "circuit"):
+        client.circuit.reset()
