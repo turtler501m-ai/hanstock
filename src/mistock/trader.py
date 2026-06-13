@@ -231,38 +231,48 @@ def get_balance() -> dict[str, Any]:
                 logger.error(f"Invalid balance_data type in get_balance: {type(balance_data)}, expected dict. Value: {balance_data}")
                 balance_data = {"output1": [], "output2": {}, "output3": {}}
             
-            summary = balance_data.get("output2", {})
-            if not isinstance(summary, dict):
-                if isinstance(summary, list):
-                    summary = next((item for item in summary if isinstance(item, dict)), {})
-                else:
-                    summary = {}
-            
-            # KIS 외화 예수금 파싱
+            # output2: 통화별 잔고 리스트일 경우 USD 항목 우선 선택
+            raw_output2 = balance_data.get("output2", {})
+            if isinstance(raw_output2, list):
+                summary = (
+                    next((item for item in raw_output2 if isinstance(item, dict) and item.get("crcy_cd") == "USD"), None)
+                    or next((item for item in raw_output2 if isinstance(item, dict)), {})
+                )
+            elif isinstance(raw_output2, dict):
+                summary = raw_output2
+            else:
+                summary = {}
+
+            # KIS 외화 예수금 파싱 (USD 기준)
             cash = _first_positive(summary, [
                 "frcr_dncl_amt",
                 "frcr_dncl_amt_2",
-                "frcr_buy_amt_smtl",
                 "frcr_drwg_psbl_amt",
                 "frcr_drwg_psbl_amt_1",
             ])
-            
-            # 통합증거금 원화 가용 자원 파싱 및 합산
+
+            # 통합증거금 원화 가용 자원 파싱
             output3 = balance_data.get("output3", {})
             if not isinstance(output3, dict):
                 if isinstance(output3, list):
                     output3 = next((item for item in output3 if isinstance(item, dict)), {})
                 else:
                     output3 = {}
-                    
+
             exchange_rate = _to_float(summary.get("frst_rt") or output3.get("frst_rt"), 0.0)
             if exchange_rate <= 0:
                 exchange_rate = get_usd_krw_rate()
-                
-            krw_cash = _first_positive(output3, ["tot_dncl_amt", "dncl_amt"])
-            if krw_cash > 0:
-                # 98% 마진율을 적용해 달러 가용 금액에 합산 (통합증거금)
-                cash += (krw_cash / exchange_rate) * 0.98
+
+            # output3의 frcr_use_psbl_amt(외화사용가능금액)가 있으면 USD 현금으로 우선 사용
+            # 이 값이 KIS가 실제 허용하는 해외주식 매수가능 달러 금액이다
+            frcr_use_psbl = _to_float(output3.get("frcr_use_psbl_amt"), 0.0)
+            if frcr_use_psbl > 0:
+                cash = frcr_use_psbl
+            elif cash <= 0:
+                # USD 잔고를 못 읽은 경우만 KRW 통합증거금을 환산해 보완
+                krw_cash = _first_positive(output3, ["tot_dncl_amt", "dncl_amt"])
+                if krw_cash > 0:
+                    cash = (krw_cash / exchange_rate) * 0.98
 
             holdings = _holdings_from_overseas_balance(balance_data)
             stock_eval = sum(float(item["value"] or 0.0) for item in holdings)
