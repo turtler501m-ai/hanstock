@@ -1344,7 +1344,6 @@ def _apply_runtime_env_updates(updates: dict[str, str]) -> None:
             mistock_config.market = value
         elif key == "MISTOCK_TRADE_DB_PATH":
             from src.mistock.config import config as mistock_config
-            from pathlib import Path
             mistock_config.trade_db_path = Path(value)
         elif key == "USDKRW_FALLBACK_RATE":
             from src.mistock.config import config as mistock_config

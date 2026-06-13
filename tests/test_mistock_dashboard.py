@@ -19,6 +19,9 @@ class MistockDashboardTests(unittest.TestCase):
         self.original_trading_env = mistock_config.trading_env
         self.original_total_capital = mistock_config.total_capital
         self.original_currency = mistock_config.currency
+        self.original_split_n = mistock_config.split_n
+        self.original_max_positions = mistock_config.max_positions
+        self.original_max_single_weight = mistock_config.max_single_weight
         self.original_online_blocked = main_config.online_access_blocked
         object.__setattr__(mistock_config, "trade_db_path", Path(self.tmp.name) / "mistock.sqlite")
 
@@ -27,6 +30,9 @@ class MistockDashboardTests(unittest.TestCase):
         object.__setattr__(mistock_config, "trading_env", self.original_trading_env)
         object.__setattr__(mistock_config, "total_capital", self.original_total_capital)
         object.__setattr__(mistock_config, "currency", self.original_currency)
+        object.__setattr__(mistock_config, "split_n", self.original_split_n)
+        object.__setattr__(mistock_config, "max_positions", self.original_max_positions)
+        object.__setattr__(mistock_config, "max_single_weight", self.original_max_single_weight)
         main_config.online_access_blocked = self.original_online_blocked
         self.tmp.cleanup()
 
@@ -201,12 +207,16 @@ class MistockDashboardTests(unittest.TestCase):
         self.assertEqual(result["balance_source"], "test")
 
     def test_mistock_settings_and_action_endpoints_are_available(self):
-        env_result = mistock.mistock_update_env({"values": {"MISTOCK_TOTAL_CAPITAL": "100000"}})
+        with patch.dict("os.environ", {}, clear=False), \
+                patch("src.dashboard.routes.mistock._core._write_env_values") as write_env:
+            env_result = mistock.mistock_update_env({"values": {"MISTOCK_TOTAL_CAPITAL": "100000"}})
         strategies = mistock.mistock_ai_strategies()["strategies"]
         strategy_id = strategies[0]["id"]
 
         self.assertTrue(env_result["ok"])
-        self.assertTrue(env_result["requires_restart"])
+        self.assertFalse(env_result["requires_restart"])
+        self.assertEqual(mistock_config.total_capital, 100000.0)
+        write_env.assert_called_once()
         self.assertTrue(mistock.mistock_static_verify(strategy_id)["ok"])
         self.assertTrue(mistock.mistock_api_verify(strategy_id)["ok"])
         with patch(
@@ -229,6 +239,60 @@ class MistockDashboardTests(unittest.TestCase):
                 self.assertIn("result", response)
                 mock_thread.assert_called_once()
                 mock_thread_instance.start.assert_called_once()
+
+    def test_mistock_env_returns_scheduler_and_strategy_values(self):
+        with patch(
+            "src.dashboard.routes.mistock._mistock_env_values",
+            return_value={
+                "MISTOCK_TOTAL_CAPITAL": "123456",
+                "MISTOCK_DAILY_AUTO_RETRIES": "4",
+            },
+        ):
+            result = mistock.mistock_env()
+
+        fields = {field["key"]: field for field in result["fields"]}
+        self.assertFalse(result["requires_restart"])
+        self.assertEqual(fields["MISTOCK_TOTAL_CAPITAL"]["value"], "123456")
+        self.assertEqual(fields["MISTOCK_SPLIT_N"]["value"], str(mistock_config.split_n))
+        self.assertEqual(fields["MISTOCK_DAILY_AUTO_RETRIES"]["value"], "4")
+        self.assertIn("MISTOCK_SCHEDULER_RETRY_DELAY_SECONDS", fields)
+
+    def test_mistock_update_env_accepts_strategy_aliases_and_applies_runtime(self):
+        with patch.dict("os.environ", {}, clear=False), \
+                patch("src.dashboard.routes.mistock._core._write_env_values") as write_env:
+            result = mistock.mistock_update_env({
+                "values": {
+                    "SPLIT_N": "9",
+                    "MAX_POSITIONS": "3",
+                    "MAX_SINGLE_WEIGHT": "0.4",
+                }
+            })
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(mistock_config.split_n, 9)
+        self.assertEqual(mistock_config.max_positions, 3)
+        self.assertEqual(mistock_config.max_single_weight, 0.4)
+        written = write_env.call_args.args[0]
+        self.assertEqual(written["MISTOCK_SPLIT_N"], "9")
+        self.assertEqual(written["MISTOCK_MAX_POSITIONS"], "3")
+        self.assertEqual(written["MISTOCK_MAX_SINGLE_WEIGHT"], "0.4")
+
+    def test_mistock_scheduler_status_includes_config_values(self):
+        with patch.dict(
+            "os.environ",
+            {
+                "MISTOCK_CRON_TZ": "Asia/Seoul",
+                "MISTOCK_DAILY_AUTO_RETRIES": "5",
+                "MISTOCK_SCHEDULER_SLACK": "false",
+            },
+            clear=False,
+        ):
+            result = mistock.mistock_scheduler_status()
+
+        self.assertEqual(result["config"]["cron_tz"], "Asia/Seoul")
+        self.assertEqual(result["config"]["daily_auto_retries"], "5")
+        self.assertEqual(result["config"]["slack_enabled"], "false")
+        self.assertIn("order_submission_enabled", result["config"])
 
     def test_mistock_easy_preset_uses_nasdaq_profile_and_selects_strategy(self):
         result = mistock.mistock_apply_ai_strategy_preset("aggressive")

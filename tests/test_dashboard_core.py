@@ -417,6 +417,29 @@ class DashboardCoreTests(unittest.TestCase):
         finally:
             dashboard.trader.config.kistock_account = original_account
 
+    def test_balance_route_accepts_8_digit_account(self):
+        original_account = dashboard.trader.config.kistock_account
+        original_required_env_missing = dashboard._required_env_missing
+        original_get_api = dashboard._get_api
+        original_get_balance_data = dashboard._get_balance_data
+        try:
+            dashboard.trader.config.kistock_account = "12345678"
+            dashboard._required_env_missing = lambda: []
+            dashboard._get_api = lambda: object()
+            dashboard._get_balance_data = lambda api: {
+                "output1": [],
+                "output2": [{"dnca_tot_amt": "1000", "tot_evlu_amt": "1000"}],
+            }
+
+            balance = dashboard.get_balance()
+
+            self.assertEqual(balance["cash"], 1000)
+        finally:
+            dashboard.trader.config.kistock_account = original_account
+            dashboard._required_env_missing = original_required_env_missing
+            dashboard._get_api = original_get_api
+            dashboard._get_balance_data = original_get_balance_data
+
     def test_auto_approval_state_can_toggle(self):
         original_state = dashboard.AUTO_APPROVAL_STATE
         try:

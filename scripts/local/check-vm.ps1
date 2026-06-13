@@ -6,7 +6,8 @@ param(
     [string]$Zone = $(if ($env:HANSTOCK_GCP_ZONE) { $env:HANSTOCK_GCP_ZONE } else { "us-central1-c" }),
     [string]$Project = $(if ($env:HANSTOCK_GCP_PROJECT) { $env:HANSTOCK_GCP_PROJECT } else { "project-c48329d1-72a5-4699-8ff" }),
     [string]$KeyPath = $(if ($env:HANSTOCK_SSH_KEY) { $env:HANSTOCK_SSH_KEY } else { (Join-Path $env:USERPROFILE ".ssh\google_compute_engine") }),
-    [int]$LogLines = 40
+    [int]$LogLines = 40,
+    [switch]$SkipMistock
 )
 
 $ErrorActionPreference = "Stop"
@@ -94,12 +95,100 @@ if [ -f "$REPO_PATH/logs/daily-auto.log" ]; then
 else
   echo "daily-auto log not found"
 fi
+
+if [ "__SKIP_MISTOCK__" != "1" ]; then
+  echo
+  echo "== Mistock Cron =="
+  crontab -l 2>/dev/null | sed -n '/# hanstock-mistock-auto begin/,/# hanstock-mistock-auto end/p' || true
+
+  echo
+  echo "== Latest Mistock Auto Log =="
+  if [ -f "$REPO_PATH/logs/mistock-auto.log" ]; then
+    tail -n __LOG_LINES__ "$REPO_PATH/logs/mistock-auto.log"
+  else
+    echo "mistock-auto log not found"
+  fi
+
+  echo
+  echo "== Latest Mistock Monitor Log =="
+  if [ -f "$REPO_PATH/logs/mistock_monitor.log" ]; then
+    tail -n __LOG_LINES__ "$REPO_PATH/logs/mistock_monitor.log"
+  else
+    echo "mistock monitor log not found"
+  fi
+
+  echo
+  echo "== Mistock Latest Scheduler Result =="
+  if [ -f "$REPO_PATH/.runtime/mistock/daily_auto_last_result.json" ]; then
+    python3 - "$REPO_PATH/.runtime/mistock/daily_auto_last_result.json" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+data = json.loads(path.read_text(encoding="utf-8"))
+result = data.get("result") or {}
+print("recorded_at=" + str(data.get("recorded_at")))
+print("status=" + str(result.get("status")) + " ok=" + str(result.get("ok")))
+print("scanned=" + str(result.get("scanned")) + " candidates=" + str(result.get("candidates")))
+print("sold=" + str(len(result.get("sold") or [])) + " bought=" + str(len(result.get("bought") or [])) + " plan=" + str(len(result.get("plan") or [])))
+errors = result.get("errors") or []
+if errors:
+    print("errors:")
+    for item in errors[:20]:
+        print("- {symbol} {action}: {message}".format(
+            symbol=item.get("symbol", "UNKNOWN"),
+            action=item.get("action", ""),
+            message=item.get("message", ""),
+        ))
+else:
+    print("errors=[]")
+PY
+  else
+    echo "mistock latest result not found"
+  fi
+
+  echo
+  echo "== Mistock Failed Trades =="
+  if command -v sqlite3 >/dev/null 2>&1 && [ -f "$REPO_PATH/.runtime/mistock/trades.sqlite" ]; then
+    sqlite3 -header -column "$REPO_PATH/.runtime/mistock/trades.sqlite" \
+      "SELECT id, ts, symbol, action, qty, price, ok, response_msg FROM trades WHERE ok = 0 ORDER BY id DESC LIMIT 20;"
+  elif [ -f "$REPO_PATH/.runtime/mistock/trades.sqlite" ]; then
+    python3 - "$REPO_PATH/.runtime/mistock/trades.sqlite" <<'PY'
+import sqlite3
+import sys
+
+conn = sqlite3.connect(sys.argv[1])
+conn.row_factory = sqlite3.Row
+rows = conn.execute(
+    """
+    SELECT id, ts, symbol, action, qty, price, ok, response_msg
+    FROM trades
+    WHERE ok = 0
+    ORDER BY id DESC
+    LIMIT 20
+    """
+).fetchall()
+if not rows:
+    print("no failed trades")
+for row in rows:
+    print(
+        "{id} | {ts} | {symbol} | {action} | qty={qty} | price={price} | ok={ok} | {response_msg}".format(
+            **dict(row)
+        )
+    )
+PY
+  else
+    echo "mistock trades db not found"
+  fi
+fi
 '@
 
 $remoteCommand = $remoteCommand.
     Replace("__REPO_PATH__", $safeRepoPath).
     Replace("__TARGET__", $target).
-    Replace("__LOG_LINES__", [string]$safeLogLines)
+    Replace("__LOG_LINES__", [string]$safeLogLines).
+    Replace("__SKIP_MISTOCK__", $(if ($SkipMistock) { "1" } else { "0" }))
 
 $remoteCommand = $remoteCommand -replace "`r`n", "`n" -replace "`r", "`n"
 $encodedCommand = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($remoteCommand))
@@ -115,5 +204,10 @@ if (Test-Path -LiteralPath $KeyPath) {
 }
 
 if ($LASTEXITCODE -ne 0) {
+    Write-Host ""
+    Write-Host "[vm-check] SSH connection failed."
+    Write-Host "[vm-check] target: $target"
+    Write-Host "[vm-check] key: $KeyPath"
+    Write-Host "[vm-check] If this is a publickey error, update HANSTOCK_SSH_KEY or add this public key to the VM user's authorized_keys / GCP OS Login metadata."
     throw "VM check failed with exit code $LASTEXITCODE"
 }

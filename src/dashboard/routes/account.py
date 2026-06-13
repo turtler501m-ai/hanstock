@@ -168,7 +168,13 @@ def get_balance():
     missing = _required_env_missing()
     if missing:
         if "KISTOCK_ACCOUNT_FORMAT" in missing:
-            raise HTTPException(status_code=503, detail="KISTOCK_ACCOUNT must be 10 digits: 8-digit account number + 2-digit product code")
+            raise HTTPException(
+                status_code=503,
+                detail=(
+                    "KISTOCK_ACCOUNT must be 8 digits, or 10 digits including "
+                    "2-digit product code"
+                ),
+            )
         raise HTTPException(status_code=503, detail=f"Missing environment variables: {', '.join(missing)}")
 
     try:

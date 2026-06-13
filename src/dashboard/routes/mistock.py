@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import os
+from pathlib import Path
 from fastapi import APIRouter, Body, HTTPException
 from fastapi.responses import FileResponse
 
@@ -14,6 +15,141 @@ from src.mistock import trader as mistock_trader
 from src.mistock.strategy import NASDAQ_UNIVERSE, normalize_symbol, quote, symbol_name
 
 router = APIRouter(tags=["mistock"])
+
+
+MISTOCK_ENV_FIELDS = [
+    {"key": "MISTOCK_MARKET", "attr": "market", "type": "text", "default": "NASDAQ"},
+    {"key": "MISTOCK_TRADING_ENV", "attr": "trading_env", "type": "select", "default": "demo", "options": ["paper", "demo", "real"]},
+    {"key": "MISTOCK_DRY_RUN", "attr": "dry_run", "type": "bool", "default": "true"},
+    {"key": "MISTOCK_ENABLE_LIVE_TRADING", "attr": "enable_live_trading", "type": "bool", "default": "false"},
+    {"key": "MISTOCK_REQUIRE_APPROVAL", "attr": "require_approval", "type": "bool", "default": "true"},
+    {"key": "MISTOCK_TRADE_DB_PATH", "attr": "trade_db_path", "type": "text", "default": ".runtime/mistock/trades.sqlite"},
+    {"key": "MISTOCK_TOTAL_CAPITAL", "attr": "total_capital", "type": "float", "default": "100000"},
+    {"key": "MISTOCK_CURRENCY", "attr": "currency", "type": "text", "default": "USD"},
+    {"key": "MISTOCK_SPLIT_N", "attr": "split_n", "type": "int", "default": "7"},
+    {"key": "MISTOCK_STOP_LOSS_PCT", "attr": "stop_loss_pct", "type": "float", "default": "-12"},
+    {"key": "MISTOCK_TAKE_PROFIT", "attr": "take_profit", "type": "float", "default": "25"},
+    {"key": "MISTOCK_RSI_BUY", "attr": "rsi_buy", "type": "int", "default": "35"},
+    {"key": "MISTOCK_RSI_SELL", "attr": "rsi_sell", "type": "int", "default": "72"},
+    {"key": "MISTOCK_MAX_POSITIONS", "attr": "max_positions", "type": "int", "default": "5"},
+    {"key": "MISTOCK_MAX_SINGLE_WEIGHT", "attr": "max_single_weight", "type": "float", "default": "0.25"},
+    {"key": "MISTOCK_CASH_BUFFER", "attr": "cash_buffer", "type": "float", "default": "0.20"},
+    {"key": "MISTOCK_MAX_DAILY_LOSS_PCT", "attr": "max_daily_loss_pct", "type": "float", "default": "3.0"},
+    {"key": "MISTOCK_SCAN_UNIVERSE_SIZE", "attr": "scan_universe_size", "type": "int", "default": "100"},
+    {"key": "MISTOCK_YFINANCE_TIMEOUT_SECONDS", "attr": "yfinance_timeout_seconds", "type": "int", "default": "10"},
+    {"key": "USDKRW_FALLBACK_RATE", "attr": "usdkrw_fallback_rate", "type": "float", "default": "1380.0"},
+    {"key": "MISTOCK_UNIVERSE", "attr": "universe_list", "type": "text", "default": ""},
+    {"key": "MISTOCK_ORDER_DELAY_SECONDS", "attr": None, "type": "float", "default": "1.2"},
+    {"key": "MISTOCK_SCHEDULER_SLACK", "attr": None, "type": "bool", "default": "true"},
+    {"key": "MISTOCK_ORDER_STATUS_SYNC", "attr": None, "type": "bool", "default": "true"},
+    {"key": "MISTOCK_CRON_TZ", "attr": None, "type": "text", "default": "Asia/Seoul"},
+    {"key": "MISTOCK_DAILY_AUTO_RETRIES", "attr": None, "type": "int", "default": "3"},
+    {"key": "MISTOCK_DAILY_AUTO_RETRY_DELAY_SECONDS", "attr": None, "type": "float", "default": "10"},
+    {"key": "MISTOCK_SCHEDULER_RETRIES", "attr": None, "type": "int", "default": "1"},
+    {"key": "MISTOCK_SCHEDULER_RETRY_DELAY_SECONDS", "attr": None, "type": "float", "default": "5"},
+]
+
+MISTOCK_ENV_FIELD_MAP = {field["key"]: field for field in MISTOCK_ENV_FIELDS}
+MISTOCK_STRATEGY_ALIAS = {
+    "SPLIT_N": "MISTOCK_SPLIT_N",
+    "STOP_LOSS_PCT": "MISTOCK_STOP_LOSS_PCT",
+    "TAKE_PROFIT": "MISTOCK_TAKE_PROFIT",
+    "RSI_BUY": "MISTOCK_RSI_BUY",
+    "RSI_SELL": "MISTOCK_RSI_SELL",
+    "TOTAL_CAPITAL": "MISTOCK_TOTAL_CAPITAL",
+    "MAX_POSITIONS": "MISTOCK_MAX_POSITIONS",
+    "MAX_SINGLE_WEIGHT": "MISTOCK_MAX_SINGLE_WEIGHT",
+    "CASH_BUFFER": "MISTOCK_CASH_BUFFER",
+    "MAX_DAILY_LOSS_PCT": "MISTOCK_MAX_DAILY_LOSS_PCT",
+    "SCAN_UNIVERSE_SIZE": "MISTOCK_SCAN_UNIVERSE_SIZE",
+}
+
+
+def _mistock_env_values() -> dict[str, str]:
+    values = _core._read_env_values(_core._public_value("ENV_PATH", _core.ENV_PATH))
+    return values
+
+
+def _mistock_bool_text(value: object) -> str:
+    return "true" if bool(value) else "false"
+
+
+def _mistock_field_value(field: dict, env_values: dict[str, str]) -> str:
+    key = field["key"]
+    if key in env_values:
+        return str(env_values[key])
+    attr = field.get("attr")
+    if attr:
+        value = getattr(mistock_config, attr)
+        if key == "MISTOCK_UNIVERSE":
+            return ",".join(value or [])
+        if field["type"] == "bool":
+            return _mistock_bool_text(value)
+        return str(value)
+    return str(field["default"])
+
+
+def _validate_mistock_env_value(key: str, value: object) -> str:
+    if key not in MISTOCK_ENV_FIELD_MAP:
+        raise HTTPException(status_code=400, detail=f"unsupported Mistock setting: {key}")
+    field = MISTOCK_ENV_FIELD_MAP[key]
+    value_text = _core._env_value_without_inline_comment(str(value).strip())
+    field_type = field["type"]
+    if field_type == "bool":
+        lowered = value_text.lower()
+        if lowered not in {"true", "false", "1", "0", "yes", "no", "on", "off"}:
+            raise HTTPException(status_code=400, detail=f"{key} must be a boolean")
+        return "true" if lowered in {"true", "1", "yes", "on"} else "false"
+    if field_type == "int":
+        try:
+            int(value_text)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=f"{key} must be an integer") from exc
+        return value_text
+    if field_type == "float":
+        try:
+            float(value_text)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=f"{key} must be a number") from exc
+        return value_text
+    if field_type == "select":
+        options = field.get("options", [])
+        if value_text not in options:
+            raise HTTPException(status_code=400, detail=f"{key} must be one of: {', '.join(options)}")
+    return value_text
+
+
+def _apply_mistock_env_updates(updates: dict[str, str]) -> None:
+    for key, value in updates.items():
+        os.environ[key] = value
+        field = MISTOCK_ENV_FIELD_MAP.get(key)
+        if not field:
+            continue
+        attr = field.get("attr")
+        if not attr:
+            continue
+        if key == "MISTOCK_UNIVERSE":
+            symbols = [s.strip().upper() for s in value.split(",") if s.strip()]
+            mistock_config.universe_list = symbols
+            try:
+                from src.mistock import strategy as mistock_strategy
+                mistock_strategy.NASDAQ_UNIVERSE.clear()
+                mistock_strategy.NASDAQ_UNIVERSE.extend(symbols)
+            except Exception:
+                pass
+            continue
+        if key == "MISTOCK_TRADE_DB_PATH":
+            setattr(mistock_config, attr, Path(value))
+        elif field["type"] == "bool":
+            setattr(mistock_config, attr, value.lower() in {"true", "1", "yes", "on"})
+        elif field["type"] == "int":
+            setattr(mistock_config, attr, int(value))
+        elif field["type"] == "float":
+            setattr(mistock_config, attr, float(value))
+        else:
+            setattr(mistock_config, attr, value)
+    if any(key in updates for key in {"MISTOCK_TRADING_ENV", "KISTOCK_ACCOUNT", "KISTOCK_APP_KEY", "KISTOCK_APP_SECRET"}):
+        mistock_trader._kis_client_cache = None
 
 
 @router.get("/mistock", response_class=FileResponse)
@@ -96,34 +232,25 @@ def mistock_config_api():
 
 @router.get("/api/mistock/env")
 def mistock_env():
-    fields = [
-        ("MISTOCK_MARKET", mistock_config.market, "text"),
-        ("MISTOCK_TRADING_ENV", mistock_config.trading_env, "text"),
-        ("MISTOCK_DRY_RUN", str(mistock_config.dry_run).lower(), "bool"),
-        ("MISTOCK_ENABLE_LIVE_TRADING", str(mistock_config.enable_live_trading).lower(), "bool"),
-        ("MISTOCK_REQUIRE_APPROVAL", str(mistock_config.require_approval).lower(), "bool"),
-        ("MISTOCK_TRADE_DB_PATH", str(mistock_config.trade_db_path), "text"),
-        ("MISTOCK_TOTAL_CAPITAL", str(mistock_config.total_capital), "float"),
-        ("MISTOCK_CURRENCY", mistock_config.currency, "text"),
-    ]
+    env_values = _mistock_env_values()
     return {
         "path": ".env",
-        "exists": True,
-        "requires_restart": True,
+        "exists": _core._public_value("ENV_PATH", _core.ENV_PATH).exists(),
+        "requires_restart": False,
         "fields": [
             {
-                "key": key,
-                "label": key,
-                "type": kind,
-                "options": [],
+                "key": field["key"],
+                "label": field["key"],
+                "type": field["type"],
+                "options": field.get("options", []),
                 "hint": "Mistock uses MISTOCK_* variables and a separate SQLite DB.",
                 "secret": False,
                 "virtual": False,
-                "has_value": bool(value),
-                "value": value,
+                "has_value": bool(_mistock_field_value(field, env_values)),
+                "value": _mistock_field_value(field, env_values),
                 "masked": "",
             }
-            for key, value, kind in fields
+            for field in MISTOCK_ENV_FIELDS
         ],
     }
 
@@ -133,24 +260,21 @@ def mistock_update_env(payload: dict = Body(...)):
     values = payload.get("values")
     if not isinstance(values, dict):
         raise HTTPException(status_code=400, detail="values must be an object")
-    allowed = {
-        "MISTOCK_MARKET",
-        "MISTOCK_TRADING_ENV",
-        "MISTOCK_DRY_RUN",
-        "MISTOCK_ENABLE_LIVE_TRADING",
-        "MISTOCK_REQUIRE_APPROVAL",
-        "MISTOCK_TRADE_DB_PATH",
-        "MISTOCK_TOTAL_CAPITAL",
-        "MISTOCK_CURRENCY",
+    normalized = {
+        MISTOCK_STRATEGY_ALIAS.get(str(key).strip(), str(key).strip()): value
+        for key, value in values.items()
     }
-    rejected = sorted(key for key in values if key not in allowed)
-    if rejected:
-        raise HTTPException(status_code=400, detail=f"unsupported Mistock settings: {', '.join(rejected)}")
+    updates = {
+        key: _validate_mistock_env_value(key, value)
+        for key, value in normalized.items()
+    }
+    _core._write_env_values(updates, _core._public_value("ENV_PATH", _core.ENV_PATH))
+    _apply_mistock_env_updates(updates)
     return {
         "ok": True,
-        "updated": sorted(values.keys()),
-        "requires_restart": True,
-        "message": "Mistock settings are read from MISTOCK_* environment values. Restart after editing .env.",
+        "updated": sorted(updates.keys()),
+        "requires_restart": False,
+        "message": "Mistock settings saved and applied to the current dashboard process.",
     }
 
 
@@ -1277,8 +1401,18 @@ def mistock_scheduler_status():
         
     return {
         "config": {
+            "cron_tz": os.environ.get("MISTOCK_CRON_TZ", os.environ.get("HANSTOCK_CRON_TZ", "Asia/Seoul")),
+            "daily_auto_retries": os.environ.get("MISTOCK_DAILY_AUTO_RETRIES", "3"),
+            "daily_auto_retry_delay_seconds": os.environ.get("MISTOCK_DAILY_AUTO_RETRY_DELAY_SECONDS", "10"),
+            "scheduler_retries": os.environ.get("MISTOCK_SCHEDULER_RETRIES", "1"),
+            "scheduler_retry_delay_seconds": os.environ.get("MISTOCK_SCHEDULER_RETRY_DELAY_SECONDS", "5"),
+            "slack_enabled": os.environ.get("MISTOCK_SCHEDULER_SLACK", "true"),
+            "sync_enabled": os.environ.get("MISTOCK_ORDER_STATUS_SYNC", "true"),
+            "order_delay_seconds": os.environ.get("MISTOCK_ORDER_DELAY_SECONDS", "1.2"),
+            "result_path": os.environ.get("MISTOCK_SCHEDULER_RESULT_PATH", ".runtime/mistock/daily_auto_last_result.json"),
             "trading_env": mistock_config.trading_env,
             "dry_run": mistock_config.dry_run,
+            **mistock_trader.runtime_flags(),
         },
         "last_result": last_result,
         "run_state": run_state_to_return
