@@ -131,6 +131,30 @@ if [ ! -d "$REPO_PATH/.git" ]; then
   fi
 fi
 cd "$REPO_PATH"
+git fetch origin "$BRANCH"
+
+conflicting_shell_files="$(
+  git ls-tree -r --name-only "origin/$BRANCH" -- '*.sh' |
+  while IFS= read -r path; do
+    if [ -e "$path" ] && ! git ls-files --error-unmatch "$path" >/dev/null 2>&1; then
+      printf '%s\n' "$path"
+    fi
+  done
+)"
+
+if [ -n "$conflicting_shell_files" ]; then
+  stamp="$(date +%Y%m%d-%H%M%S)"
+  conflict_backup="$REPO_PATH/.runtime/deploy-untracked-shell-$stamp"
+  mkdir -p "$conflict_backup"
+  echo "$conflicting_shell_files" |
+  while IFS= read -r path; do
+    [ -n "$path" ] || continue
+    mkdir -p "$conflict_backup/$(dirname "$path")"
+    mv "$path" "$conflict_backup/$path"
+    echo "[deploy] moved untracked shell file $path to $conflict_backup/$path"
+  done
+fi
+
 ./scripts/vm/update.sh "$BRANCH"
 '@
 
