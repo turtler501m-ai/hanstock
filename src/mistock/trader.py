@@ -277,18 +277,16 @@ def get_balance() -> dict[str, Any]:
             holdings = _holdings_from_overseas_balance(balance_data)
             stock_eval = sum(float(item["value"] or 0.0) for item in holdings)
             pnl = sum(float(item["pnl"] or 0.0) for item in holdings)
+            # frcr_evlu_tota는 USD 평가액 합계 (KRW 환산 아님)
             broker_total_eval = _first_positive(summary, [
-                "tot_asst_amt",
-                "tot_evlu_amt",
                 "frcr_evlu_tota",
-            ]) or _first_positive(output3, [
                 "tot_asst_amt",
                 "tot_evlu_amt",
-                "evlu_amt_smtl",
+            ]) or _first_positive(output3, [
                 "frcr_evlu_tota",
             ])
-            if cash <= 0 and broker_total_eval > stock_eval:
-                cash = broker_total_eval - stock_eval
+            # KRW 단위인 tot_asst_amt를 USD로 오인하는 fallback 제거.
+            # cash가 0이면 실제로 주문가능한 달러가 없는 것이므로 0으로 유지한다.
             balance_source = "kis"
             if config.trading_env == "demo" and cash <= 0 and stock_eval <= 0 and broker_total_eval <= 0:
                 cash = _configured_capital_usd(exchange_rate)
