@@ -127,6 +127,14 @@ def run_mistock_scheduled_cycle(mode: str = "execute") -> dict:
                 logger.info(f"[MISTOCK SCHEDULER] Placing buy order for {ord['symbol']}. Qty={qty}, Price={price}")
                 res = mistock_trader.place_order(ord["symbol"], "buy", qty, price, reason=ord["reason"])
                 bought_items.append({"symbol": ord["symbol"], "qty": qty, "price": price, "result": res})
+                # 잔고 부족 응답이면 이후 주문도 실패할 것이므로 즉시 중단한다
+                msg = (res.get("msg1") or res.get("message") or "")
+                if not res.get("ok") and "주문가능금액" in msg:
+                    logger.warning(
+                        f"[MISTOCK SCHEDULER] Insufficient balance for {ord['symbol']} (msg={msg!r}). "
+                        "Stopping further buy orders this cycle."
+                    )
+                    break
                 if idx < len(orders) - 1:
                     time.sleep(_order_delay_seconds())
         else:

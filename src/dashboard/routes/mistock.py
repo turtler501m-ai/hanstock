@@ -1341,6 +1341,10 @@ def mistock_reset_circuit():
 
 def _auto_approve_mistock_pending_approvals() -> list[dict]:
     import time
+    from src.mistock.scheduler import is_us_market_open
+    if not is_us_market_open():
+        logger.info("[MISTOCK] auto-approve skipped: US market is not open")
+        return []
     pending = mistock_db.rows("SELECT id FROM approvals WHERE status = 'pending'")
     results = []
     delay = 1.2
