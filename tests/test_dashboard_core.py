@@ -806,6 +806,56 @@ class DashboardCoreTests(unittest.TestCase):
             dashboard._clear_balance_cache = original_clear_balance_cache
             dashboard._required_env_missing = original_required_env_missing
 
+    def test_sell_all_holdings_registers_pending_rows_before_auto_approval(self):
+        import src.dashboard.routes.stock as stock_routes
+
+        original_db_path = dashboard.trader.config.trade_db_path
+        original_get_api = stock_routes._get_api
+        original_get_balance_data = stock_routes._get_balance_data
+        original_auto_approval = stock_routes._auto_approval_enabled
+        original_batch_async = stock_routes._run_auto_approval_batch_async
+        original_clear_balance_cache = stock_routes._clear_balance_cache
+        original_required_env_missing = stock_routes._required_env_missing
+
+        queued_ids = []
+        try:
+            with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+                dashboard.trader.config.trade_db_path = f"{tmpdir}/trades.sqlite"
+                stock_routes._get_api = lambda: object()
+                stock_routes._get_balance_data = lambda api, allow_cache=True: {
+                    "output1": [
+                        {
+                            "pdno": "005930",
+                            "prdt_name": "Samsung",
+                            "hldg_qty": "2",
+                            "prpr": "70000",
+                        },
+                    ],
+                    "output2": [{}],
+                }
+                stock_routes._auto_approval_enabled = lambda: True
+                stock_routes._run_auto_approval_batch_async = lambda approval_ids: queued_ids.extend(approval_ids)
+                stock_routes._clear_balance_cache = lambda: None
+                stock_routes._required_env_missing = lambda: []
+
+                result = stock_routes.sell_all_holdings({})
+
+                self.assertEqual(result["created_count"], 1)
+                self.assertEqual(result["pending_count"], 1)
+                self.assertEqual(result["submitted_count"], 0)
+                self.assertTrue(result["auto_approval_queued"])
+                approvals = stock_routes.get_approvals()["approvals"]
+                self.assertEqual(approvals[0]["status"], "pending")
+                self.assertEqual(queued_ids, [approvals[0]["id"]])
+        finally:
+            dashboard.trader.config.trade_db_path = original_db_path
+            stock_routes._get_api = original_get_api
+            stock_routes._get_balance_data = original_get_balance_data
+            stock_routes._auto_approval_enabled = original_auto_approval
+            stock_routes._run_auto_approval_batch_async = original_batch_async
+            stock_routes._clear_balance_cache = original_clear_balance_cache
+            stock_routes._required_env_missing = original_required_env_missing
+
     def test_watchlist_inherits_shared_symbols_for_non_isolated_strategy(self):
         with patch("src.db.repository.load_watchlist_data", return_value={
             "symbols": ["005930", "000660"],

@@ -956,6 +956,15 @@ def get_approvals(limit: int = 50):
 
 @router.post("/api/approvals")
 def create_approval(payload: dict = Body(...)):
+    approval_id = _create_approval_row(payload)
+    if _auto_approval_enabled():
+        result = _approve_pending_approval(approval_id, "auto approval")
+        result["auto_approved"] = True
+        return result
+    return {"id": approval_id, "status": "pending"}
+
+
+def _create_approval_row(payload: dict) -> int:
     action = str(payload.get("action", "")).lower()
     if action not in {"buy", "sell"}:
         raise HTTPException(status_code=400, detail="action must be buy or sell")
@@ -995,11 +1004,21 @@ def create_approval(payload: dict = Body(...)):
             ),
         )
         approval_id = cursor.lastrowid
-    if _auto_approval_enabled():
-        result = _approve_pending_approval(approval_id, "자동승인")
-        result["auto_approved"] = True
-        return result
-    return {"id": approval_id, "status": "pending"}
+    return int(approval_id)
+
+
+def _run_auto_approval_batch_async(approval_ids: list[int]) -> None:
+    def worker() -> None:
+        for approval_id in approval_ids:
+            try:
+                _approve_pending_approval(approval_id, "auto approval")
+            except Exception as exc:
+                logger.warning(f"sell-all auto approval failed approval_id={approval_id}: {exc}")
+
+    import threading
+
+    thread = threading.Thread(target=worker, name="sell-all-auto-approval", daemon=True)
+    thread.start()
 
 
 
@@ -1035,7 +1054,12 @@ def sell_all_holdings(payload: dict | None = Body(default=None)):
     if not orders:
         return {"status": "empty", "created_count": 0, "orders": []}
 
-    created = [create_approval(order) for order in orders]
+    approval_ids = [_create_approval_row(order) for order in orders]
+    created = [{"id": approval_id, "status": "pending"} for approval_id in approval_ids]
+    auto_approval_queued = False
+    if _auto_approval_enabled():
+        _run_auto_approval_batch_async(approval_ids)
+        auto_approval_queued = True
     _clear_balance_cache()
 
     return {
@@ -1045,7 +1069,8 @@ def sell_all_holdings(payload: dict | None = Body(default=None)):
         "submitted_count": sum(1 for item in created if isinstance(item, dict) and item.get("status") == "executed"),
         "executed_count": sum(1 for item in created if isinstance(item, dict) and item.get("status") == "executed"),
         "failed_count": sum(1 for item in created if isinstance(item, dict) and item.get("status") == "failed"),
-        "auto_approved": any(item.get("auto_approved") for item in created if isinstance(item, dict)),
+        "auto_approved": False,
+        "auto_approval_queued": auto_approval_queued,
         "fill_status_note": "KIS 주문 접수 결과입니다. 실제 체결 여부는 주문내역 동기화 후 확정됩니다.",
         "orders": created,
     }

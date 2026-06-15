@@ -2895,7 +2895,8 @@ def _auto_approve_pending_approvals(limit: int = 200) -> list[dict]:
     for approval_id in _pending_approval_ids(limit):
         try:
             results.append(_approve_pending_approval(approval_id, "자동승인"))
-        except HTTPException:
+        except Exception as exc:
+            logger.warning(f"auto approval failed for approval_id={approval_id}: {exc}")
             continue
     return results
 
@@ -2910,6 +2911,8 @@ def _approve_pending_approval(approval_id: int, approval_label: str = "수동승
         )
     item = _claim_pending_approval(approval_id)
     result: dict = {}
+    status = "failed"
+    response_msg = "Order submission did not complete"
     try:
         api = _get_api()
         pre_order_qty = _current_holding_qty_from_balance(api, item["symbol"])
@@ -2939,9 +2942,10 @@ def _approve_pending_approval(approval_id: int, approval_label: str = "수동승
             profile_hash=item.get("profile_hash"),
             source_approval_id=approval_id,
         )
-    except DashboardOperationError as e:
+    except Exception as e:
         status = "failed"
         response_msg = str(e)
+        logger.warning(f"approval order submission failed approval_id={approval_id}: {e}")
 
     now = trader.datetime.now(trader.KST).strftime("%Y-%m-%d %H:%M:%S")
     with trader.connect_db() as conn:
