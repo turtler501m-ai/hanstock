@@ -1,5 +1,6 @@
 import tempfile
 import unittest
+import asyncio
 import sqlite3
 from datetime import datetime
 from unittest.mock import patch
@@ -844,6 +845,38 @@ class DashboardCoreTests(unittest.TestCase):
         self.assertFalse(result["inherited"])
         self.assertEqual(result["universe_source"], "strategy")
         self.assertEqual(result["symbols"], [])
+
+    def test_watchlist_scan_uses_threshold_from_same_request(self):
+        saved = []
+        with patch.object(dashboard, "_required_env_missing", return_value=[]), \
+                patch.object(dashboard, "_get_api", return_value=object()), \
+                patch.object(dashboard, "_get_balance_data", return_value={"output1": [], "output2": [{}]}), \
+                patch.object(dashboard, "_parse_balance", return_value={"holdings": []}), \
+                patch("src.dashboard.core.build_dashboard_candidates", return_value={
+                    "scanned": 3,
+                    "candidates": [
+                        {"ticker": "005930", "name": "Samsung", "score": 1.0},
+                        {"ticker": "000660", "name": "SK Hynix", "score": 2.0},
+                        {"ticker": "035420", "name": "NAVER", "score": 3.0},
+                    ],
+                }), \
+                patch("src.db.repository.load_watchlist_data", return_value={
+                    "symbols": ["000660"],
+                    "ai_auto_add": True,
+                    "ai_auto_add_threshold": 1.0,
+                }), \
+                patch("src.db.repository.save_watchlist_data", side_effect=lambda data: saved.append(dict(data))), \
+                patch("src.strategy.seven_split.sync_watchlist_runtime"):
+            result = asyncio.run(dashboard.trigger_watchlist_ai_scan(
+                dashboard.WatchlistTogglePayload(enabled=True, threshold=2.0)
+            ))
+
+        self.assertEqual(result["threshold_used"], 2.0)
+        self.assertEqual(result["eligible_count"], 2)
+        self.assertEqual(result["already_registered_count"], 1)
+        self.assertEqual(result["added_count"], 1)
+        self.assertEqual(result["added_symbols"][0]["symbol"], "035420")
+        self.assertEqual(saved[0]["ai_auto_add_threshold"], 2.0)
 
     def test_candidate_orders_use_scan_price_without_quote_lookup(self):
         original_max_positions = dashboard.trader.MAX_POSITIONS

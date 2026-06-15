@@ -2440,7 +2440,7 @@ class WatchlistTogglePayload(BaseModel):
 
 
 @app.post("/api/watchlist/scan-trigger")
-async def trigger_watchlist_ai_scan():
+async def trigger_watchlist_ai_scan(request: WatchlistTogglePayload | None = Body(default=None)):
     from src.db.repository import load_watchlist_data, save_watchlist_data
     from src.strategy.seven_split import sync_watchlist_runtime, STOCK_NAMES
     
@@ -2457,34 +2457,51 @@ async def trigger_watchlist_ai_scan():
         ranker_weight = 0.4
         optimizer = "score_tilted_inverse_vol"
         
-        payload = build_dashboard_candidates(
+        scan_result = build_dashboard_candidates(
             api, parsed, min_score=1, ranker=ranker_model, ranker_weight=ranker_weight, optimizer=optimizer
         )
         
-        added_symbols = []
         watchlist_data = load_watchlist_data()
+        if request is not None:
+            threshold_value = request.threshold
+            if threshold_value is not None and not 1.0 <= threshold_value <= 10.0:
+                raise HTTPException(status_code=400, detail="threshold must be between 1 and 10")
+            watchlist_data["ai_auto_add"] = request.enabled
+            if threshold_value is not None:
+                watchlist_data["ai_auto_add_threshold"] = threshold_value
+            save_watchlist_data(watchlist_data)
+
+        threshold = float(watchlist_data.get("ai_auto_add_threshold", 3.0))
+        added_symbols = []
+        eligible_count = 0
+        already_registered_count = 0
         
-        if payload["scanned"] > 0:
+        if scan_result["scanned"] > 0:
             needs_save = False
-            threshold = watchlist_data.get("ai_auto_add_threshold", 3.0)
-            for cand in payload["candidates"]:
+            for cand in scan_result["candidates"]:
                 if cand.get("score", 0.0) >= threshold:
+                    eligible_count += 1
                     symbol = cand["ticker"]
-                    if symbol not in watchlist_data["symbols"]:
-                        watchlist_data["symbols"].append(symbol)
-                        added_symbols.append({
-                            "symbol": symbol,
-                            "name": cand["name"],
-                            "score": cand["score"]
-                        })
-                        needs_save = True
+                    if symbol in watchlist_data["symbols"]:
+                        already_registered_count += 1
+                        continue
+                    watchlist_data["symbols"].append(symbol)
+                    added_symbols.append({
+                        "symbol": symbol,
+                        "name": cand["name"],
+                        "score": cand["score"]
+                    })
+                    needs_save = True
             if needs_save:
                 save_watchlist_data(watchlist_data)
                 sync_watchlist_runtime()
                 
         return {
             "ok": True,
-            "scanned": payload["scanned"],
+            "scanned": scan_result["scanned"],
+            "threshold_used": threshold,
+            "eligible_count": eligible_count,
+            "already_registered_count": already_registered_count,
             "added_count": len(added_symbols),
             "added_symbols": added_symbols
         }

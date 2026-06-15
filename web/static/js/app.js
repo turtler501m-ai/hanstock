@@ -2723,13 +2723,27 @@ document.addEventListener('DOMContentLoaded', () => {
             setStatus('AI 자동추가 즉시 스캔이 가동되었습니다. 시장 유니버스를 실시간 탐색 중입니다...', true);
             
             try {
-                const res = await postJson('/api/watchlist/scan-trigger');
                 const threshold = numWatchlistAiThreshold ? parseFloat(numWatchlistAiThreshold.value) : 3.0;
+                const enabled = chkWatchlistAiAuto ? chkWatchlistAiAuto.checked : true;
+                const res = await postJson('/api/watchlist/scan-trigger', {
+                    enabled,
+                    threshold
+                });
+                const usedThreshold = Number(res.threshold_used ?? threshold);
                 if (res.added_count > 0) {
                     const names = res.added_symbols.map(s => `${s.name}(${s.symbol})`).join(', ');
-                    setStatus(`🔥 AI 스캔 완료! ${threshold}점 이상 우수 종목 포착 및 자동 관심종목 추가 완료: ${names}`, true);
+                    setStatus(
+                        `AI 스캔 완료: ${usedThreshold}점 이상 ${res.eligible_count || 0}개, ` +
+                        `기등록 ${res.already_registered_count || 0}개, 신규 추가 ${res.added_count}개: ${names}`,
+                        true
+                    );
                 } else {
-                    setStatus(`🔍 AI 스캔 완료! 신규 ${threshold}점 이상 종목이 발견되지 않아 관심종목 변동이 없습니다. (분석: ${res.scanned}종목)`, true);
+                    setStatus(
+                        `AI 스캔 완료: 기준 ${usedThreshold}점, 대상 ${res.eligible_count || 0}개, ` +
+                        `기등록 ${res.already_registered_count || 0}개, 신규 추가 0개. ` +
+                        `기존 관심종목은 기준 변경만으로 자동 삭제되지 않습니다. (분석: ${res.scanned}종목)`,
+                        true
+                    );
                 }
                 await renderWatchlist();
             } catch (err) {
