@@ -845,7 +845,8 @@ def get_ai_allocation():
                 "highs": highs,
                 "volumes": volumes,
             })
-        plan = trader.generate_ai_weight_plan(holdings, parsed["total_eval"])
+        capital = trader.operating_capital(parsed["total_eval"])
+        plan = trader.generate_ai_weight_plan(holdings, capital)
         if active_strategy:
             for position in plan.get("positions", []):
                 position["strategy_id"] = active_strategy.get("id")

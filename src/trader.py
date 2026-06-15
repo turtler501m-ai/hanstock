@@ -148,6 +148,37 @@ def _runtime_value(alias: str, settings_value):
     if legacy_value != _LEGACY_SYNCED_VALUES.get(alias):
         return legacy_value
     return settings_value
+
+
+def operating_capital(account_total_eval: int | float = 0) -> int:
+    """Return the configured capital available to Hanstock for this account."""
+    settings = get_settings()
+    configured = max(
+        0,
+        int(_runtime_value("TOTAL_CAPITAL", settings.total_capital) or 0),
+    )
+    account_total = max(0, int(account_total_eval or 0))
+    if configured <= 0:
+        return account_total
+    if account_total <= 0:
+        return configured
+    return min(configured, account_total)
+
+
+def available_buying_cash(
+    broker_cash: int | float,
+    stock_eval: int | float,
+    account_total_eval: int | float,
+) -> int:
+    """Cap new buys by configured capital, cash buffer, and current exposure."""
+    settings = get_settings()
+    capital = operating_capital(account_total_eval)
+    cash_buffer = float(_runtime_value("CASH_BUFFER", settings.cash_buffer) or 0)
+    investable_limit = int(capital * max(0.0, 1.0 - cash_buffer))
+    remaining_exposure = max(0, investable_limit - max(0, int(stock_eval or 0)))
+    return min(max(0, int(broker_cash or 0)), remaining_exposure)
+
+
 _KIS_ORDER_THROTTLE_LOCK = threading.Lock()
 _KIS_ORDER_LAST_CALL = 0.0
 _KIS_ORDER_MIN_INTERVAL_SECONDS = float(os.environ.get("KIS_ORDER_MIN_INTERVAL_SECONDS", "2.0"))
@@ -704,6 +735,14 @@ def build_runtime_plan(
         if summary_total > 0:
             cash = summary_total - summary_stock_eval
     total_eval = int(summary.get("tot_evlu_amt", 0) or 0)
+    stock_eval = int(summary.get("scts_evlu_amt", 0) or 0)
+    if stock_eval <= 0:
+        stock_eval = sum(
+            int(stock.get("evlu_amt", 0) or 0)
+            for stock in stocks
+        )
+    capital = operating_capital(total_eval)
+    buying_cash = available_buying_cash(cash, stock_eval, total_eval)
     pnl = int(summary.get("evlu_pfls_smtl_amt", 0) or 0)
 
     position_rows = []
@@ -731,7 +770,7 @@ def build_runtime_plan(
             position_rows.append(row)
 
     halted = daily_loss_halt_triggered(pnl)
-    remaining_cash = cash
+    remaining_cash = buying_cash
     candidate_rows = []
     candidate_scan: dict = {"candidates": [], "scan_summary": [], "scanned": 0, "min_score": 2, "scan_error": None}
 
@@ -831,7 +870,7 @@ def build_runtime_plan(
                 )
             candidates = scan_result.get("candidates", [])
 
-        orders = build_orders(candidates, api.get_quote, len(held_symbols), cash)
+        orders = build_orders(candidates, api.get_quote, len(held_symbols), buying_cash)
         order_by_ticker = {o["ticker"]: o for o in orders}
 
         for candidate in candidates:
@@ -880,7 +919,7 @@ def build_runtime_plan(
     plan = build_execution_plan(position_rows=position_rows, candidate_rows=candidate_rows)
     ai_rebalance_rows = []
     if include_ai_rebalance and not halted:
-        ai_rebalance_rows = build_ai_rebalance_rows(api, balance_data, total_eval)
+        ai_rebalance_rows = build_ai_rebalance_rows(api, balance_data, capital)
         plan.extend(ai_rebalance_rows)
 
     return {
@@ -892,6 +931,8 @@ def build_runtime_plan(
         "daily_loss_halt": halted,
         "candidate_scan": candidate_scan,
         "cash": cash,
+        "buying_cash": buying_cash,
+        "operating_capital": capital,
         "held_symbols": {s.get("pdno", "") for s in stocks},
     }
 

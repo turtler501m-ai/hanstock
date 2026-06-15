@@ -212,7 +212,8 @@ def get_portfolio_optimizer():
         api = _get_api()
         parsed = _parse_balance(_get_balance_data(api))
         holdings = _holding_history(api, parsed, n=120)
-        return trader.generate_portfolio_optimizer_plan(holdings, parsed["total_eval"])
+        capital = trader.operating_capital(parsed["total_eval"])
+        return trader.generate_portfolio_optimizer_plan(holdings, capital)
 
     try:
         return snapshot_read_through("portfolio_optimizer", _build)

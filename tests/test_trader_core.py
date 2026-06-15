@@ -237,6 +237,56 @@ class TraderCoreTests(unittest.TestCase):
         ai_rows.assert_called_once_with(api, balance, 1_000_000)
         self.assertEqual(plan["ai_rebalance_rows"][0]["category"], "ai_rebalance")
 
+    def test_runtime_plan_uses_configured_capital_instead_of_full_account(self):
+        from src import trader
+
+        class _FakeAPI:
+            def get_daily(self, _symbol, n=60):
+                return []
+
+            def get_volume_rank(self, top_n=50):
+                return []
+
+            def get_quote(self, _symbol):
+                return {"current": 0, "ask1": 0, "bid1": 0}
+
+        balance = {
+            "output1": [{
+                "pdno": "005930",
+                "hldg_qty": "100",
+                "prpr": "500000",
+                "evlu_amt": "50000000",
+            }],
+            "output2": [{
+                "dnca_tot_amt": "450000000",
+                "scts_evlu_amt": "50000000",
+                "tot_evlu_amt": "500000000",
+                "evlu_pfls_smtl_amt": "0",
+            }],
+        }
+
+        api = _FakeAPI()
+        with patch.object(trader, "TOTAL_CAPITAL", 100_000_000), \
+                patch.object(trader, "CASH_BUFFER", 0.20), \
+                patch.object(trader, "generate_signal", return_value={
+                    "action": "hold", "qty": 0, "price": 0, "reason": "", "indicators": {},
+                }), \
+                patch.object(trader, "find_candidates", return_value={
+                    "candidates": [], "scan_summary": [], "scanned": 0,
+                    "min_score": 2, "scan_error": None,
+                }), \
+                patch.object(trader, "build_ai_rebalance_rows", return_value=[]) as ai_rows:
+            plan = trader.build_runtime_plan(
+                api,
+                balance,
+                include_ai_rebalance=True,
+            )
+
+        ai_rows.assert_called_once_with(api, balance, 100_000_000)
+        self.assertEqual(plan["operating_capital"], 100_000_000)
+        self.assertEqual(plan["buying_cash"], 30_000_000)
+        self.assertEqual(plan["remaining_cash"], 30_000_000)
+
     def test_kospi_universe_has_no_duplicates(self):
         self.assertEqual(len(KOSPI_UNIVERSE), len(set(KOSPI_UNIVERSE)))
 
