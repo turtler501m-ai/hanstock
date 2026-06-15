@@ -661,12 +661,18 @@ def review_ai_strategy_performance(id: str, days: int = 30):
 
 
 @router.get("/api/watchlist")
-def get_watchlist():
+def get_watchlist(strategy_id: str | None = None):
     from src.db.repository import load_watchlist_data, get_watchlist_extra_info
     from src.strategy.seven_split import STOCK_NAMES, STOCK_SECTORS
     data = load_watchlist_data()
+    if strategy_id:
+        from src.db.repository import load_strategy_universe_symbols
+
+        symbols = load_strategy_universe_symbols(strategy_id)
+    else:
+        symbols = data.get("symbols", [])
     symbols_detail = []
-    for code in data.get("symbols", []):
+    for code in symbols:
         extra = get_watchlist_extra_info(code)
         symbols_detail.append({
             "symbol": code,
@@ -680,6 +686,7 @@ def get_watchlist():
             "updated_at": extra["updated_at"]
         })
     return {
+        "strategy_id": strategy_id,
         "symbols": symbols_detail,
         "ai_auto_add": data.get("ai_auto_add", False),
         "ai_auto_add_threshold": data.get("ai_auto_add_threshold", 3.0)
@@ -696,6 +703,20 @@ def add_to_watchlist(payload: WatchlistAddPayload):
     if not code.isdigit() or len(code) != 6:
         raise HTTPException(status_code=400, detail="유효하지 않은 종목코드 형식입니다. (6자리 숫자)")
         
+    if payload.strategy_id:
+        from src.db.repository import add_strategy_universe_symbol, load_strategy_universe_symbols
+
+        if code in load_strategy_universe_symbols(payload.strategy_id):
+            raise HTTPException(status_code=400, detail="Already registered for this strategy")
+        name = STOCK_NAMES.get(code, "Unknown")
+        add_strategy_universe_symbol(payload.strategy_id, code, name)
+        return {
+            "ok": True,
+            "strategy_id": payload.strategy_id,
+            "symbol": code,
+            "name": name,
+        }
+
     data = load_watchlist_data()
     if code in data["symbols"]:
         raise HTTPException(status_code=400, detail="이미 관심목록에 등록되어 있는 종목입니다.")
@@ -713,11 +734,18 @@ def add_to_watchlist(payload: WatchlistAddPayload):
 
 
 @router.delete("/api/watchlist/{symbol}")
-def delete_from_watchlist(symbol: str):
+def delete_from_watchlist(symbol: str, strategy_id: str | None = None):
     from src.db.repository import load_watchlist_data, save_watchlist_data
     from src.strategy.seven_split import sync_watchlist_runtime
     
     code = symbol.strip()
+    if strategy_id:
+        from src.db.repository import remove_strategy_universe_symbol
+
+        if remove_strategy_universe_symbol(strategy_id, code) <= 0:
+            raise HTTPException(status_code=404, detail="Symbol is not registered for this strategy")
+        return {"ok": True, "strategy_id": strategy_id}
+
     data = load_watchlist_data()
     if code not in data["symbols"]:
         raise HTTPException(status_code=404, detail="관심목록에 없는 종목입니다.")
@@ -1480,6 +1508,17 @@ def trigger_scheduler_run(payload: dict = Body(...)):
         
     include_ai_rebalance = bool(payload.get("include_ai_rebalance", True))
     auto_approve = bool(payload.get("auto_approve", mode == "daily_auto"))
+    raw_categories = payload.get("allowed_categories")
+    allowed_categories = None
+    if isinstance(raw_categories, list):
+        valid_categories = {"position", "candidate", "ai_rebalance"}
+        allowed_categories = {
+            str(category).strip()
+            for category in raw_categories
+            if str(category).strip() in valid_categories
+        }
+        if not allowed_categories:
+            raise HTTPException(status_code=400, detail="No valid order categories were provided")
 
     # 실행 대상 전략: payload.strategy_id가 있으면 사용, 없으면 현재 선택된 전략을 강제.
     force_strategy_id = payload.get("strategy_id")
@@ -1503,8 +1542,13 @@ def trigger_scheduler_run(payload: dict = Body(...)):
 
     t = threading.Thread(
         target=_bg_run_scheduled_cycle,
-        args=(mode, include_ai_rebalance, auto_approve, force_strategy_id),
+        args=(mode, include_ai_rebalance, auto_approve, force_strategy_id, allowed_categories),
         daemon=True
     )
     t.start()
-    return {"status": "started", "mode": mode, "strategy_id": force_strategy_id}
+    return {
+        "status": "started",
+        "mode": mode,
+        "strategy_id": force_strategy_id,
+        "allowed_categories": sorted(allowed_categories) if allowed_categories else None,
+    }

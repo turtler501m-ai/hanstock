@@ -1124,7 +1124,7 @@ def build_orders(
         return [o for o in orders if o["quantity"] > 0]
 
 
-def generate_signal(stock: dict, daily_data: list) -> dict:
+def generate_signal(stock: dict, daily_data: list, strategy_model: str = "") -> dict:
     prices = [float(d["stck_clpr"]) for d in daily_data if d.get("stck_clpr")]
     highs = [float(d["stck_hgpr"]) for d in daily_data if d.get("stck_hgpr")]
     volumes = [float(d["acml_vol"]) for d in daily_data if d.get("acml_vol")]
@@ -1137,7 +1137,21 @@ def generate_signal(stock: dict, daily_data: list) -> dict:
     rt = float(stock.get("evlu_pfls_rt", 0))
     split_qty = max(1, qty // config.split_n)
 
-    profile = calc_strategy_profile(prices, highs, volumes, symbol=stock.get("pdno", "")) if prices else calc_strategy_profile([], symbol=stock.get("pdno", ""))
+    profile = (
+        calc_strategy_profile(
+            prices,
+            highs,
+            volumes,
+            strategy_model=strategy_model,
+            symbol=stock.get("pdno", ""),
+        )
+        if prices
+        else calc_strategy_profile(
+            [],
+            strategy_model=strategy_model,
+            symbol=stock.get("pdno", ""),
+        )
+    )
     rsi = profile["rsi"]
     rsi2 = profile["rsi2"]
     sma20 = profile["sma20"]

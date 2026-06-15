@@ -224,6 +224,7 @@ def run_scheduled_cycle(
     include_ai_rebalance: bool = False,
     auto_approve: bool = False,
     force_strategy_id: str | None = None,
+    allowed_categories: set[str] | None = None,
 ) -> dict:
     # force_strategy_id가 명시되지 않은 경우(cron 등) 현재 선택된 전략을 사용해
     # trader 실행과 결과 기록의 strategy_id가 일치하도록 한다.
@@ -240,14 +241,14 @@ def run_scheduled_cycle(
         include_ai_rebalance = True
         auto_approve = True
         run_mode = "analysis_only"
-        execution_categories = {"ai_rebalance"}
-        approval_categories = {"ai_rebalance"}
+        execution_categories = allowed_categories or {"ai_rebalance"}
+        approval_categories = allowed_categories or {"ai_rebalance"}
         run_attempts = _env_int("HANSTOCK_DAILY_AUTO_RETRIES", 3)
         retry_delay_seconds = _env_float("HANSTOCK_DAILY_AUTO_RETRY_DELAY_SECONDS", 10.0)
     else:
         run_mode = mode
-        execution_categories = None
-        approval_categories = None
+        execution_categories = allowed_categories
+        approval_categories = allowed_categories
         run_attempts = _env_int("HANSTOCK_SCHEDULER_RETRIES", 1)
         retry_delay_seconds = _env_float("HANSTOCK_SCHEDULER_RETRY_DELAY_SECONDS", 5.0)
 
@@ -268,6 +269,8 @@ def run_scheduled_cycle(
         )
     else:
         trader_kwargs = {"mode": run_mode}
+        if execution_categories is not None:
+            trader_kwargs["execution_categories"] = execution_categories
         if force_strategy_id is not None:
             trader_kwargs["force_strategy_id"] = force_strategy_id
         result = _run_trader_with_retries(

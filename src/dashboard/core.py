@@ -934,13 +934,39 @@ def _save_candidate_cache(
         logger.warning(f"Failed to persist candidate snapshot: {exc}")
 
 
-def build_dashboard_signals(api, parsed: dict) -> list[dict]:
+def _resolve_dashboard_strategy(strategy_id: str | None = None) -> dict | None:
+    from src.db.repository import load_ai_strategies
+
+    strategies = load_ai_strategies()
+    if strategy_id:
+        return next(
+            (
+                strategy
+                for strategy in strategies
+                if strategy.get("id") == strategy_id or strategy.get("model") == strategy_id
+            ),
+            None,
+        )
+    return next((strategy for strategy in strategies if strategy.get("selected")), None)
+
+
+def build_dashboard_signals(api, parsed: dict, strategy_id: str | None = None) -> list[dict]:
+    strategy = _resolve_dashboard_strategy(strategy_id)
+    resolved_strategy_id = strategy.get("id") if strategy else (strategy_id or "seven_split")
+    strategy_model = str(strategy.get("model") or "") if strategy else ""
+    if strategy_model == "none":
+        strategy_model = ""
     signals = []
     for holding in parsed["holdings"]:
         daily = api.get_daily(holding["symbol"], n=60)
-        signal = trader.generate_signal(holding["_raw"], daily)
+        signal = trader.generate_signal(
+            holding["_raw"],
+            daily,
+            strategy_model=strategy_model,
+        )
         indicators = signal.get("indicators", {})
         signals.append({
+            "strategy_id": resolved_strategy_id,
             "symbol": holding["symbol"],
             "name": holding["name"],
             "qty": holding["qty"],
@@ -972,9 +998,13 @@ def build_dashboard_candidates(
     strategy_model: str = "",
     strategy_profile: dict | None = None,
     strategy_description: str = "",
+    universe: list[str] | None = None,
 ) -> dict:
     held_symbols = {holding["symbol"] for holding in parsed["holdings"]}
-    universe = trader.build_scan_universe(api, held_symbols)
+    if universe is None:
+        universe = trader.build_scan_universe(api, held_symbols)
+    else:
+        universe = [symbol for symbol in universe if symbol not in held_symbols]
 
     if ranker == "gpt_5_mini" and ranker_weight == 0.4 and not strategy_model:
         scan_kwargs = {
@@ -1097,13 +1127,19 @@ def _build_candidate_orders_from_scan(candidates: list, *, held_count: int = 0, 
     return orders
 
 
-def build_dashboard_execution_plan() -> dict:
+def build_dashboard_execution_plan(strategy_id: str | None = None) -> dict:
     api = _get_api()
     balance_data = _get_balance_data(api)
     parsed = _parse_balance(balance_data)
-    runtime_bundle = trader.build_runtime_plan(api, balance_data, read_cached_candidates=True)
+    runtime_bundle = trader.build_runtime_plan(
+        api,
+        balance_data,
+        read_cached_candidates=True,
+        force_strategy_id=strategy_id,
+    )
     return {
         "mode": "dashboard",
+        "strategy_id": strategy_id or "seven_split",
         "plan": runtime_bundle["plan"],
         "cash": parsed["cash"],
         "remaining_cash": runtime_bundle["remaining_cash"],
@@ -2396,6 +2432,7 @@ from typing import Optional
 
 class WatchlistAddPayload(BaseModel):
     symbol: str = Field(..., min_length=6, max_length=6)
+    strategy_id: str | None = None
 
 class WatchlistTogglePayload(BaseModel):
     enabled: bool
@@ -2458,7 +2495,7 @@ async def trigger_watchlist_ai_scan():
 
 
 @app.get("/api/signals")
-async def get_signals():
+async def get_signals(strategy_id: str | None = None):
     missing = _required_env_missing()
     if missing:
         raise HTTPException(status_code=503, detail=f"Missing environment variables: {', '.join(missing)}")
@@ -2466,10 +2503,11 @@ async def get_signals():
     def _build():
         api = _get_api()
         parsed = _parse_balance(_get_balance_data(api))
-        return {"signals": build_dashboard_signals(api, parsed)}
+        return {"signals": build_dashboard_signals(api, parsed, strategy_id=strategy_id)}
 
     try:
-        return snapshot_read_through("signals", _build)
+        cache_key = f"signals:{strategy_id}" if strategy_id else "signals"
+        return snapshot_read_through(cache_key, _build)
     except DashboardOperationError as e:
         raise HTTPException(status_code=502, detail=f"Signal analysis failed: {e}") from e
 
@@ -2527,6 +2565,12 @@ async def get_candidates(
             ranker_weight = 0.4
             strategy_model = ""
 
+        strategy_universe = None
+        if selected_strat:
+            from src.db.repository import load_strategy_universe_symbols
+
+            strategy_universe = load_strategy_universe_symbols(selected_strat["id"])
+
         import asyncio
         loop = asyncio.get_event_loop()
         payload = await loop.run_in_executor(
@@ -2541,6 +2585,7 @@ async def get_candidates(
                 strategy_model=strategy_model,
                 strategy_profile=strategy_profile,
                 strategy_description=strategy_description,
+                universe=strategy_universe,
             ),
         )
         if selected_strat:
@@ -2672,12 +2717,16 @@ async def delete_candidate_history(candidate_id: int):
 
 
 @app.get("/api/execution-plan")
-async def get_execution_plan():
+async def get_execution_plan(strategy_id: str | None = None):
     missing = _required_env_missing()
     if missing:
         raise HTTPException(status_code=503, detail=f"Missing environment variables: {', '.join(missing)}")
     try:
-        return snapshot_read_through("execution_plan", build_dashboard_execution_plan)
+        cache_key = f"execution_plan:{strategy_id}" if strategy_id else "execution_plan"
+        return snapshot_read_through(
+            cache_key,
+            lambda: build_dashboard_execution_plan(strategy_id=strategy_id),
+        )
     except DashboardOperationError as e:
         raise HTTPException(status_code=502, detail=f"Execution plan failed: {e}") from e
 
@@ -3597,7 +3646,13 @@ _dashboard_scheduler_service = DashboardSchedulerService(
 _scheduler_running_lock = _dashboard_scheduler_service.lock
 _scheduler_run_state = _dashboard_scheduler_service.state
 
-def _bg_run_scheduled_cycle(mode: str, include_ai_rebalance: bool, auto_approve: bool, force_strategy_id: str | None = None):
+def _bg_run_scheduled_cycle(
+    mode: str,
+    include_ai_rebalance: bool,
+    auto_approve: bool,
+    force_strategy_id: str | None = None,
+    allowed_categories: set[str] | None = None,
+):
     from src.scheduler import run_scheduled_cycle
 
     _dashboard_scheduler_service.run(
@@ -3606,4 +3661,5 @@ def _bg_run_scheduled_cycle(mode: str, include_ai_rebalance: bool, auto_approve:
         include_ai_rebalance=include_ai_rebalance,
         auto_approve=auto_approve,
         strategy_id=force_strategy_id,
+        allowed_categories=allowed_categories,
     )

@@ -55,6 +55,7 @@ class DashboardSignalCandidateAlignmentTests(unittest.TestCase):
             stack.enter_context(patch.object(dashboard, "_get_api", return_value=fake_api))
             stack.enter_context(patch.object(dashboard, "_get_balance_data", return_value={"output1": [], "output2": [{}]}))
             stack.enter_context(patch.object(dashboard, "_parse_balance", return_value=parsed_balance))
+            stack.enter_context(patch("src.dashboard.core._resolve_dashboard_strategy", return_value={"id": "seven_split"}))
             generate_signal = stack.enter_context(
                 patch.object(
                     dashboard.trader,
@@ -86,6 +87,7 @@ class DashboardSignalCandidateAlignmentTests(unittest.TestCase):
             {
                 "signals": [
                     {
+                        "strategy_id": "seven_split",
                         "symbol": "005930",
                         "name": "Samsung Electronics",
                         "qty": 2,
@@ -105,6 +107,7 @@ class DashboardSignalCandidateAlignmentTests(unittest.TestCase):
                         "macd_hist": 1.7,
                     },
                     {
+                        "strategy_id": "seven_split",
                         "symbol": "000660",
                         "name": "SK Hynix",
                         "qty": 1,

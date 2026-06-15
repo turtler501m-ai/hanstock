@@ -29,6 +29,7 @@ STRATEGY_META = {
         "last_result_path": ".runtime/heikin_ashi_scalping_last_result.json",
     },
 }
+EMPTY_UNIVERSE_MESSAGE = "Register strategy-specific watchlist symbols first."
 
 
 def _strategy_meta(key: str) -> dict:
@@ -124,7 +125,7 @@ def _strategy_performance(strategy_id: str) -> dict:
 
 def _strategy_scan(strategy_id: str, *, min_score: float = 1.0) -> dict:
     from src.trader import KIStockAPI
-    from src.strategy.seven_split import build_scan_universe, find_candidates
+    from src.strategy.seven_split import find_candidates
     from src.db.repository import save_scanned_candidate
 
     api = KIStockAPI()
@@ -133,10 +134,16 @@ def _strategy_scan(strategy_id: str, *, min_score: float = 1.0) -> dict:
     held_symbols = {s.get("pdno", "") for s in stocks}
     from src.db.repository import load_strategy_universe_symbols
     dedicated = load_strategy_universe_symbols(strategy_id)
-    if dedicated:
-        scan_list = [code for code in dedicated if code not in held_symbols]
-    else:
-        scan_list = [code for code in build_scan_universe(api, held_symbols) if code not in held_symbols]
+    if not dedicated:
+        return {
+            "ok": True,
+            "candidates": [],
+            "scan_summary": [],
+            "scanned_count": 0,
+            "candidates_count": 0,
+            "scan_error": f"{strategy_id} has no dedicated universe. {EMPTY_UNIVERSE_MESSAGE}",
+        }
+    scan_list = [code for code in dedicated if code not in held_symbols]
 
     logger.info(f"[StrategyRoute] {strategy_id} scan initiated for {len(scan_list)} symbols")
     scan_result = find_candidates(
@@ -261,23 +268,34 @@ def get_strategy_performance():
 
 @router.get("/api/strategy/plunge_bounce/scan")
 def run_plunge_bounce_scan():
-    """Triggers real-time scanning of the KOSPI_UNIVERSE and Watchlist using PlungeBounceStrategy."""
+    """Triggers real-time scanning of the dedicated PlungeBounceStrategy universe."""
     try:
         from src.trader import KIStockAPI
         api = KIStockAPI()
 
-        from src.strategy.seven_split import build_scan_universe, find_candidates, WATCHLIST, KOSPI_UNIVERSE
+        from src.strategy.seven_split import find_candidates
 
         # 1. Fetch currently held symbols to exclude them from the scan
         balance = api.get_balance()
         stocks = balance.get("output1", []) or []
         held_symbols = {s.get("pdno", "") for s in stocks}
 
-        # 2. 전용 유니버스가 있으면 그것을, 없으면 공유 유니버스(WATCHLIST + KOSPI_UNIVERSE)를 사용
+        # 2. Use only the dedicated strategy universe.
         from src.db.repository import load_strategy_universe_symbols
         dedicated = load_strategy_universe_symbols("plunge_bounce_strategy")
-        full_universe = dedicated if dedicated else list(dict.fromkeys(WATCHLIST + KOSPI_UNIVERSE))
-        scan_list = [code for code in full_universe if code not in held_symbols]
+        if not dedicated:
+            return {
+                "ok": True,
+                "candidates": [],
+                "scan_summary": [],
+                "scanned_count": 0,
+                "candidates_count": 0,
+                "scan_error": (
+                    "plunge_bounce_strategy has no dedicated universe. "
+                    f"{EMPTY_UNIVERSE_MESSAGE}"
+                ),
+            }
+        scan_list = [code for code in dedicated if code not in held_symbols]
 
         # 3. Perform scan forcing the plunge_bounce_strategy custom rule
         logger.info(f"[PlungeBounceRoute] Real-time scan initiated for {len(scan_list)} symbols")

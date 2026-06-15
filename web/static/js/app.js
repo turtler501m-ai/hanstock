@@ -5,6 +5,12 @@ let watchlistSortAsc = true;
 let activeStrategyAuditId = '';
 let schedulerPollInterval = null;
 
+function getActiveStrategyId() {
+    return document.getElementById('select-ai-ranker')?.value
+        || localStorage.getItem('hanstock_ai_ranker')
+        || '';
+}
+
 const formatCurrency = (value) => {
     return new Intl.NumberFormat('ko-KR', {
         style: 'currency',
@@ -1467,7 +1473,9 @@ function drawWatchlist() {
             const symbol = btn.getAttribute('data-symbol');
             setButtonBusy(btn, true);
             try {
-                await deleteJson(`/api/watchlist/${symbol}`);
+                const strategyId = getActiveStrategyId();
+                const query = strategyId ? `?strategy_id=${encodeURIComponent(strategyId)}` : '';
+                await deleteJson(`/api/watchlist/${symbol}${query}`);
                 setStatus(`관심 종목(${symbol})이 삭제되었습니다.`, true);
                 await renderWatchlist();
             } catch (err) {
@@ -1500,7 +1508,9 @@ async function renderWatchlist() {
     }
 
     try {
-        const data = await fetchJson('/api/watchlist');
+        const strategyId = getActiveStrategyId();
+        const query = strategyId ? `?strategy_id=${encodeURIComponent(strategyId)}` : '';
+        const data = await fetchJson(`/api/watchlist${query}`);
         watchlistCache = data.symbols || [];
         watchlistCache.forEach((s, idx) => {
             s.index = idx + 1;
@@ -1525,7 +1535,9 @@ async function renderSignals() {
     setButtonBusy('btn-signals', true);
     setTableMessage('#table-signals tbody', 7, '보유 종목을 진단하고 있습니다...');
     try {
-        const data = await fetchJson('/api/signals');
+        const strategyId = getActiveStrategyId();
+        const query = strategyId ? `?strategy_id=${encodeURIComponent(strategyId)}` : '';
+        const data = await fetchJson(`/api/signals${query}`);
         const tbody = document.querySelector('#table-signals tbody');
         tbody.innerHTML = '';
         if (!data.signals.length) {
@@ -1577,7 +1589,7 @@ async function renderCandidates() {
     setButtonBusy('btn-candidates', true);
     setTableMessage('#table-candidates tbody', 9, '관심종목에서 매수 후보를 찾고 있습니다...');
     try {
-        const strategyId = document.getElementById('select-ai-ranker')?.value || localStorage.getItem('hanstock_ai_ranker') || '';
+        const strategyId = getActiveStrategyId();
         const optimizer = document.getElementById('select-portfolio-optimizer')?.value || 'score_tilted_inverse_vol';
         const query = strategyId
             ? `/api/candidates?min_score=2&strategy_id=${encodeURIComponent(strategyId)}&optimizer=${encodeURIComponent(optimizer)}`
@@ -2417,7 +2429,9 @@ async function renderExecutionPlan() {
     setButtonBusy(btn, true);
     setTableMessage('#table-execution-plan tbody', 8, '실행 계획 불러오는 중...');
     try {
-        const data = await fetchJson('/api/execution-plan');
+        const strategyId = getActiveStrategyId();
+        const query = strategyId ? `?strategy_id=${encodeURIComponent(strategyId)}` : '';
+        const data = await fetchJson(`/api/execution-plan${query}`);
         const plan = data.plan || [];
 
         const summaryEl = document.getElementById('execution-plan-summary');
@@ -2652,7 +2666,11 @@ document.addEventListener('DOMContentLoaded', () => {
             const symbol = rawVal.trim ? rawVal.trim() : rawVal;
             
             try {
-                const res = await postJson('/api/watchlist', { symbol: symbol });
+                const strategyId = getActiveStrategyId();
+                const res = await postJson('/api/watchlist', {
+                    symbol: symbol,
+                    strategy_id: strategyId || null,
+                });
                 setStatus(`관심 종목에 성공적으로 추가되었습니다: ${res.name} (${res.symbol})`, true);
                 addWatchlistForm.reset();
                 await renderWatchlist();
@@ -2888,8 +2906,17 @@ window.addEventListener('load', () => {
     if (rankerSelect) {
         const savedRanker = localStorage.getItem('hanstock_ai_ranker');
         if (savedRanker) rankerSelect.value = savedRanker;
-        rankerSelect.addEventListener('change', () => {
+        rankerSelect.addEventListener('change', async () => {
             localStorage.setItem('hanstock_ai_ranker', rankerSelect.value);
+            await postJson(`/api/ai-strategies/${encodeURIComponent(rankerSelect.value)}/select`, {
+                selected: true,
+            });
+            await Promise.all([
+                renderStrategyContext(),
+                renderWatchlist(),
+                renderSignals(),
+                renderExecutionPlan(),
+            ]);
         });
     }
     
@@ -3368,7 +3395,12 @@ async function triggerSchedule(mode) {
     }
     
     try {
-        const res = await postJson('/api/scheduler/run', { mode: mode });
+        const strategyId = getActiveStrategyId();
+        const res = await postJson('/api/scheduler/run', {
+            mode: mode,
+            strategy_id: strategyId || null,
+            allowed_categories: ['position', 'candidate', 'ai_rebalance'],
+        });
         if (res.status === 'started') {
             if (logBox) {
                 logBox.textContent += `[${new Date().toLocaleTimeString()}] 스케쥴러 백그라운드 태스크가 성공적으로 등록되었습니다. 실시간 기동 중입니다.\n`;

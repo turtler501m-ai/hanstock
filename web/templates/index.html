@@ -2021,7 +2021,13 @@
 
         async function addToWatchlist(symbol) {
             try {
-                const res = await postJson('/api/watchlist', { symbol: symbol });
+                const strategyId = document.getElementById('select-ai-ranker')?.value
+                    || localStorage.getItem('hanstock_ai_ranker')
+                    || '';
+                const res = await postJson('/api/watchlist', {
+                    symbol: symbol,
+                    strategy_id: strategyId || null,
+                });
                 if (res.ok) {
                     alert(`${symbol} 종목이 한스톡 관심종목에 등록되었습니다.`);
                     if (typeof renderWatchlist === 'function') {

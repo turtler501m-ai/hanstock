@@ -458,6 +458,7 @@ class KIStockAPI:
 _CANDIDATE_INDICATOR_KEYS = {"rsi", "rsi2", "sma20", "sma60", "bb_lo", "bb_hi", "macd_hist"}
 
 _VALID_RUN_MODES = {"analysis_only", "live", None}
+_ISOLATED_STRATEGY_IDS = {"plunge_bounce_strategy", "heikin_ashi_scalping_strategy"}
 
 
 def normalize_run_mode(mode: str | None) -> str | None:
@@ -711,7 +712,12 @@ def build_runtime_plan(
         name = stock.get("prdt_name", sym)
         rt = float(stock.get("evlu_pfls_rt", 0) or 0)
         daily = api.get_daily(sym, n=60)
-        signal = generate_signal(stock, daily)
+        strategy_model = ""
+        if active_strategy:
+            strategy_model = str(active_strategy.get("model") or "")
+            if strategy_model == "none":
+                strategy_model = ""
+        signal = generate_signal(stock, daily, strategy_model=strategy_model)
         row = signal_to_plan_row(
             sym,
             name,
@@ -734,7 +740,7 @@ def build_runtime_plan(
         
         if read_cached_candidates:
             from src.db.repository import get_latest_scanned_candidates
-            db_candidates = get_latest_scanned_candidates()
+            db_candidates = get_latest_scanned_candidates(active_strategy_id)
             candidates = []
             for row in db_candidates:
                 candidates.append({
@@ -756,17 +762,38 @@ def build_runtime_plan(
                 })
             candidates = sorted(candidates, key=lambda c: (-float(c["final_score"]), c["ticker"]))
         else:
-            universe = build_scan_universe(api, held_symbols)
-            # 전략 전용 유니버스가 등록돼 있으면 그것만 스캔한다(없으면 공유 유니버스).
+            # Isolated strategies must use their own universe only. If the
+            # universe is empty, do not fall back to the shared Hanstock list.
+            strategy_universe_missing = False
+            universe = []
             if active_strategy_id:
                 try:
                     from src.db.repository import load_strategy_universe_symbols
                     dedicated = load_strategy_universe_symbols(active_strategy_id)
                     if dedicated:
                         universe = [code for code in dedicated if code not in held_symbols]
+                    elif active_strategy_id in _ISOLATED_STRATEGY_IDS:
+                        universe = []
+                        strategy_universe_missing = True
                 except Exception:
-                    pass
-            if active_strategy_id == "plunge_bounce_strategy":
+                    if active_strategy_id in _ISOLATED_STRATEGY_IDS:
+                        universe = []
+                        strategy_universe_missing = True
+            if not universe and not strategy_universe_missing and active_strategy_id not in _ISOLATED_STRATEGY_IDS:
+                universe = build_scan_universe(api, held_symbols)
+            if strategy_universe_missing:
+                scan_result = {
+                    "candidates": [],
+                    "scan_summary": [],
+                    "scanned": 0,
+                    "min_score": 1.0 if active_strategy_id == "plunge_bounce_strategy" else 2,
+                    "scan_error": (
+                        f"{active_strategy_id} has no dedicated universe. "
+                        "Register strategy-specific watchlist symbols first."
+                    ),
+                }
+                candidates = []
+            elif active_strategy_id == "plunge_bounce_strategy":
                 scan_result = find_candidates(
                     held_symbols,
                     universe=universe,

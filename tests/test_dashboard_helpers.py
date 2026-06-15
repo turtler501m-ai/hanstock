@@ -46,13 +46,17 @@ class DashboardHelperTests(unittest.TestCase):
                 },
                 {"indicators": {"sma20": 176000, "bb_lo": 170500}},
             ],
-        ) as generate_signal:
+        ) as generate_signal, patch(
+            "src.dashboard.core._resolve_dashboard_strategy",
+            return_value={"id": "seven_split"},
+        ):
             rows = dashboard.build_dashboard_signals(api, parsed)
 
         self.assertEqual(
             rows,
             [
                 {
+                    "strategy_id": "seven_split",
                     "symbol": "005930",
                     "name": "Samsung Electronics",
                     "qty": 2,
@@ -72,6 +76,7 @@ class DashboardHelperTests(unittest.TestCase):
                     "macd_hist": 1.7,
                 },
                 {
+                    "strategy_id": "seven_split",
                     "symbol": "000660",
                     "name": "SK Hynix",
                     "qty": 1,

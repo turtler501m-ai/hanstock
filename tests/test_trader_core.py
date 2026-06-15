@@ -261,6 +261,33 @@ class TraderCoreTests(unittest.TestCase):
         for code in held:
             self.assertNotIn(code, universe)
 
+    def test_isolated_strategy_without_universe_does_not_use_shared_scan_universe(self):
+        from src import trader
+
+        class _FakeAPI:
+            def get_quote(self, _symbol):
+                return {"current": 0, "ask1": 0, "bid1": 0}
+
+        balance = {
+            "output1": [],
+            "output2": [{"dnca_tot_amt": "100000", "tot_evlu_amt": "100000", "evlu_pfls_smtl_amt": "0"}],
+        }
+
+        with patch("src.db.repository.load_strategy_universe_symbols", return_value=[]), \
+                patch.object(trader, "build_scan_universe") as shared_universe, \
+                patch.object(trader, "find_candidates") as find_candidates_mock:
+            plan = trader.build_runtime_plan(
+                _FakeAPI(),
+                balance,
+                force_strategy_id="plunge_bounce_strategy",
+            )
+
+        shared_universe.assert_not_called()
+        find_candidates_mock.assert_not_called()
+        self.assertEqual(plan["candidate_plan_rows"], [])
+        self.assertEqual(plan["candidate_scan"]["scanned"], 0)
+        self.assertIn("dedicated universe", plan["candidate_scan"]["scan_error"])
+
     def test_build_scan_universe_uses_volume_rank_when_available(self):
         extra = ["000020", "000030", "000040"]
 

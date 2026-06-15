@@ -72,6 +72,7 @@ class DashboardPlanViewRegressionTests(unittest.TestCase):
             body,
             {
                 "mode": "dashboard",
+                "strategy_id": "seven_split",
                 "plan": expected_plan,
                 "cash": 500000,
                 "remaining_cash": 260000,
@@ -116,6 +117,7 @@ class DashboardPlanViewRegressionTests(unittest.TestCase):
             stack.enter_context(patch.object(dashboard, "_get_api", return_value=fake_api))
             stack.enter_context(patch.object(dashboard, "_get_balance_data", return_value={"output1": [], "output2": [{}]}))
             stack.enter_context(patch.object(dashboard, "_parse_balance", return_value=parsed_balance))
+            stack.enter_context(patch("src.dashboard.core._resolve_dashboard_strategy", return_value={"id": "seven_split"}))
             stack.enter_context(
                 patch.object(
                     dashboard.trader,
@@ -144,6 +146,7 @@ class DashboardPlanViewRegressionTests(unittest.TestCase):
             {
                 "signals": [
                     {
+                        "strategy_id": "seven_split",
                         "symbol": "005930",
                         "name": "Samsung Electronics",
                         "qty": 3,
@@ -163,6 +166,7 @@ class DashboardPlanViewRegressionTests(unittest.TestCase):
                         "macd_hist": 1.3,
                     },
                     {
+                        "strategy_id": "seven_split",
                         "symbol": "000660",
                         "name": "SK Hynix",
                         "qty": 1,

@@ -264,19 +264,46 @@ def get_scanned_candidates_history(limit: int = 100, days: int = 30) -> list[dic
         return []
 
 
-def get_latest_scanned_candidates() -> list[dict]:
+def get_latest_scanned_candidates(strategy_id: str | None = None) -> list[dict]:
     init_db()
     try:
         with connect_db() as conn:
             conn.row_factory = sqlite3.Row
-            row = conn.execute("SELECT scanned_at FROM scanned_candidates ORDER BY scanned_at DESC LIMIT 1").fetchone()
+            if strategy_id:
+                row = conn.execute(
+                    """
+                    SELECT scanned_at FROM scanned_candidates
+                    WHERE strategy_id = ?
+                    ORDER BY scanned_at DESC
+                    LIMIT 1
+                    """,
+                    (strategy_id,),
+                ).fetchone()
+            else:
+                row = conn.execute(
+                    "SELECT scanned_at FROM scanned_candidates ORDER BY scanned_at DESC LIMIT 1"
+                ).fetchone()
             if not row:
                 return []
             latest_time = row["scanned_at"]
-            rows = conn.execute(
-                "SELECT * FROM scanned_candidates WHERE scanned_at = ? ORDER BY score DESC, symbol ASC",
-                (latest_time,)
-            ).fetchall()
+            if strategy_id:
+                rows = conn.execute(
+                    """
+                    SELECT * FROM scanned_candidates
+                    WHERE scanned_at = ? AND strategy_id = ?
+                    ORDER BY score DESC, symbol ASC
+                    """,
+                    (latest_time, strategy_id),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    """
+                    SELECT * FROM scanned_candidates
+                    WHERE scanned_at = ?
+                    ORDER BY score DESC, symbol ASC
+                    """,
+                    (latest_time,),
+                ).fetchall()
             return [dict(row) for row in rows]
     except (sqlite3.Error, OSError, ValueError, TypeError) as e:
         logger.warning(f"Failed to fetch latest scanned candidates: {e}")

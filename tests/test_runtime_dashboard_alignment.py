@@ -167,6 +167,7 @@ class RuntimeDashboardAlignmentTests(unittest.TestCase):
             payload,
             {
                 "mode": "dashboard",
+                "strategy_id": "seven_split",
                 "plan": runtime_plan,
                 "cash": 500000,
                 "remaining_cash": 260000,

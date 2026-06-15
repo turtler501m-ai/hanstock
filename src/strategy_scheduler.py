@@ -39,6 +39,7 @@ def dispatch_due_schedules() -> list[str]:
                 mode,
                 auto_approve=auto_approve,
                 force_strategy_id=strategy_id,
+                allowed_categories={"position", "candidate", "ai_rebalance"},
             )
             mark_strategy_schedule_run(strategy_id)
             ran.append(strategy_id)
