@@ -286,7 +286,9 @@ def get_balance() -> dict[str, Any]:
                 "frcr_evlu_tota",
             ])
             # KRW 단위인 tot_asst_amt를 USD로 오인하는 fallback 제거.
-            # cash가 0이면 실제로 주문가능한 달러가 없는 것이므로 0으로 유지한다.
+            # 다만, demo 환경에서 예수금이 잡히지 않은 경우 broker_total_eval과 stock_eval 차이로부터 복구한다.
+            if config.trading_env == "demo" and cash <= 0 and broker_total_eval > 0:
+                cash = max(0.0, broker_total_eval - stock_eval)
             balance_source = "kis"
             if config.trading_env == "demo" and cash <= 0 and stock_eval <= 0 and broker_total_eval <= 0:
                 cash = _configured_capital_usd(exchange_rate)
@@ -382,7 +384,7 @@ def build_orders(candidates: list[dict[str, Any]], cash: float) -> list[dict[str
     orders = []
     # 사이징은 설정된 운용자금(total_capital)을 상한으로 한다. demo 모의투자 계좌의
     # 통합증거금은 수억 달러로 잡혀 그대로 쓰면 주문이 비정상적으로 커지므로 상한을 건다.
-    cap = float(config.total_capital or 0.0)
+    cap = _configured_capital_usd()
     sizing_cash = min(cash, cap) if cap > 0 else cash
     budget = max(0.0, sizing_cash * (1.0 - config.cash_buffer))
     slots = max(1, min(config.max_positions, len(candidates)))

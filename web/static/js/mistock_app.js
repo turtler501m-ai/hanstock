@@ -8,9 +8,9 @@ let schedulerPollInterval = null;
 let currentCurrency = 'USD';
 let exchangeRate = 1380.0;
 
-const formatCurrency = (value) => {
+const formatCurrency = (value, isRaw = false) => {
     const isKrw = currentCurrency === 'KRW';
-    const amount = isKrw ? Number(value || 0) * exchangeRate : Number(value || 0);
+    const amount = (isKrw && !isRaw) ? Number(value || 0) * exchangeRate : Number(value || 0);
     return new Intl.NumberFormat('ko-KR', {
         style: 'currency',
         currency: currentCurrency,
@@ -766,13 +766,14 @@ async function renderBalance() {
             : Number(balance.total_eval || 0);
 
         const principal = Number(latestConfig?.total_capital || 0);
+        const isPrincipalKrw = (latestConfig?.currency === 'KRW');
         const evalPnl = Number(balance.pnl || 0);
         const evalCost = Math.max(0, Number(balance.stock_eval || holdingValue || 0) - evalPnl);
         const returnRate = evalCost > 0 ? (evalPnl / evalCost) * 100 : 0;
         const realizedPnl = Number(perf.realized_pnl || 0);
 
         setElementText('val-total', formatCurrency(displayTotal));
-        setElementText('val-principal', formatCurrency(principal));
+        setElementText('val-principal', formatCurrency(principal, isPrincipalKrw));
         setElementText('val-cash', formatCurrency(balance.cash));
         setElementText('val-realized', formatCurrency(realizedPnl));
         const realizedEl = document.getElementById('val-realized');
