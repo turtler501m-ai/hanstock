@@ -1999,7 +1999,10 @@ async function renderApprovals() {
             const status = String(row.status || '');
             const statusKind = status === 'pending' ? 'warn' : (status === 'executed' ? 'buy' : (status === 'failed' ? 'sell' : 'hold'));
             const estimatedCost = Number(row.qty || 0) * Number(row.price || 0);
-            const controls = status === 'pending'
+            const autoApprovalInProgress = Boolean(row.auto_approval_in_progress);
+            const controls = status === 'pending' && autoApprovalInProgress
+                ? `<span class="time-muted">자동승인 진행중</span>`
+                : status === 'pending'
                 ? `<div class="button-row">
                     <button type="button" class="approve-order" data-id="${row.id}">승인</button>
                     <button type="button" class="button-danger reject-order" data-id="${row.id}">거절</button>

@@ -941,6 +941,7 @@ def get_approvals(limit: int = 50):
     if limit < 1:
         raise HTTPException(status_code=400, detail="limit must be greater than 0")
     limit = min(limit, 200)
+    auto_approval_enabled = _auto_approval_enabled()
 
     _init_approval_db()
     with trader.connect_db() as conn:
@@ -949,7 +950,16 @@ def get_approvals(limit: int = 50):
             "SELECT * FROM approvals ORDER BY id DESC LIMIT ?",
             (limit,),
         ).fetchall()
-    return {"approvals": [_approval_row(row) for row in rows]}
+    approvals = []
+    for row in rows:
+        item = _approval_row(row)
+        item["auto_approval_in_progress"] = (
+            auto_approval_enabled
+            and item.get("status") == "pending"
+            and item.get("source") == "dashboard_sell_all"
+        )
+        approvals.append(item)
+    return {"approvals": approvals}
 
 
 

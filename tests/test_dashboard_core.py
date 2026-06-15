@@ -846,6 +846,7 @@ class DashboardCoreTests(unittest.TestCase):
                 self.assertTrue(result["auto_approval_queued"])
                 approvals = stock_routes.get_approvals()["approvals"]
                 self.assertEqual(approvals[0]["status"], "pending")
+                self.assertTrue(approvals[0]["auto_approval_in_progress"])
                 self.assertEqual(queued_ids, [approvals[0]["id"]])
         finally:
             dashboard.trader.config.trade_db_path = original_db_path
