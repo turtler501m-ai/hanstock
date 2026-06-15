@@ -1,7 +1,13 @@
 import os
+import sys
 from pathlib import Path
 from stable_baselines3 import PPO
 from stable_baselines3.common.vec_env import DummyVecEnv
+
+# Add project root to sys.path to allow running as a script directly
+ROOT = Path(__file__).resolve().parent.parent
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 from src.rl_env import SimpleStockTradingEnv
 from src.trader import WATCHLIST

@@ -3,10 +3,16 @@ Seven Split auto-trading engine (Refactored).
 """
 import json
 import os
+import sys
 import threading
 import time
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
+
+# Add project root to sys.path to allow running as a script directly
+ROOT = Path(__file__).resolve().parent.parent
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 from src.config import config, get_settings, trading_flags
 from src.utils.logger import logger

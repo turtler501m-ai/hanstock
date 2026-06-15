@@ -1,10 +1,17 @@
 import json
 import os
 import pickle
+import sys
 import sqlite3
 from datetime import datetime
 import pandas as pd
 from pathlib import Path
+
+# Add project root to sys.path to allow running as a script directly
+ROOT = Path(__file__).resolve().parent.parent
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
 from src.config import config
 from src.strategy.features import FEATURE_VERSION, MODEL_FEATURE_COLUMNS
 from src.utils.logger import logger

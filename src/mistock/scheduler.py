@@ -3,9 +3,15 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import sys
 import time
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
+
+# Add project root to sys.path to allow running as a script directly
+ROOT = Path(__file__).resolve().parent.parent.parent
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 from src.mistock import trader as mistock_trader
 from src.mistock.config import config as mistock_config

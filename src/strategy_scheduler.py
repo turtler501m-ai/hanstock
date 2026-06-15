@@ -8,6 +8,12 @@ strategy_schedules 테이블에서 enabled 스케쥴을 읽어 실행 윈도우/
 from __future__ import annotations
 
 import sys
+from pathlib import Path
+
+# Add project root to sys.path to allow running as a script directly
+ROOT = Path(__file__).resolve().parent.parent
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 from src.db.repository import (
     is_schedule_due,

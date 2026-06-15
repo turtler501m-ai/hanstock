@@ -2439,10 +2439,83 @@ class WatchlistTogglePayload(BaseModel):
     threshold: Optional[float] = None
 
 
+WATCHLIST_MIN_SCAN_SCORE = 2.0
+
+
+def _sync_watchlist_from_scan_result(
+    watchlist_data: dict,
+    scan_result: dict,
+    add_threshold: float,
+    keep_threshold: float = WATCHLIST_MIN_SCAN_SCORE,
+) -> dict:
+    symbols = list(watchlist_data.get("symbols", []))
+    symbol_set = set(symbols)
+    scanned_rows = scan_result.get("scan_summary") or scan_result.get("candidates") or []
+    candidates = scan_result.get("candidates") or []
+
+    score_by_symbol: dict[str, float] = {}
+    name_by_symbol: dict[str, str] = {}
+    for row in scanned_rows:
+        symbol = row.get("ticker") or row.get("symbol")
+        if not symbol:
+            continue
+        try:
+            score_by_symbol[str(symbol)] = float(row.get("score", 0.0) or 0.0)
+        except (TypeError, ValueError):
+            score_by_symbol[str(symbol)] = 0.0
+        if row.get("name"):
+            name_by_symbol[str(symbol)] = row["name"]
+
+    added_symbols = []
+    eligible_count = 0
+    already_registered_count = 0
+    for cand in candidates:
+        try:
+            score = float(cand.get("score", 0.0) or 0.0)
+        except (TypeError, ValueError):
+            score = 0.0
+        if score < add_threshold:
+            continue
+        eligible_count += 1
+        symbol = str(cand["ticker"])
+        name_by_symbol.setdefault(symbol, cand.get("name") or symbol)
+        if symbol in symbol_set:
+            already_registered_count += 1
+            continue
+        symbols.append(symbol)
+        symbol_set.add(symbol)
+        added_symbols.append({
+            "symbol": symbol,
+            "name": cand.get("name") or symbol,
+            "score": cand.get("score", score),
+        })
+
+    removed_symbols = []
+    kept_symbols = []
+    for symbol in symbols:
+        if symbol in score_by_symbol and score_by_symbol[symbol] < keep_threshold:
+            removed_symbols.append({
+                "symbol": symbol,
+                "name": name_by_symbol.get(symbol, symbol),
+                "score": score_by_symbol[symbol],
+            })
+            continue
+        kept_symbols.append(symbol)
+
+    watchlist_data["symbols"] = kept_symbols
+    return {
+        "changed": bool(added_symbols or removed_symbols),
+        "eligible_count": eligible_count,
+        "already_registered_count": already_registered_count,
+        "added_symbols": added_symbols,
+        "removed_symbols": removed_symbols,
+    }
+
+
 @app.post("/api/watchlist/scan-trigger")
 async def trigger_watchlist_ai_scan(request: WatchlistTogglePayload | None = Body(default=None)):
     from src.db.repository import load_watchlist_data, save_watchlist_data
-    from src.strategy.seven_split import sync_watchlist_runtime, STOCK_NAMES
+    from src.strategy.seven_split import sync_watchlist_runtime
     
     missing = _required_env_missing()
     if missing:
@@ -2472,27 +2545,17 @@ async def trigger_watchlist_ai_scan(request: WatchlistTogglePayload | None = Bod
             save_watchlist_data(watchlist_data)
 
         threshold = float(watchlist_data.get("ai_auto_add_threshold", 3.0))
-        added_symbols = []
-        eligible_count = 0
-        already_registered_count = 0
+        sync_result = {
+            "eligible_count": 0,
+            "already_registered_count": 0,
+            "added_symbols": [],
+            "removed_symbols": [],
+            "changed": False,
+        }
         
         if scan_result["scanned"] > 0:
-            needs_save = False
-            for cand in scan_result["candidates"]:
-                if cand.get("score", 0.0) >= threshold:
-                    eligible_count += 1
-                    symbol = cand["ticker"]
-                    if symbol in watchlist_data["symbols"]:
-                        already_registered_count += 1
-                        continue
-                    watchlist_data["symbols"].append(symbol)
-                    added_symbols.append({
-                        "symbol": symbol,
-                        "name": cand["name"],
-                        "score": cand["score"]
-                    })
-                    needs_save = True
-            if needs_save:
+            sync_result = _sync_watchlist_from_scan_result(watchlist_data, scan_result, threshold)
+            if sync_result["changed"]:
                 save_watchlist_data(watchlist_data)
                 sync_watchlist_runtime()
                 
@@ -2500,10 +2563,12 @@ async def trigger_watchlist_ai_scan(request: WatchlistTogglePayload | None = Bod
             "ok": True,
             "scanned": scan_result["scanned"],
             "threshold_used": threshold,
-            "eligible_count": eligible_count,
-            "already_registered_count": already_registered_count,
-            "added_count": len(added_symbols),
-            "added_symbols": added_symbols
+            "eligible_count": sync_result["eligible_count"],
+            "already_registered_count": sync_result["already_registered_count"],
+            "added_count": len(sync_result["added_symbols"]),
+            "added_symbols": sync_result["added_symbols"],
+            "removed_count": len(sync_result["removed_symbols"]),
+            "removed_symbols": sync_result["removed_symbols"],
         }
     except DashboardOperationError as e:
         logger.error(f"Failed to manually trigger watchlist AI scan: {e}")
@@ -2677,15 +2742,9 @@ async def get_candidates(
             try:
                 watchlist_data = load_watchlist_data()
                 if watchlist_data.get("ai_auto_add", False):
-                    needs_save = False
-                    threshold = watchlist_data.get("ai_auto_add_threshold", 3.0)
-                    for cand in payload["candidates"]:
-                        if cand.get("score", 0.0) >= threshold:
-                            symbol = cand["ticker"]
-                            if symbol not in watchlist_data["symbols"]:
-                                watchlist_data["symbols"].append(symbol)
-                                needs_save = True
-                    if needs_save:
+                    threshold = float(watchlist_data.get("ai_auto_add_threshold", 3.0))
+                    sync_result = _sync_watchlist_from_scan_result(watchlist_data, payload, threshold)
+                    if sync_result["changed"]:
                         save_watchlist_data(watchlist_data)
                         sync_watchlist_runtime()
             except DashboardOperationError as w_err:

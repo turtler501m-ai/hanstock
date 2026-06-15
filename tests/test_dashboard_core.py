@@ -878,6 +878,70 @@ class DashboardCoreTests(unittest.TestCase):
         self.assertEqual(result["added_symbols"][0]["symbol"], "035420")
         self.assertEqual(saved[0]["ai_auto_add_threshold"], 2.0)
 
+    def test_watchlist_scan_removes_scanned_symbols_below_threshold(self):
+        saved = []
+        with patch.object(dashboard, "_required_env_missing", return_value=[]), \
+                patch.object(dashboard, "_get_api", return_value=object()), \
+                patch.object(dashboard, "_get_balance_data", return_value={"output1": [], "output2": [{}]}), \
+                patch.object(dashboard, "_parse_balance", return_value={"holdings": []}), \
+                patch("src.dashboard.core.build_dashboard_candidates", return_value={
+                    "scanned": 3,
+                    "candidates": [
+                        {"ticker": "000660", "name": "SK Hynix", "score": 2.0},
+                        {"ticker": "035420", "name": "NAVER", "score": 3.0},
+                    ],
+                    "scan_summary": [
+                        {"ticker": "005930", "name": "Samsung", "score": 1.0},
+                        {"ticker": "000660", "name": "SK Hynix", "score": 2.0},
+                        {"ticker": "035420", "name": "NAVER", "score": 3.0},
+                    ],
+                }), \
+                patch("src.db.repository.load_watchlist_data", return_value={
+                    "symbols": ["005930", "000660"],
+                    "ai_auto_add": True,
+                    "ai_auto_add_threshold": 2.0,
+                }), \
+                patch("src.db.repository.save_watchlist_data", side_effect=lambda data: saved.append(dict(data))), \
+                patch("src.strategy.seven_split.sync_watchlist_runtime"):
+            result = asyncio.run(dashboard.trigger_watchlist_ai_scan(None))
+
+        self.assertEqual(result["threshold_used"], 2.0)
+        self.assertEqual(result["removed_count"], 1)
+        self.assertEqual(result["removed_symbols"][0]["symbol"], "005930")
+        self.assertEqual(result["added_count"], 1)
+        self.assertEqual(result["added_symbols"][0]["symbol"], "035420")
+        self.assertEqual(saved[-1]["symbols"], ["000660", "035420"])
+
+    def test_watchlist_scan_keeps_two_point_symbols_when_auto_add_threshold_is_higher(self):
+        saved = []
+        with patch.object(dashboard, "_required_env_missing", return_value=[]), \
+                patch.object(dashboard, "_get_api", return_value=object()), \
+                patch.object(dashboard, "_get_balance_data", return_value={"output1": [], "output2": [{}]}), \
+                patch.object(dashboard, "_parse_balance", return_value={"holdings": []}), \
+                patch("src.dashboard.core.build_dashboard_candidates", return_value={
+                    "scanned": 3,
+                    "candidates": [
+                        {"ticker": "035420", "name": "NAVER", "score": 3.0},
+                    ],
+                    "scan_summary": [
+                        {"ticker": "005930", "name": "Samsung", "score": 1.0},
+                        {"ticker": "000660", "name": "SK Hynix", "score": 2.0},
+                        {"ticker": "035420", "name": "NAVER", "score": 3.0},
+                    ],
+                }), \
+                patch("src.db.repository.load_watchlist_data", return_value={
+                    "symbols": ["005930", "000660"],
+                    "ai_auto_add": True,
+                    "ai_auto_add_threshold": 3.0,
+                }), \
+                patch("src.db.repository.save_watchlist_data", side_effect=lambda data: saved.append(dict(data))), \
+                patch("src.strategy.seven_split.sync_watchlist_runtime"):
+            result = asyncio.run(dashboard.trigger_watchlist_ai_scan(None))
+
+        self.assertEqual(result["threshold_used"], 3.0)
+        self.assertEqual(result["removed_symbols"][0]["symbol"], "005930")
+        self.assertEqual(saved[-1]["symbols"], ["000660", "035420"])
+
     def test_candidate_orders_use_scan_price_without_quote_lookup(self):
         original_max_positions = dashboard.trader.MAX_POSITIONS
         try:

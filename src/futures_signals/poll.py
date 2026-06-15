@@ -23,17 +23,27 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-from dotenv import load_dotenv
+# Add project root to sys.path to allow running as a script directly
+ROOT = Path(__file__).resolve().parent.parent.parent
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
-from . import db as signals_db
+from src.futures_signals import db as signals_db
 from telethon import TelegramClient
 from telethon.tl.types import PeerChannel
 
 load_dotenv()
 KST = timezone(timedelta(hours=9))
 
-API_ID = int(os.environ.get("TELEGRAM_API_ID", os.environ.get("TG_API_ID", "38298339")))
-API_HASH = os.environ.get("TELEGRAM_API_HASH", os.environ.get("TG_API_HASH", "17ccdf1a06ce938b600b6beaf4c43787"))
+raw_api_id = os.environ.get("TELEGRAM_API_ID", os.environ.get("TG_API_ID", ""))
+if not raw_api_id:
+    raise ValueError("TELEGRAM_API_ID (or TG_API_ID) environment variable is required")
+API_ID = int(raw_api_id)
+
+API_HASH = os.environ.get("TELEGRAM_API_HASH", os.environ.get("TG_API_HASH", ""))
+if not API_HASH:
+    raise ValueError("TELEGRAM_API_HASH (or TG_API_HASH) environment variable is required")
+
 TELEGRAM_SESSION_NAME = os.environ.get("TELEGRAM_SESSION_NAME", ".runtime/telegram_session")
 
 
