@@ -1,3 +1,5 @@
+import json
+import math
 import unittest
 from unittest.mock import patch
 
@@ -53,6 +55,32 @@ class AiStrategyLifecycleTests(unittest.TestCase):
         self.assertFalse(body["active_strategy"]["approval_gate"]["ok"])
         self.assertIn("static verification", body["active_strategy"]["approval_gate"]["missing"])
         self.assertTrue(body["safety"]["require_backtest_pass"])
+
+    def test_strategy_apis_normalize_non_finite_validation_values(self):
+        strategy = load_ai_strategies()[0]
+        strategy["last_validation_result"] = json.dumps(
+            {
+                "checks": {
+                    "backtest": {
+                        "success": True,
+                        "metrics": {"total_return_pct": math.nan},
+                        "equity_curve": [100.0, math.nan],
+                    }
+                }
+            }
+        )
+
+        with patch("src.db.repository.load_ai_strategies", return_value=[strategy]):
+            context = dashboard.get_strategy_context()
+            body = dashboard.get_ai_strategies()
+
+        validation = context["active_strategy"]["validation"]
+        self.assertIsNone(validation["checks"]["backtest"]["metrics"]["total_return_pct"])
+        json.dumps(context, allow_nan=False)
+        raw_validation = body["strategies"][0]["last_validation_result"]
+        self.assertNotIn("NaN", raw_validation)
+        parsed = json.loads(raw_validation)
+        self.assertIsNone(parsed["checks"]["backtest"]["equity_curve"][1])
 
     def test_approval_requires_static_backtest_and_paper_checks(self):
         with self.assertRaises(HTTPException) as blocked:

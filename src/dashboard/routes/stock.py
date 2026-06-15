@@ -44,6 +44,20 @@ def _now_kst_text() -> str:
     return trader.datetime.now(trader.KST).strftime("%Y-%m-%d %H:%M:%S")
 
 
+def _json_safe(value):
+    import math
+
+    if isinstance(value, dict):
+        return {key: _json_safe(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_json_safe(item) for item in value]
+    if isinstance(value, tuple):
+        return [_json_safe(item) for item in value]
+    if isinstance(value, float) and not math.isfinite(value):
+        return None
+    return value
+
+
 def _validation_payload(strategy: dict) -> dict:
     import json
 
@@ -57,18 +71,40 @@ def _validation_payload(strategy: dict) -> dict:
         data = dict(raw)
     else:
         data = {}
+    data = _json_safe(data)
     if "checks" not in data or not isinstance(data.get("checks"), dict):
         data = {"checks": {}, "latest": data if data else None}
     return data
+
+
+def _strategy_api_payload(strategy: dict) -> dict:
+    import json
+
+    payload = _json_safe(dict(strategy))
+    raw_validation = strategy.get("last_validation_result")
+    if raw_validation:
+        payload["last_validation_result"] = json.dumps(
+            _validation_payload(strategy),
+            ensure_ascii=False,
+            sort_keys=True,
+            allow_nan=False,
+        )
+    return payload
 
 
 def _store_validation_check(strategy: dict, check_name: str, result: dict) -> None:
     import json
 
     data = _validation_payload(strategy)
-    data["checks"][check_name] = result
-    data["latest"] = {"check": check_name, "result": result}
-    strategy["last_validation_result"] = json.dumps(data, ensure_ascii=False, sort_keys=True)
+    safe_result = _json_safe(result)
+    data["checks"][check_name] = safe_result
+    data["latest"] = {"check": check_name, "result": safe_result}
+    strategy["last_validation_result"] = json.dumps(
+        data,
+        ensure_ascii=False,
+        sort_keys=True,
+        allow_nan=False,
+    )
 
 
 def _check_passed(strategy: dict, check_name: str) -> bool:
@@ -127,7 +163,7 @@ def _paper_result_from_payload(payload: PaperCompletePayload, strategy: dict) ->
 @router.get("/api/ai-strategies")
 def get_ai_strategies():
     from src.db.repository import load_ai_strategies
-    return {"strategies": load_ai_strategies()}
+    return {"strategies": [_strategy_api_payload(strategy) for strategy in load_ai_strategies()]}
 
 
 @router.get("/api/strategy-context")
