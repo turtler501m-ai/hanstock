@@ -701,10 +701,15 @@ def get_watchlist(strategy_id: str | None = None):
     from src.db.repository import load_watchlist_data, get_watchlist_extra_info
     from src.strategy.seven_split import STOCK_NAMES, STOCK_SECTORS
     data = load_watchlist_data()
+    inherited = False
     if strategy_id:
         from src.db.repository import load_strategy_universe_symbols
 
         symbols = load_strategy_universe_symbols(strategy_id)
+        isolated_strategy_ids = getattr(trader, "_ISOLATED_STRATEGY_IDS", set())
+        if not symbols and strategy_id not in isolated_strategy_ids:
+            symbols = data.get("symbols", [])
+            inherited = True
     else:
         symbols = data.get("symbols", [])
     symbols_detail = []
@@ -723,6 +728,8 @@ def get_watchlist(strategy_id: str | None = None):
         })
     return {
         "strategy_id": strategy_id,
+        "inherited": inherited,
+        "universe_source": "shared" if inherited or not strategy_id else "strategy",
         "symbols": symbols_detail,
         "ai_auto_add": data.get("ai_auto_add", False),
         "ai_auto_add_threshold": data.get("ai_auto_add_threshold", 3.0)

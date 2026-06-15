@@ -805,6 +805,46 @@ class DashboardCoreTests(unittest.TestCase):
             dashboard._clear_balance_cache = original_clear_balance_cache
             dashboard._required_env_missing = original_required_env_missing
 
+    def test_watchlist_inherits_shared_symbols_for_non_isolated_strategy(self):
+        with patch("src.db.repository.load_watchlist_data", return_value={
+            "symbols": ["005930", "000660"],
+            "ai_auto_add": False,
+            "ai_auto_add_threshold": 3.0,
+        }), patch(
+            "src.db.repository.load_strategy_universe_symbols",
+            return_value=[],
+        ), patch(
+            "src.db.repository.get_watchlist_extra_info",
+            return_value={
+                "price": 0,
+                "score": 0,
+                "reason": "",
+                "change_rate": None,
+                "rsi": None,
+                "updated_at": "",
+            },
+        ):
+            result = dashboard.get_watchlist("rsi_limit_strategy")
+
+        self.assertTrue(result["inherited"])
+        self.assertEqual(result["universe_source"], "shared")
+        self.assertEqual([item["symbol"] for item in result["symbols"]], ["005930", "000660"])
+
+    def test_watchlist_keeps_isolated_strategy_empty_without_universe(self):
+        with patch("src.db.repository.load_watchlist_data", return_value={
+            "symbols": ["005930"],
+            "ai_auto_add": False,
+            "ai_auto_add_threshold": 3.0,
+        }), patch(
+            "src.db.repository.load_strategy_universe_symbols",
+            return_value=[],
+        ):
+            result = dashboard.get_watchlist("plunge_bounce_strategy")
+
+        self.assertFalse(result["inherited"])
+        self.assertEqual(result["universe_source"], "strategy")
+        self.assertEqual(result["symbols"], [])
+
     def test_candidate_orders_use_scan_price_without_quote_lookup(self):
         original_max_positions = dashboard.trader.MAX_POSITIONS
         try:

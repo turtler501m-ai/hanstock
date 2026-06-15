@@ -2,6 +2,7 @@
 let watchlistCache = [];
 let watchlistSortKey = '';
 let watchlistSortAsc = true;
+let watchlistInherited = false;
 let activeStrategyAuditId = '';
 let schedulerPollInterval = null;
 
@@ -1462,7 +1463,10 @@ function drawWatchlist() {
             <td style="color: rgba(255,255,255,0.6); font-size: 0.85rem;" title="${reasonStr}">${reasonStr}</td>
             <td style="text-align: center; color: rgba(255,255,255,0.4); font-size: 0.8rem;">${escapeHtml(timeStr)}</td>
             <td style="text-align: center;">
-                <button type="button" class="button-ghost btn-delete-watchlist compact-button" data-symbol="${escapeHtml(s.symbol)}" style="background: rgba(239, 68, 68, 0.15); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.25); padding: 2px 8px; border-radius: 4px; font-size: 0.78rem; cursor: pointer;">삭제</button>
+                <button type="button" class="button-ghost btn-delete-watchlist compact-button"
+                    data-symbol="${escapeHtml(s.symbol)}"
+                    ${watchlistInherited ? 'disabled title="공용 관심종목을 상속 중입니다."' : ''}
+                    style="background: rgba(239, 68, 68, 0.15); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.25); padding: 2px 8px; border-radius: 4px; font-size: 0.78rem; cursor: pointer;">삭제</button>
             </td>
         `;
         tbody.appendChild(tr);
@@ -1511,6 +1515,7 @@ async function renderWatchlist() {
         const strategyId = getActiveStrategyId();
         const query = strategyId ? `?strategy_id=${encodeURIComponent(strategyId)}` : '';
         const data = await fetchJson(`/api/watchlist${query}`);
+        watchlistInherited = Boolean(data.inherited);
         watchlistCache = data.symbols || [];
         watchlistCache.forEach((s, idx) => {
             s.index = idx + 1;
