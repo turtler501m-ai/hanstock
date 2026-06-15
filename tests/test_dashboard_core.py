@@ -789,6 +789,8 @@ class DashboardCoreTests(unittest.TestCase):
 
                 self.assertEqual(result["created_count"], 1)
                 self.assertEqual(result["pending_count"], 1)
+                self.assertEqual(result["submitted_count"], 0)
+                self.assertIn("주문 접수", result["fill_status_note"])
                 approvals = dashboard.get_approvals()["approvals"]
                 self.assertEqual(approvals[0]["symbol"], "005930")
                 self.assertEqual(approvals[0]["action"], "sell")

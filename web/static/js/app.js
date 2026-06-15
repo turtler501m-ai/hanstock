@@ -1897,8 +1897,13 @@ async function sellAllHoldings() {
             setStatus('매도할 보유 종목이 없습니다.', true);
             return;
         }
-        const details = `대기 ${result.pending_count || 0}건, 체결 ${result.executed_count || 0}건, 실패 ${result.failed_count || 0}건`;
-        setStatus(`전량 매도 요청 ${result.created_count || 0}건을 등록했습니다. ${details}`, (result.failed_count || 0) === 0);
+        const submittedCount = result.submitted_count ?? result.executed_count ?? 0;
+        const details = `대기 ${result.pending_count || 0}건, 주문접수 ${submittedCount}건, 실패 ${result.failed_count || 0}건`;
+        const fillNote = result.fill_status_note || '실제 체결 여부는 주문내역 동기화 후 확정됩니다.';
+        setStatus(
+            `전량 매도 요청 ${result.created_count || 0}건을 등록했습니다. ${details}. ${fillNote}`,
+            (result.failed_count || 0) === 0
+        );
         await Promise.all([renderApprovals(), renderTrades(), renderBalance()]);
     } catch (err) {
         setStatus(`전량 매도 요청 실패: ${err.message}`);

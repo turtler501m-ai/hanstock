@@ -1035,9 +1035,11 @@ def sell_all_holdings(payload: dict | None = Body(default=None)):
         "status": "created",
         "created_count": len(created),
         "pending_count": sum(1 for item in created if isinstance(item, dict) and item.get("status") == "pending"),
+        "submitted_count": sum(1 for item in created if isinstance(item, dict) and item.get("status") == "executed"),
         "executed_count": sum(1 for item in created if isinstance(item, dict) and item.get("status") == "executed"),
         "failed_count": sum(1 for item in created if isinstance(item, dict) and item.get("status") == "failed"),
         "auto_approved": any(item.get("auto_approved") for item in created if isinstance(item, dict)),
+        "fill_status_note": "KIS 주문 접수 결과입니다. 실제 체결 여부는 주문내역 동기화 후 확정됩니다.",
         "orders": created,
     }
 
