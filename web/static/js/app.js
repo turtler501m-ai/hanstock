@@ -2962,7 +2962,9 @@ window.addEventListener('load', () => {
 
 async function renderScheduleInfo() {
     try {
-        const data = await fetchJson('/api/scheduler/status');
+        const strategyId = getActiveStrategyId();
+        const query = strategyId ? `?strategy_id=${encodeURIComponent(strategyId)}` : '';
+        const data = await fetchJson(`/api/scheduler/status${query}`);
         
         // 1. Config / Settings
         const cronTzEl = document.getElementById('sched-cron-tz');
@@ -3433,7 +3435,9 @@ function startSchedulerPolling(mode) {
     schedulerPollInterval = setInterval(async () => {
         attempts++;
         try {
-            const data = await fetchJson('/api/scheduler/status');
+            const strategyId = getActiveStrategyId();
+            const query = strategyId ? `?strategy_id=${encodeURIComponent(strategyId)}` : '';
+            const data = await fetchJson(`/api/scheduler/status${query}`);
             const runState = data.run_state;
             
             if (!runState.is_running) {

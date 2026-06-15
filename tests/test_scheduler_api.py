@@ -39,6 +39,31 @@ class SchedulerApiTests(unittest.TestCase):
         self.assertIsNotNone(status["last_result"])
         self.assertEqual(status["last_result"]["mode"], "daily_auto")
 
+    @patch(
+        "src.db.repository.load_ai_strategies",
+        return_value=[
+            {"id": "selected_strategy", "model": "none", "name": "Selected", "selected": True},
+            {"id": "requested_strategy", "model": "none", "name": "Requested", "selected": False},
+        ],
+    )
+    def test_get_scheduler_status_uses_requested_strategy_context(self, mock_load):
+        status = get_scheduler_status(strategy_id="requested_strategy")
+
+        self.assertEqual(status["active_strategy_id"], "requested_strategy")
+        self.assertEqual(status["active_strategy_name"], "Requested")
+
+    @patch(
+        "src.db.repository.load_ai_strategies",
+        return_value=[
+            {"id": "selected_strategy", "model": "none", "name": "Selected", "selected": True},
+        ],
+    )
+    def test_get_scheduler_status_reports_strategy_id_not_model(self, mock_load):
+        status = get_scheduler_status()
+
+        self.assertEqual(status["active_strategy_id"], "selected_strategy")
+        self.assertEqual(status["active_strategy_name"], "Selected")
+
     @patch("src.dashboard.threading.Thread")
     def test_trigger_scheduler_run_starts_background_thread(self, mock_thread):
         mock_thread_instance = MagicMock()

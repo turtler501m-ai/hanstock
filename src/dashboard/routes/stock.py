@@ -1475,7 +1475,7 @@ def deactivate_kill_switch():
 
 
 @router.get("/api/scheduler/status")
-def get_scheduler_status():
+def get_scheduler_status(strategy_id: str | None = None):
     global _scheduler_run_state
     _dashboard_scheduler_service.refresh()
     
@@ -1514,9 +1514,23 @@ def get_scheduler_status():
     active_strategy_name = "기본 룰베이스 (Seven Split)"
     try:
         from src.db.repository import load_ai_strategies
-        active = next((s for s in load_ai_strategies() if s.get("selected")), None)
+        strategies = load_ai_strategies()
+        active = next(
+            (
+                strategy
+                for strategy in strategies
+                if strategy_id
+                and (
+                    strategy.get("id") == strategy_id
+                    or strategy.get("model") == strategy_id
+                )
+            ),
+            None,
+        )
+        if active is None:
+            active = next((strategy for strategy in strategies if strategy.get("selected")), None)
         if active:
-            active_strategy_id = active.get("model") or "seven_split"
+            active_strategy_id = active.get("id") or active.get("model") or "seven_split"
             active_strategy_name = active.get("name") or active_strategy_id
     except Exception:
         pass
