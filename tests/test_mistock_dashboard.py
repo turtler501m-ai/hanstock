@@ -294,6 +294,42 @@ class MistockDashboardTests(unittest.TestCase):
         self.assertEqual(result["config"]["slack_enabled"], "false")
         self.assertIn("order_submission_enabled", result["config"])
 
+    def test_mistock_scheduler_status_clears_stale_restart_error_after_success(self):
+        original_state = dict(mistock._mistock_scheduler_run_state)
+        mistock._mistock_scheduler_run_state.replace({
+            "is_running": False,
+            "mode": "analysis_only",
+            "started_at": "2026-06-13T13:52:07+09:00",
+            "completed_at": "2026-06-13T14:11:38+09:00",
+            "result": None,
+            "error": "interrupted by process restart",
+            "owner_pid": None,
+        })
+        runs = [{
+            "recorded_at": "2026-06-16T05:00:26+09:00",
+            "mode": "execute",
+            "result": {
+                "status": "success",
+                "ok": True,
+                "scanned": 100,
+                "candidates": 38,
+                "sold": [],
+                "bought": [],
+                "plan": [],
+                "errors": [],
+            },
+        }]
+
+        try:
+            with patch("src.dashboard.routes.mistock.load_mistock_daily_runs", return_value=runs):
+                result = mistock.mistock_scheduler_status()
+        finally:
+            mistock._mistock_scheduler_run_state.replace(original_state)
+
+        self.assertIsNone(result["run_state"]["error"])
+        self.assertEqual(result["run_state"]["completed_at"], "2026-06-16T05:00:26+09:00")
+        self.assertTrue(result["last_result"]["result"]["ok"])
+
     def test_mistock_easy_preset_uses_nasdaq_profile_and_selects_strategy(self):
         result = mistock.mistock_apply_ai_strategy_preset("aggressive")
         strategies = mistock.mistock_ai_strategies()["strategies"]

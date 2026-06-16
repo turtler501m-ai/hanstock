@@ -1387,6 +1387,41 @@ def merge_mistock_runs_to_kis_format(runs: list) -> dict | None:
     }
 
 
+def _parse_mistock_iso_datetime(value: object) -> datetime | None:
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+def _clear_stale_mistock_scheduler_error(last_result: dict | None) -> None:
+    if not last_result or _mistock_scheduler_run_state.get("is_running"):
+        return
+    if not _mistock_scheduler_run_state.get("error"):
+        return
+
+    result = last_result.get("result") if isinstance(last_result, dict) else {}
+    if not isinstance(result, dict) or not result.get("ok"):
+        return
+
+    latest_at = _parse_mistock_iso_datetime(last_result.get("recorded_at"))
+    state_at = (
+        _parse_mistock_iso_datetime(_mistock_scheduler_run_state.get("completed_at"))
+        or _parse_mistock_iso_datetime(_mistock_scheduler_run_state.get("started_at"))
+    )
+    if latest_at is None or (state_at is not None and latest_at <= state_at):
+        return
+
+    _mistock_scheduler_run_state.replace({
+        **_mistock_scheduler_run_state,
+        "completed_at": last_result.get("recorded_at"),
+        "error": None,
+        "owner_pid": None,
+    })
+
+
 @router.get("/api/mistock/scheduler/status")
 def mistock_scheduler_status():
     global _mistock_scheduler_run_state
@@ -1394,6 +1429,7 @@ def mistock_scheduler_status():
     
     runs = load_mistock_daily_runs()
     last_result = merge_mistock_runs_to_kis_format(runs)
+    _clear_stale_mistock_scheduler_error(last_result)
         
     run_state_to_return = _mistock_scheduler_run_state.copy()
     if run_state_to_return.get("result"):
