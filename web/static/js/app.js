@@ -3020,7 +3020,9 @@ async function renderScheduleInfo() {
 
         const activeStrategyEl = document.getElementById('sched-active-strategy');
         if (activeStrategyEl) {
-            activeStrategyEl.textContent = `${data.active_strategy_name} (${data.active_strategy_id})`;
+            const dispatch = data.strategy_dispatch || {};
+            const dispatchText = `dispatch ${dispatch.enabled_count || 0}/${dispatch.schedule_count || 0}, universe ${dispatch.universe_count || 0}`;
+            activeStrategyEl.textContent = `${data.active_strategy_name} (${data.active_strategy_id}) | ${dispatchText}`;
         }
         
         // 2. Dynamic status of current/last execution state

@@ -1580,12 +1580,42 @@ def get_scheduler_status(strategy_id: str | None = None):
     except Exception:
         pass
 
+    strategy_dispatch = {
+        "enabled_count": 0,
+        "schedule_count": 0,
+        "universe_count": 0,
+        "schedules": [],
+    }
+    try:
+        from src.db.repository import list_strategy_schedules, load_strategy_universe
+
+        schedules = list_strategy_schedules(enabled_only=False)
+        schedule_items = []
+        total_universe_count = 0
+        for schedule in schedules:
+            sid = schedule.get("strategy_id")
+            universe_count = len(load_strategy_universe(sid)) if sid else 0
+            total_universe_count += universe_count
+            schedule_items.append({
+                **schedule,
+                "universe_count": universe_count,
+            })
+        strategy_dispatch = {
+            "enabled_count": sum(1 for item in schedule_items if item.get("enabled")),
+            "schedule_count": len(schedule_items),
+            "universe_count": total_universe_count,
+            "schedules": schedule_items,
+        }
+    except Exception:
+        pass
+
     return {
         "config": config,
         "last_result": last_result,
         "run_state": _scheduler_run_state,
         "active_strategy_id": active_strategy_id,
         "active_strategy_name": active_strategy_name,
+        "strategy_dispatch": strategy_dispatch,
     }
 
 

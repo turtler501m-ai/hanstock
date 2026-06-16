@@ -89,6 +89,49 @@ echo "== Daily Auto Cron =="
 crontab -l 2>/dev/null | sed -n '/# hanstock-daily-auto begin/,/# hanstock-daily-auto end/p' || true
 
 echo
+echo "== Strategy Dispatch Cron =="
+crontab -l 2>/dev/null | sed -n '/# hanstock-strategy-dispatch begin/,/# hanstock-strategy-dispatch end/p' || true
+
+echo
+echo "== Strategy Dispatch State =="
+if [ -x "$REPO_PATH/.venv/bin/python3" ]; then
+  PYTHON_BIN="$REPO_PATH/.venv/bin/python3"
+else
+  PYTHON_BIN="$(command -v python3 || command -v python)"
+fi
+PYTHONPATH="$REPO_PATH" "$PYTHON_BIN" - <<'PY'
+from src.db.repository import list_strategy_schedules, load_strategy_universe
+
+schedules = list_strategy_schedules(enabled_only=False)
+if not schedules:
+    print("no strategy schedules configured")
+else:
+    for item in schedules:
+        strategy_id = item.get("strategy_id")
+        universe_count = len(load_strategy_universe(strategy_id))
+        enabled = "enabled" if item.get("enabled") else "disabled"
+        print(
+            "{strategy_id}: {enabled}, interval={interval}m, window={start}-{end}, universe={universe}, last_run={last}".format(
+                strategy_id=strategy_id,
+                enabled=enabled,
+                interval=item.get("interval_minutes"),
+                start=item.get("start_hm"),
+                end=item.get("end_hm"),
+                universe=universe_count,
+                last=item.get("last_run_at"),
+            )
+        )
+PY
+
+echo
+echo "== Latest Strategy Dispatch Log =="
+if [ -f "$REPO_PATH/logs/strategy-dispatch.log" ]; then
+  tail -n __LOG_LINES__ "$REPO_PATH/logs/strategy-dispatch.log"
+else
+  echo "strategy-dispatch log not found"
+fi
+
+echo
 echo "== Latest Daily Auto Log =="
 if [ -f "$REPO_PATH/logs/daily-auto.log" ]; then
   tail -n __LOG_LINES__ "$REPO_PATH/logs/daily-auto.log"
