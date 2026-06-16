@@ -1171,20 +1171,54 @@ async function renderStrategyContext() {
         const data = await fetchJson('/api/strategy-context');
         const active = data.active_strategy || {};
         const safety = data.safety || {};
+        const gate = active.approval_gate || {};
+        const operation = active.operation_status || {};
         setElementText('strategy-context-name', active.name || '-');
         setElementText('strategy-context-detail', `${active.model || '-'} · AI ${formatNumber(Number(active.ai_weight || 0) * 100, 0)}%`);
         setElementText('strategy-context-status', strategyStatusLabel(active.status));
         setElementText('strategy-context-version', active.strategy_version ? `v${active.strategy_version}` : '-');
         setElementText('strategy-context-safety', `${safety.trading_env || '-'} / ${safety.dry_run ? 'DRY_RUN' : 'LIVE'}`);
-        setElementText('strategy-context-approval', safety.require_approval ? 'approval required' : 'auto path');
+        setElementText('strategy-context-approval', strategyGateText(gate));
         setElementText('strategy-context-verified', active.last_verified_at ? `verified ${active.last_verified_at}` : '-');
         setElementText(
             'strategy-context-used',
-            `backtest ${active.last_backtested_at || '-'} / paper ${active.last_paper_completed_at || active.last_paper_started_at || '-'}`
+            `${strategyOperationText(operation)} / backtest ${active.last_backtested_at || '-'} / paper ${active.last_paper_completed_at || active.last_paper_started_at || '-'}`
         );
     } catch (err) {
         console.error('Failed to render strategy context:', err);
     }
+}
+
+function strategyGateText(gate) {
+    if (gate?.ok) return '검증 통과';
+    const missing = (gate?.missing || []).map(strategyGateMissingLabel).join(', ');
+    return missing ? `검증 필요: ${missing}` : '검증 필요';
+}
+
+function strategyGateMissingLabel(value) {
+    const labels = {
+        'static verification': '정적',
+        'api verification': 'API',
+        'backtest': '백테스트',
+        'paper trading': '페이퍼',
+        'active strategy': '활성전략'
+    };
+    return labels[value] || value;
+}
+
+function strategyOperationText(operation) {
+    if (operation?.ready) {
+        if (operation.mode === 'demo') return '운영 가능(DEMO)';
+        return operation.mode === 'dry_run' ? '운영 가능(DRY_RUN)' : '운영 가능';
+    }
+    if (operation?.mode === 'inactive') return '미선택';
+    return '운영 차단';
+}
+
+function strategyOperationKind(operation) {
+    if (operation?.ready) return operation.mode === 'dry_run' ? 'warn' : 'buy';
+    if (operation?.mode === 'inactive') return 'hold';
+    return 'sell';
 }
 
 function summarizeCounts(counts) {
@@ -1354,6 +1388,10 @@ async function renderAiStrategies() {
             const model = strategy.model === 'none' ? 'Local Rule' : strategy.model;
             const weight = Number(strategy.profile?.ai_weight ?? strategy.weight ?? 0);
             const builtIn = ['gpt_5_mini_default', 'rule_only_default'].includes(strategy.id);
+            const gate = strategy.approval_gate || {};
+            const operation = strategy.operation_status || {};
+            const validationSummary = strategyGateText(gate);
+            const operationSummary = strategyOperationText(operation);
             tr.innerHTML = `
                 <td style="text-align:center;">
                     <input type="radio" name="active-ai-strategy" class="strategy-select-radio" data-id="${escapeHtml(strategy.id)}" ${strategy.selected ? 'checked' : ''}>
@@ -1362,7 +1400,10 @@ async function renderAiStrategies() {
                     <div class="symbol-name">${escapeHtml(strategy.name)}</div>
                     <div class="symbol-code">${escapeHtml(strategy.id)} · ${escapeHtml(String(strategy.profile_hash || '').slice(0, 8))}</div>
                 </td>
-                <td>${pill(strategyStatusLabel(strategy.status), strategyStatusKind(strategy.status))}</td>
+                <td>
+                    ${pill(strategyStatusLabel(strategy.status), strategyStatusKind(strategy.status))}
+                    ${pill(operationSummary, strategyOperationKind(operation))}
+                </td>
                 <td>${escapeHtml(model)}</td>
                 <td>${pill(`${formatNumber(weight * 100, 0)}%`, weight > 0 ? 'buy' : 'hold')}</td>
                 <td>
@@ -1386,7 +1427,7 @@ async function renderAiStrategies() {
                             <button type="button" class="button-danger btn-delete-strategy compact-button" data-id="${escapeHtml(strategy.id)}" ${builtIn ? 'disabled' : ''}>삭제</button>
                         </div>
                     </details>
-                    <div class="time-muted">${escapeHtml(strategy.last_validation_result || strategy.description || '-')}</div>
+                    <div class="time-muted">검증: ${escapeHtml(validationSummary)} / 운영: ${escapeHtml(operation.reason || operationSummary)}</div>
                 </td>
             `;
             tbody.appendChild(tr);
@@ -1426,15 +1467,25 @@ async function renderAiStrategies() {
             setStatus('전략을 바로 적용했습니다.', true);
         });
         bindStrategyAction('.btn-quick-validate-strategy', async (id) => {
+            const current = await fetchJson('/api/ai-strategies');
+            const target = (current.strategies || []).find((strategy) => strategy.id === id) || {};
             await postJson(`/api/ai-strategies/${id}/static-verify`, {});
+            if (target.provider !== 'none') {
+                await postJson(`/api/ai-strategies/${id}/verify`, {});
+            }
             const backtest = await postJson(`/api/ai-strategies/${id}/backtest`, {});
+            let approveError = null;
             try {
                 await postJson(`/api/ai-strategies/${id}/approve`, {});
-            } catch (_) {
+            } catch (err) {
+                approveError = err;
                 // Approval may require optional paper/API gates for manually-created advanced strategies.
             }
+            const updated = await fetchJson('/api/ai-strategies');
+            const strategy = (updated.strategies || []).find((item) => item.id === id) || {};
+            const gateText = strategyGateText(strategy.approval_gate || {});
             const status = backtest.result?.status || 'done';
-            setStatus(`자동검증 완료: ${status}`, Boolean(backtest.result?.success));
+            setStatus(`자동검증 완료: ${status} / ${gateText}${approveError ? ` (${approveError.message})` : ''}`, Boolean(backtest.result?.success) && !approveError);
         });
         bindStrategyAction('.btn-static-verify-strategy', async (id) => {
             const result = await postJson(`/api/ai-strategies/${id}/static-verify`, {});
@@ -1442,7 +1493,7 @@ async function renderAiStrategies() {
         });
         bindStrategyAction('.btn-verify-strategy', async (id) => {
             const result = await postJson(`/api/ai-strategies/${id}/verify`, {});
-            setStatus(result.message || 'API 검증 완료', Boolean(result.success));
+            setStatus(result.result?.message || 'API 검증 완료', Boolean(result.result?.success));
         });
         bindStrategyAction('.btn-backtest-strategy', async (id) => {
             const result = await postJson(`/api/ai-strategies/${id}/backtest`, {});

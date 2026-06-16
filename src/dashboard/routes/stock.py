@@ -89,6 +89,8 @@ def _strategy_api_payload(strategy: dict) -> dict:
             sort_keys=True,
             allow_nan=False,
         )
+    payload["approval_gate"] = _approval_gate(strategy)
+    payload["operation_status"] = _operation_status(strategy)
     return payload
 
 
@@ -127,6 +129,40 @@ def _approval_gate(strategy: dict) -> dict:
     if require_paper and not _check_passed(strategy, "paper"):
         missing.append("paper trading")
     return {"ok": not missing, "missing": missing}
+
+
+def _operation_status(strategy: dict) -> dict:
+    gate = _approval_gate(strategy)
+    status = str(strategy.get("status") or "")
+    selected = bool(strategy.get("selected"))
+    approved = status == "approved"
+    ready = bool(selected and approved and gate.get("ok"))
+    if ready:
+        if bool(trader.DRY_RUN):
+            mode = "dry_run"
+        elif bool(trader.ENABLE_LIVE_TRADING) and str(trader.TRADING_ENV).lower() == "real":
+            mode = "live"
+        else:
+            mode = "demo"
+        reason = "selected, approved, and validation gate passed"
+    elif not selected:
+        mode = "inactive"
+        reason = "strategy is not selected"
+    elif not approved:
+        mode = "blocked"
+        reason = f"strategy status is {status or 'unknown'}"
+    else:
+        mode = "blocked"
+        reason = f"missing {', '.join(gate.get('missing') or [])}"
+    return {
+        "ready": ready,
+        "mode": mode,
+        "selected": selected,
+        "approved": approved,
+        "dry_run": bool(trader.DRY_RUN),
+        "live_enabled": bool(trader.ENABLE_LIVE_TRADING),
+        "reason": reason,
+    }
 
 
 def _build_strategy_backtest(strategy: dict) -> dict:
@@ -191,6 +227,15 @@ def get_strategy_context():
             "last_used_at": active.get("last_used_at") if active else None,
             "validation": _validation_payload(active) if active else {"checks": {}},
             "approval_gate": _approval_gate(active) if active else {"ok": False, "missing": ["active strategy"]},
+            "operation_status": _operation_status(active) if active else {
+                "ready": False,
+                "mode": "blocked",
+                "selected": False,
+                "approved": False,
+                "dry_run": bool(trader.DRY_RUN),
+                "live_enabled": bool(trader.ENABLE_LIVE_TRADING),
+                "reason": "active strategy is missing",
+            },
         },
         "safety": {
             "trading_env": trader.TRADING_ENV,
