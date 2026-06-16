@@ -10,11 +10,12 @@ from src.repositories import ApprovalRepository
 from src.utils.logger import logger
 
 _RATE_LIMIT_BACKOFF_SECONDS = float(os.environ.get("KIS_ORDER_RATE_LIMIT_BACKOFF_SECONDS", "10.0"))
+_RATE_LIMIT_MAX_RETRIES = int(os.environ.get("KIS_ORDER_RATE_LIMIT_RETRIES", "2"))
 
 
 def _is_kis_rate_limit_message(message: str) -> bool:
     text = str(message or "").lower()
-    return "초당 거래건수" in text or "rate limit" in text or "egw00201" in text
+    return "\ucd08\ub2f9 \uac70\ub798\uac74\uc218" in text or "rate limit" in text or "egw00201" in text
 
 
 class OrderRouter:
@@ -47,6 +48,31 @@ class OrderRouter:
                 except (TypeError, ValueError):
                     return 0
         return 0
+
+    def _place_order_with_rate_limit_retries(
+        self,
+        symbol: str,
+        action: str,
+        price: int,
+        qty: int,
+    ) -> dict:
+        attempts = max(1, _RATE_LIMIT_MAX_RETRIES + 1)
+        result: dict = {}
+        for attempt in range(1, attempts + 1):
+            result = self.api.place_order(symbol, action, price, qty)
+            ok = result.get("rt_cd") == "0"
+            msg = str(result.get("msg1", ""))
+            logger.info(f"[ROUTER] Live Execution {'OK' if ok else 'FAILED'}: {msg}")
+            if ok or not _is_kis_rate_limit_message(msg) or attempt >= attempts:
+                return result
+            logger.warning(
+                "[ROUTER] KIS rate limit response detected; "
+                f"retrying after {_RATE_LIMIT_BACKOFF_SECONDS:.1f}s "
+                f"({attempt}/{attempts - 1})"
+            )
+            if _RATE_LIMIT_BACKOFF_SECONDS > 0:
+                time.sleep(_RATE_LIMIT_BACKOFF_SECONDS)
+        return result
 
     def route(
         self,
@@ -91,16 +117,9 @@ class OrderRouter:
                 "approval_id": approval_id,
             }
 
-        pre_order_qty = self._current_holding_qty(symbol)
-        result = self.api.place_order(symbol, action, price, qty)
+        pre_order_qty = self._current_holding_qty(symbol) if action == "sell" else 0
+        result = self._place_order_with_rate_limit_retries(symbol, action, price, qty)
         ok = result.get("rt_cd") == "0"
-        logger.info(f"[ROUTER] Live Execution {'OK' if ok else 'FAILED'}: {result.get('msg1', '')}")
-        if not ok and _is_kis_rate_limit_message(str(result.get("msg1", ""))):
-            logger.warning(
-                f"[ROUTER] KIS rate limit response detected; backing off {_RATE_LIMIT_BACKOFF_SECONDS:.1f}s"
-            )
-            if _RATE_LIMIT_BACKOFF_SECONDS > 0:
-                time.sleep(_RATE_LIMIT_BACKOFF_SECONDS)
         save_trade(
             symbol,
             name,

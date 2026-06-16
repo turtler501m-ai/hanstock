@@ -43,7 +43,7 @@ class OrderRouterTests(unittest.TestCase):
             with patch.object(router, "save_decision_log"), patch.object(
                 router, "save_trade", side_effect=lambda *args, **kwargs: saved.append((args, kwargs))
             ):
-                result = order_router.route("005930", "Samsung", "buy", 1, 70000, "test", {})
+                result = order_router.route("005930", "Samsung", "sell", 1, 70000, "test", {})
 
             self.assertTrue(result["ok"])
             self.assertEqual(len(saved), 1)
@@ -60,7 +60,7 @@ class OrderRouterTests(unittest.TestCase):
             config.enable_live_trading = original["enable_live_trading"]
             config.require_approval = original["require_approval"]
 
-    def test_rate_limit_response_backs_off_before_next_order(self):
+    def test_rate_limit_response_retries_before_recording_success(self):
         self._set_config(
             dry_run=False,
             trading_env="demo",
@@ -69,20 +69,51 @@ class OrderRouterTests(unittest.TestCase):
         )
 
         class FakeApi:
+            def __init__(self):
+                self.calls = 0
+
             def get_balance(self):
                 return {"output1": []}
 
             def place_order(self, symbol, action, price, qty):
-                return {"rt_cd": "1", "msg1": "초당 거래건수를 초과하였습니다."}
+                self.calls += 1
+                if self.calls == 1:
+                    return {"rt_cd": "1", "msg1": "초당 거래건수를 초과하였습니다."}
+                return {"rt_cd": "0", "msg1": "accepted"}
 
-        order_router = router.OrderRouter(FakeApi())
-        with patch.object(router, "save_decision_log"), patch.object(router, "save_trade"), patch.object(
+        api = FakeApi()
+        saved = []
+        order_router = router.OrderRouter(api)
+        with patch.object(router, "save_decision_log"), patch.object(
+            router, "save_trade", side_effect=lambda *args, **kwargs: saved.append((args, kwargs))
+        ), patch.object(
             router.time, "sleep"
         ) as sleep_mock:
             result = order_router.route("005930", "Samsung", "buy", 1, 70000, "test", {})
 
-        self.assertFalse(result["ok"])
+        self.assertTrue(result["ok"])
+        self.assertEqual(api.calls, 2)
+        self.assertEqual(saved[0][1]["order_status"], "submitted")
+        self.assertEqual(saved[0][1]["response_msg"], "accepted")
         sleep_mock.assert_called_once_with(router._RATE_LIMIT_BACKOFF_SECONDS)
+
+    def test_buy_order_skips_pre_order_balance_lookup(self):
+        self._set_config(
+            dry_run=False,
+            trading_env="demo",
+            enable_live_trading=False,
+            require_approval=False,
+        )
+        api = Mock()
+        api.place_order.return_value = {"rt_cd": "0", "msg1": "accepted"}
+        order_router = router.OrderRouter(api)
+
+        with patch.object(router, "save_decision_log"), patch.object(router, "save_trade") as save_trade:
+            result = order_router.route("005930", "Samsung", "buy", 1, 70000, "test", {})
+
+        self.assertTrue(result["ok"])
+        api.get_balance.assert_not_called()
+        self.assertEqual(save_trade.call_args.kwargs["pre_order_qty"], 0)
 
     def test_require_approval_returns_approval_id(self):
         original = {
