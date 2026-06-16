@@ -138,6 +138,35 @@ class SchedulerModeTests(unittest.TestCase):
             "already_processed": True,
         }])
 
+    def test_daily_auto_treats_raced_already_executing_approval_as_done(self):
+        expected = {
+            "results": [
+                {"approval_id": 123, "category": "ai_rebalance"},
+            ]
+        }
+
+        with patch.object(scheduler.trader, "run", return_value=expected), patch(
+            "src.dashboard._approval_by_id",
+            side_effect=[
+                {"id": 123, "status": "pending", "response_msg": ""},
+                {"id": 123, "status": "executing", "response_msg": "Submitting order to broker"},
+            ],
+        ), patch(
+            "src.dashboard._approve_pending_approval",
+            side_effect=RuntimeError("409: approval is already executing"),
+        ), patch.object(scheduler.time, "sleep"), patch.object(
+            scheduler, "_write_cycle_result"
+        ):
+            result = scheduler.run_scheduled_cycle(mode="daily_auto")
+
+        self.assertEqual(result["auto_approval_errors"], [])
+        self.assertEqual(result["auto_approved"], [{
+            "id": 123,
+            "status": "executing",
+            "response_msg": "Submitting order to broker",
+            "already_processed": True,
+        }])
+
     def test_order_status_sync_failure_is_recorded_without_failing_cycle(self):
         expected = {
             "results": [

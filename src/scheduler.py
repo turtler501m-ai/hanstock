@@ -78,25 +78,37 @@ def _run_trader_with_retries(*, attempts: int, delay_seconds: float, kwargs: dic
 def _approve_one_with_retries(approval_id: int, *, attempts: int, delay_seconds: float) -> dict:
     from src.dashboard import _approval_by_id, _approve_pending_approval
 
+    def already_processed_result() -> dict | None:
+        current = _approval_by_id(int(approval_id))
+        if not current or current.get("status") == "pending":
+            return None
+        return {
+            "approved": {
+                "id": approval_id,
+                "status": current.get("status"),
+                "response_msg": current.get("response_msg", ""),
+                "already_processed": True,
+            },
+            "errors": [],
+        }
+
     errors = []
     for attempt in range(1, attempts + 1):
         try:
-            current = _approval_by_id(int(approval_id))
-            if current and current.get("status") != "pending":
-                return {
-                    "approved": {
-                        "id": approval_id,
-                        "status": current.get("status"),
-                        "response_msg": current.get("response_msg", ""),
-                        "already_processed": True,
-                    },
-                    "errors": [],
-                }
+            processed = already_processed_result()
+            if processed is not None:
+                return processed
             result = _approve_pending_approval(int(approval_id), "scheduled auto approval")
             if errors:
                 result = {**result, "retry_errors": errors, "retry_count": len(errors)}
             return {"approved": result, "errors": []}
-        except SchedulerOperationError as exc:
+        except Exception as exc:
+            if "approval is already" in str(exc):
+                processed = already_processed_result()
+                if processed is not None:
+                    return processed
+            if not isinstance(exc, SchedulerOperationError):
+                raise
             errors.append(_error_record(exc, attempt=attempt, approval_id=approval_id))
             if attempt >= attempts:
                 return {"approved": None, "errors": errors}
