@@ -3504,6 +3504,7 @@ function startSchedulerPolling(mode) {
                 
                 // Force refresh all UI elements across different sections
                 await renderScheduleInfo();
+                await renderBalance();
                 if (typeof refreshOverview === 'function') refreshOverview();
                 if (typeof renderSignals === 'function') renderSignals();
                 if (typeof renderApprovals === 'function') renderApprovals();
