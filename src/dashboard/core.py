@@ -204,7 +204,7 @@ ENV_FIELDS = [
     {"key": "MISTOCK_DRY_RUN", "label": "Mistock Dry Run (주문차단)", "type": "bool", "hint": "true이면 실제 KIS 미국주식 주문 API를 호출하지 않습니다."},
     {"key": "MISTOCK_ENABLE_LIVE_TRADING", "label": "Mistock Enable Live Trading", "type": "bool", "hint": "미국주식 실전매매 최종허용 안전스위치입니다."},
     {"key": "MISTOCK_REQUIRE_APPROVAL", "label": "Mistock Require Approval", "type": "bool", "hint": "true이면 미국주식 주문 시 승인 대기를 거칩니다."},
-    {"key": "MISTOCK_TOTAL_CAPITAL", "label": "Mistock Total Capital", "type": "float", "hint": "미국주식 총 운용 자금(USD)입니다."},
+    {"key": "MISTOCK_TOTAL_CAPITAL", "label": "Mistock Total Capital", "type": "float", "hint": "미국주식 총 운용 자금입니다. 단위는 MISTOCK_CURRENCY 값을 따릅니다."},
     {"key": "MISTOCK_TRADE_DB_PATH", "label": "Mistock Trade DB Path", "type": "text", "hint": "미국주식 거래 기록용 SQLite DB 경로입니다."},
     {"key": "USDKRW_FALLBACK_RATE", "label": "USD/KRW Fallback Rate", "type": "float", "hint": "yfinance 환율 수집 실패 시 사용할 고정/기본 환율입니다. 기본값: 1380.0"},
     {"key": "MISTOCK_UNIVERSE", "label": "미스톡 기본 스캔 유니버스", "type": "text", "hint": "미국주식 스캔 시 사용할 기본 관심종목 목록(쉼표 구분)입니다. 기본값: 60종목"},
@@ -1274,12 +1274,14 @@ def _validate_env_value(key: str, value: object) -> str:
             raise HTTPException(status_code=400, detail=f"{key} must be a boolean")
         return "true" if lowered in {"true", "1", "yes", "on"} else "false"
     if field_type == "int":
+        value_text = value_text.replace(",", "")
         try:
             int(value_text)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=f"{key} must be an integer") from exc
         return value_text
     if field_type == "float":
+        value_text = value_text.replace(",", "")
         try:
             float(value_text)
         except ValueError as exc:

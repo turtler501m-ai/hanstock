@@ -115,6 +115,10 @@ class DashboardCoreTests(unittest.TestCase):
         self.assertEqual(values["MAX_POSITIONS"], "10")
         self.assertEqual(dashboard._validate_env_value("MAX_POSITIONS", "10 # 최대보유주식종목"), "10")
 
+    def test_env_numeric_values_accept_thousands_separators(self):
+        self.assertEqual(dashboard._validate_env_value("TOTAL_CAPITAL", "100,000,000"), "100000000")
+        self.assertEqual(dashboard._validate_env_value("USDKRW_FALLBACK_RATE", "1,516.78"), "1516.78")
+
     def test_kis_ops_routes_are_registered(self):
         paths = {getattr(route, "path", "") for route in dashboard.app.routes}
 

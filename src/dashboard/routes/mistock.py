@@ -101,12 +101,14 @@ def _validate_mistock_env_value(key: str, value: object) -> str:
             raise HTTPException(status_code=400, detail=f"{key} must be a boolean")
         return "true" if lowered in {"true", "1", "yes", "on"} else "false"
     if field_type == "int":
+        value_text = value_text.replace(",", "")
         try:
             int(value_text)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=f"{key} must be an integer") from exc
         return value_text
     if field_type == "float":
+        value_text = value_text.replace(",", "")
         try:
             float(value_text)
         except ValueError as exc:

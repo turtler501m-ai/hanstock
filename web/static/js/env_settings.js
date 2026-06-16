@@ -23,6 +23,72 @@ const setButtonBusy = (id, busy) => {
 
 let currentEnvFieldMap = {};
 
+const NUMBER_UNIT_BY_KEY = {
+    TOTAL_CAPITAL: 'KRW',
+    MAX_POSITIONS: '개',
+    MAX_SINGLE_WEIGHT: '비율',
+    CASH_BUFFER: '비율',
+    MAX_DAILY_LOSS_PCT: '%',
+    SPLIT_N: '회',
+    STOP_LOSS_PCT: '%',
+    TAKE_PROFIT: '%',
+    RSI_BUY: '점',
+    RSI_SELL: '점',
+    SCAN_UNIVERSE_SIZE: '개',
+    KIS_CIRCUIT_COOLDOWN_SECONDS: '초',
+    AI_SCORE_WEIGHT: '비율',
+    AI_MIN_MODEL_CONFIDENCE: '비율',
+    AI_CANDIDATE_LIMIT: '개',
+    OPENAI_TIMEOUT_SECONDS: '초',
+    USDKRW_FALLBACK_RATE: 'KRW/USD',
+};
+
+function isNumericField(field) {
+    return field.type === 'int' || field.type === 'float';
+}
+
+function normalizeNumericText(value) {
+    return String(value ?? '').replaceAll(',', '').trim();
+}
+
+function formatNumericText(value) {
+    const normalized = normalizeNumericText(value);
+    if (!normalized || normalized === '-' || !Number.isFinite(Number(normalized))) {
+        return String(value ?? '');
+    }
+    const [integerPart, decimalPart] = normalized.split('.');
+    const sign = integerPart.startsWith('-') ? '-' : '';
+    const digits = sign ? integerPart.slice(1) : integerPart;
+    const grouped = digits.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+    return `${sign}${grouped}${decimalPart !== undefined ? `.${decimalPart}` : ''}`;
+}
+
+function unitForField(field) {
+    if (field.key === 'MISTOCK_TOTAL_CAPITAL') {
+        const currency = String(currentEnvFieldMap.MISTOCK_CURRENCY?.value || 'USD').toUpperCase();
+        return currency || 'USD';
+    }
+    if (field.key === 'MISTOCK_CURRENCY') {
+        return 'USD/KRW';
+    }
+    if (field.key.startsWith('MISTOCK_')) {
+        const stripped = field.key.replace(/^MISTOCK_/, '');
+        return NUMBER_UNIT_BY_KEY[stripped] || '';
+    }
+    return NUMBER_UNIT_BY_KEY[field.key] || '';
+}
+
+function wireNumericFormatting(root = document) {
+    root.querySelectorAll('input[data-env-numeric="true"]').forEach((input) => {
+        input.addEventListener('focus', () => {
+            input.value = normalizeNumericText(input.value);
+        });
+        input.addEventListener('blur', () => {
+            input.value = formatNumericText(input.value);
+        });
+    });
+}
+
 async function fetchJson(url) {
     const response = await fetch(url);
     const data = await response.json();
@@ -48,8 +114,11 @@ async function postJson(url, payload = {}) {
 function buildEnvControl(field) {
     const key = escapeHtml(field.key);
     const label = escapeHtml(field.label || field.key);
-    const value = escapeHtml(field.value || '');
+    const value = escapeHtml(isNumericField(field) ? formatNumericText(field.value || '') : (field.value || ''));
     const hint = escapeHtml(field.hint || '');
+    const unit = unitForField(field);
+    const unitMarkup = unit ? `<span class="env-input-unit">${escapeHtml(unit)}</span>` : '';
+    const hintText = unit ? `${hint}${hint ? ' · ' : ''}단위: ${escapeHtml(unit)}` : hint;
 
     if (field.type === 'bool') {
         const selected = String(field.value || '').toLowerCase() === 'true';
@@ -81,14 +150,19 @@ function buildEnvControl(field) {
         `;
     }
 
-    const inputType = field.type === 'int' || field.type === 'float' ? 'number' : 'text';
-    const step = field.type === 'float' ? ' step="any"' : '';
+    const inputType = isNumericField(field) ? 'text' : 'text';
+    const inputMode = isNumericField(field) ? ' inputmode="decimal"' : '';
+    const numericAttrs = isNumericField(field) ? ' data-env-numeric="true"' : '';
     return `
         <div class="env-field">
             <label for="env-${key}">${label}</label>
-            <input id="env-${key}" type="${inputType}"${step} value="${value}"
-                data-env-key="${key}" data-original="${value}" autocomplete="off">
-            <small>${hint}</small>
+            <div class="env-input-with-unit">
+                <input id="env-${key}" type="${inputType}"${inputMode} value="${value}"
+                    data-env-key="${key}" data-env-type="${escapeHtml(field.type)}"${numericAttrs}
+                    data-original="${escapeHtml(field.value || '')}" autocomplete="off">
+                ${unitMarkup}
+            </div>
+            <small>${hintText}</small>
         </div>
     `;
 }
@@ -289,6 +363,7 @@ async function renderEnvSettings() {
         if (envGridEl) {
             envGridEl.style.display = 'block';
             envGridEl.innerHTML = html;
+            wireNumericFormatting(envGridEl);
         }
         document.getElementById('env-meta').textContent = `${data.path || '.env'} · 저장 즉시 런타임 반영, 일부 값은 서버 재시작 필요`;
         const onlineBlocked = String(fieldMap.ONLINE_ACCESS_BLOCKED?.value || '').toLowerCase() === 'true';
@@ -307,8 +382,13 @@ async function saveEnvSettings(event) {
     document.querySelectorAll('[data-env-key]').forEach((input) => {
         const key = input.dataset.envKey;
         const original = input.dataset.original || '';
-        const value = input.value;
-        if (value !== original) {
+        const value = input.dataset.envNumeric === 'true'
+            ? normalizeNumericText(input.value)
+            : input.value;
+        const comparableOriginal = input.dataset.envNumeric === 'true'
+            ? normalizeNumericText(original)
+            : original;
+        if (value !== comparableOriginal) {
             values[key] = value;
         }
     });

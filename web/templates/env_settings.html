@@ -42,6 +42,27 @@
             background: rgba(96, 165, 250, 0.1);
             font-weight: 600;
         }
+        .env-input-with-unit {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        .env-input-with-unit input,
+        .env-input-with-unit select {
+            flex: 1 1 auto;
+            min-width: 0;
+        }
+        .env-input-unit {
+            flex: 0 0 auto;
+            min-width: 3rem;
+            padding: 0.45rem 0.6rem;
+            border: 1px solid rgba(148, 163, 184, 0.18);
+            border-radius: 0.5rem;
+            background: rgba(15, 23, 42, 0.55);
+            color: #cbd5e1;
+            font-size: 0.82rem;
+            text-align: center;
+        }
     </style>
 </head>
 
@@ -101,7 +122,7 @@
     </div>
 
     <script src="/static/js/environment_badge.js?v=1"></script>
-    <script src="/static/js/env_settings.js?v=12"></script>
+    <script src="/static/js/env_settings.js?v=13"></script>
 </body>
 
 </html>

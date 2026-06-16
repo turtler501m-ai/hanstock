@@ -277,6 +277,10 @@ class MistockDashboardTests(unittest.TestCase):
         self.assertEqual(written["MISTOCK_MAX_POSITIONS"], "3")
         self.assertEqual(written["MISTOCK_MAX_SINGLE_WEIGHT"], "0.4")
 
+    def test_mistock_env_numeric_values_accept_thousands_separators(self):
+        self.assertEqual(mistock._validate_mistock_env_value("MISTOCK_TOTAL_CAPITAL", "100,000,000"), "100000000")
+        self.assertEqual(mistock._validate_mistock_env_value("USDKRW_FALLBACK_RATE", "1,516.78"), "1516.78")
+
     def test_mistock_scheduler_status_includes_config_values(self):
         with patch.dict(
             "os.environ",

@@ -477,8 +477,28 @@ let periodicActiveTab = 'daily';
 let periodicDataCache = null;
 let latestConfig = null;
 
+function normalizeSettingNumber(value) {
+    return String(value ?? '').replaceAll(',', '').trim();
+}
+
+function formatSettingNumber(value) {
+    const normalized = normalizeSettingNumber(value);
+    if (!normalized || !Number.isFinite(Number(normalized))) {
+        return String(value ?? '');
+    }
+    const [integerPart, decimalPart] = normalized.split('.');
+    const sign = integerPart.startsWith('-') ? '-' : '';
+    const digits = sign ? integerPart.slice(1) : integerPart;
+    const grouped = digits.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+    return `${sign}${grouped}${decimalPart !== undefined ? `.${decimalPart}` : ''}`;
+}
+
 function strategySettingFields(config) {
-    return [
+    const currency = String(config.currency || 'USD').toUpperCase();
+    const usdCapital = currency === 'KRW' && Number(config.exchange_rate || 0) > 0
+        ? Number(config.total_capital || 0) / Number(config.exchange_rate || 1)
+        : null;
+    const fields = [
         { key: 'SPLIT_N', label: '분할 횟수', value: config.split_n, type: 'int', step: '1', min: '1', suffix: '회' },
         { key: 'STOP_LOSS_PCT', label: '손절 기준', value: config.stop_loss_pct, type: 'float', step: '0.1', suffix: '%' },
         { key: 'TAKE_PROFIT', label: '익절 기준', value: config.take_profit, type: 'float', step: '0.1', suffix: '%' },
@@ -490,6 +510,14 @@ function strategySettingFields(config) {
         { key: 'CASH_BUFFER', label: '현금 보유비중', value: Number(config.cash_buffer || 0) * 100, type: 'float', step: '0.1', min: '0', max: '100', suffix: '%', percent: true },
         { key: 'MAX_DAILY_LOSS_PCT', label: '일 손실 제한', value: config.max_daily_loss_pct, type: 'float', step: '0.1', min: '0', suffix: '%' },
     ];
+    const capital = fields.find((field) => field.key === 'TOTAL_CAPITAL');
+    if (capital) {
+        capital.suffix = currency;
+        if (usdCapital !== null) {
+            capital.note = `USD 환산 약 ${formatSettingNumber(usdCapital.toFixed(2))}`;
+        }
+    }
+    return fields;
 }
 
 function renderStrategySettingsForm(config) {
@@ -499,9 +527,10 @@ function renderStrategySettingsForm(config) {
             <span class="label">${escapeHtml(field.label)}</span>
             <div class="setting-input-row">
                 <input
-                    type="number"
+                    type="text"
+                    inputmode="decimal"
                     name="${escapeHtml(field.key)}"
-                    value="${escapeHtml(field.value)}"
+                    value="${escapeHtml(formatSettingNumber(field.value))}"
                     step="${escapeHtml(field.step || '1')}"
                     ${field.min !== undefined ? `min="${escapeHtml(field.min)}"` : ''}
                     ${field.max !== undefined ? `max="${escapeHtml(field.max)}"` : ''}
@@ -510,6 +539,7 @@ function renderStrategySettingsForm(config) {
                 >
                 ${field.suffix ? `<span>${escapeHtml(field.suffix)}</span>` : ''}
             </div>
+            ${field.note ? `<small class="time-muted">${escapeHtml(field.note)}</small>` : ''}
         </label>
     `).join('');
 
@@ -560,7 +590,7 @@ async function saveStrategySettings(event) {
         const values = {};
         const inputs = Array.from(form.querySelectorAll('input[name]'));
         for (const input of inputs) {
-            const raw = String(input.value || '').trim();
+            const raw = normalizeSettingNumber(input.value);
             if (!raw) {
                 throw new Error(`${input.name} 값이 비어 있습니다.`);
             }
@@ -723,6 +753,14 @@ async function renderConfig() {
     const form = document.getElementById('strategy-settings-form');
     if (form) {
         form.addEventListener('submit', saveStrategySettings);
+        form.querySelectorAll('input[name]').forEach((input) => {
+            input.addEventListener('focus', () => {
+                input.value = normalizeSettingNumber(input.value);
+            });
+            input.addEventListener('blur', () => {
+                input.value = formatSettingNumber(input.value);
+            });
+        });
     }
 }
 
