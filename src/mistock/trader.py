@@ -171,37 +171,84 @@ def delete_watchlist(symbol: str) -> None:
     db.execute("DELETE FROM watchlist WHERE symbol = ?", (normalize_symbol(symbol),))
 
 
+def _local_holdings_from_db(*, refresh_quote: bool) -> list[dict[str, Any]]:
+    holdings = []
+    for row in db.rows("SELECT symbol, name, qty, avg_price FROM holdings ORDER BY symbol"):
+        symbol = row["symbol"]
+        avg = float(row["avg_price"] or 0.0)
+        price = avg
+        if refresh_quote:
+            try:
+                q = quote(symbol)
+                price = float(q["current"] or avg or 0.0)
+            except Exception:
+                price = avg
+        qty = float(row["qty"] or 0.0)
+        if qty <= 0:
+            continue
+        value = qty * price
+        pnl = (price - avg) * qty
+        rt = ((price - avg) / avg * 100.0) if avg > 0 else 0.0
+        holdings.append({
+            "symbol": symbol,
+            "name": row["name"],
+            "qty": qty,
+            "price": price,
+            "avg_price": avg,
+            "value": value,
+            "pnl": pnl,
+            "rt": rt,
+        })
+    return holdings
+
+
+def _merge_local_shadow_holdings(broker_holdings: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    broker_symbols = {str(item.get("symbol") or "") for item in broker_holdings}
+    merged = list(broker_holdings)
+    for item in _local_holdings_from_db(refresh_quote=False):
+        if item["symbol"] not in broker_symbols:
+            merged.append({**item, "source": "local_shadow"})
+    return merged
+
+
+def _apply_local_filled_order(symbol: str, action: str, qty: float, price: float) -> None:
+    existing = db.row("SELECT symbol, name, qty, avg_price FROM holdings WHERE symbol = ?", (symbol,))
+    if action == "buy":
+        cost = qty * price
+        if existing:
+            old_qty = float(existing["qty"])
+            old_avg = float(existing["avg_price"])
+            new_qty = old_qty + qty
+            new_avg = ((old_qty * old_avg) + cost) / new_qty
+            db.execute("UPDATE holdings SET qty = ?, avg_price = ?, updated_at = ? WHERE symbol = ?", (new_qty, new_avg, db.now_text(), symbol))
+        else:
+            db.execute(
+                "INSERT INTO holdings (symbol, name, qty, avg_price, updated_at) VALUES (?, ?, ?, ?, ?)",
+                (symbol, symbol_name(symbol), qty, price, db.now_text()),
+            )
+    elif action == "sell" and existing:
+        remaining = float(existing["qty"]) - qty
+        if remaining > 0:
+            db.execute("UPDATE holdings SET qty = ?, updated_at = ? WHERE symbol = ?", (remaining, db.now_text(), symbol))
+        else:
+            db.execute("DELETE FROM holdings WHERE symbol = ?", (symbol,))
+
+
 def get_holdings() -> list[dict[str, Any]]:
     if config.trading_env not in {"demo", "real"}:
-        holdings = []
-        for row in db.rows("SELECT symbol, name, qty, avg_price FROM holdings ORDER BY symbol"):
-            q = quote(row["symbol"])
-            price = float(q["current"] or row["avg_price"] or 0.0)
-            qty = float(row["qty"] or 0.0)
-            avg = float(row["avg_price"] or 0.0)
-            value = qty * price
-            pnl = (price - avg) * qty
-            rt = ((price - avg) / avg * 100.0) if avg > 0 else 0.0
-            holdings.append({
-                "symbol": row["symbol"],
-                "name": row["name"],
-                "qty": qty,
-                "price": price,
-                "avg_price": avg,
-                "value": value,
-                "pnl": pnl,
-                "rt": rt,
-            })
-        return holdings
+        return _local_holdings_from_db(refresh_quote=True)
     else:
         try:
             client = _get_kis_client()
             balance_data = client.get_overseas_balance()
-            return _holdings_from_overseas_balance(balance_data)
+            holdings = _holdings_from_overseas_balance(balance_data)
+            if config.trading_env == "demo":
+                holdings = _merge_local_shadow_holdings(holdings)
+            return holdings
         except Exception as e:
             from src.utils.logger import logger
             logger.error(f"Failed to fetch KIS US holdings: {e}")
-            return []
+            return _local_holdings_from_db(refresh_quote=False) if config.trading_env == "demo" else []
 
 
 def get_balance() -> dict[str, Any]:
@@ -275,8 +322,17 @@ def get_balance() -> dict[str, Any]:
                     cash = (krw_cash / exchange_rate) * 0.98
 
             holdings = _holdings_from_overseas_balance(balance_data)
+            if config.trading_env == "demo":
+                holdings = _merge_local_shadow_holdings(holdings)
             stock_eval = sum(float(item["value"] or 0.0) for item in holdings)
             pnl = sum(float(item["pnl"] or 0.0) for item in holdings)
+            local_shadow_eval = sum(
+                float(item.get("value") or 0.0)
+                for item in holdings
+                if item.get("source") == "local_shadow"
+            )
+            if local_shadow_eval > 0 and cash > 0:
+                cash = max(0.0, cash - local_shadow_eval)
             # frcr_evlu_tota는 USD 평가액 합계 (KRW 환산 아님)
             broker_total_eval = _first_positive(summary, [
                 "frcr_evlu_tota",
@@ -290,6 +346,9 @@ def get_balance() -> dict[str, Any]:
             if config.trading_env == "demo" and cash <= 0 and broker_total_eval > 0:
                 cash = max(0.0, broker_total_eval - stock_eval)
             balance_source = "kis"
+            if config.trading_env == "demo" and cash <= 0 and local_shadow_eval > 0 and broker_total_eval <= 0:
+                cash = max(0.0, _configured_capital_usd(exchange_rate) - stock_eval)
+                balance_source = "demo_local_shadow"
             if config.trading_env == "demo" and cash <= 0 and stock_eval <= 0 and broker_total_eval <= 0:
                 cash = _configured_capital_usd(exchange_rate)
                 balance_source = "demo_config_fallback"
@@ -566,27 +625,13 @@ def place_order(symbol: str, action: str, qty: float, price: float, reason: str 
             if cost > cash:
                 notify_slack_order(symbol, action, qty, price, "insufficient cash", False)
                 return {"ok": False, "status": "failed", "message": "insufficient cash"}
-            if existing:
-                old_qty = float(existing["qty"])
-                old_avg = float(existing["avg_price"])
-                new_qty = old_qty + qty
-                new_avg = ((old_qty * old_avg) + cost) / new_qty
-                db.execute("UPDATE holdings SET qty = ?, avg_price = ?, updated_at = ? WHERE symbol = ?", (new_qty, new_avg, db.now_text(), symbol))
-            else:
-                db.execute(
-                    "INSERT INTO holdings (symbol, name, qty, avg_price, updated_at) VALUES (?, ?, ?, ?, ?)",
-                    (symbol, symbol_name(symbol), qty, price, db.now_text()),
-                )
+            _apply_local_filled_order(symbol, action, qty, price)
             db.set_setting("cash", str(cash - cost))
         elif action == "sell":
             if not existing or float(existing["qty"]) < qty:
                 notify_slack_order(symbol, action, qty, price, "insufficient holdings", False)
                 return {"ok": False, "status": "failed", "message": "insufficient holdings"}
-            remaining = float(existing["qty"]) - qty
-            if remaining > 0:
-                db.execute("UPDATE holdings SET qty = ?, updated_at = ? WHERE symbol = ?", (remaining, db.now_text(), symbol))
-            else:
-                db.execute("DELETE FROM holdings WHERE symbol = ?", (symbol,))
+            _apply_local_filled_order(symbol, action, qty, price)
             db.set_setting("cash", str(cash + qty * price))
         else:
             notify_slack_order(symbol, action, qty, price, "action must be buy or sell", False)
@@ -608,6 +653,8 @@ def place_order(symbol: str, action: str, qty: float, price: float, reason: str 
             msg = res.get("msg1") or "KIS order response received"
             ok = (rt_cd == "0")
             status = "filled" if ok else "failed"
+            if ok and config.trading_env == "demo":
+                _apply_local_filled_order(symbol, action, qty, price)
             save_trade(symbol, symbol_name(symbol), action, qty, price, reason, ok, status, msg)
             notify_slack_order(symbol, action, qty, price, reason or msg, ok)
             return {"ok": ok, "status": status, "msg1": msg, "res": res}
