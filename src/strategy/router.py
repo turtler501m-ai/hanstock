@@ -1,3 +1,6 @@
+import os
+import time
+
 from src.api.kis_api import KIStockAPI
 from src.approval_service import ApprovalService
 from src.config import config
@@ -5,6 +8,13 @@ from src.db.repository import connect_db, save_decision_log, save_trade
 from src.execution_service import ExecutionContext, resolve_execution_decision
 from src.repositories import ApprovalRepository
 from src.utils.logger import logger
+
+_RATE_LIMIT_BACKOFF_SECONDS = float(os.environ.get("KIS_ORDER_RATE_LIMIT_BACKOFF_SECONDS", "10.0"))
+
+
+def _is_kis_rate_limit_message(message: str) -> bool:
+    text = str(message or "").lower()
+    return "초당 거래건수" in text or "rate limit" in text or "egw00201" in text
 
 
 class OrderRouter:
@@ -85,6 +95,12 @@ class OrderRouter:
         result = self.api.place_order(symbol, action, price, qty)
         ok = result.get("rt_cd") == "0"
         logger.info(f"[ROUTER] Live Execution {'OK' if ok else 'FAILED'}: {result.get('msg1', '')}")
+        if not ok and _is_kis_rate_limit_message(str(result.get("msg1", ""))):
+            logger.warning(
+                f"[ROUTER] KIS rate limit response detected; backing off {_RATE_LIMIT_BACKOFF_SECONDS:.1f}s"
+            )
+            if _RATE_LIMIT_BACKOFF_SECONDS > 0:
+                time.sleep(_RATE_LIMIT_BACKOFF_SECONDS)
         save_trade(
             symbol,
             name,

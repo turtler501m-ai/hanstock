@@ -187,7 +187,7 @@ def available_buying_cash(
 
 _KIS_ORDER_THROTTLE_LOCK = threading.Lock()
 _KIS_ORDER_LAST_CALL = 0.0
-_KIS_ORDER_MIN_INTERVAL_SECONDS = float(os.environ.get("KIS_ORDER_MIN_INTERVAL_SECONDS", "2.0"))
+_KIS_ORDER_MIN_INTERVAL_SECONDS = float(os.environ.get("KIS_ORDER_MIN_INTERVAL_SECONDS", "4.0"))
 
 
 def build_kis_client_config() -> KISClientConfig:

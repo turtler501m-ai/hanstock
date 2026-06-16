@@ -60,6 +60,30 @@ class OrderRouterTests(unittest.TestCase):
             config.enable_live_trading = original["enable_live_trading"]
             config.require_approval = original["require_approval"]
 
+    def test_rate_limit_response_backs_off_before_next_order(self):
+        self._set_config(
+            dry_run=False,
+            trading_env="demo",
+            enable_live_trading=False,
+            require_approval=False,
+        )
+
+        class FakeApi:
+            def get_balance(self):
+                return {"output1": []}
+
+            def place_order(self, symbol, action, price, qty):
+                return {"rt_cd": "1", "msg1": "초당 거래건수를 초과하였습니다."}
+
+        order_router = router.OrderRouter(FakeApi())
+        with patch.object(router, "save_decision_log"), patch.object(router, "save_trade"), patch.object(
+            router.time, "sleep"
+        ) as sleep_mock:
+            result = order_router.route("005930", "Samsung", "buy", 1, 70000, "test", {})
+
+        self.assertFalse(result["ok"])
+        sleep_mock.assert_called_once_with(router._RATE_LIMIT_BACKOFF_SECONDS)
+
     def test_require_approval_returns_approval_id(self):
         original = {
             "dry_run": config.dry_run,
