@@ -5,7 +5,7 @@ import requests
 import websocket
 from src.config import config
 from src.utils.logger import logger
-from src.notifier.slack import slack_order
+from src.notifier.slack import slack_error, slack_order
 
 class KISWebSocketClient(threading.Thread):
     """
@@ -34,6 +34,7 @@ class KISWebSocketClient(threading.Thread):
         self.reconnect_count = 0
         self.last_message_at = None
         self.last_error = ""
+        self.last_error_notification_at = 0.0
         self.last_quotes = {}
         self.last_orderbooks = {}
 
@@ -273,6 +274,18 @@ class KISWebSocketClient(threading.Thread):
     def on_error(self, ws, error):
         self.last_error = str(error)
         logger.error(f"[WS ERROR] {error}")
+        if not self.notify_errors:
+            return
+
+        # Avoid flooding Slack during reconnect loops while still surfacing outages.
+        now = time.time()
+        if now - self.last_error_notification_at < 300:
+            return
+        self.last_error_notification_at = now
+        try:
+            slack_error(f"KIS WebSocket error: {error}")
+        except Exception as exc:
+            logger.warning(f"[WS ERROR] Slack notification failed: {exc}")
 
     def on_close(self, ws, close_status_code, close_msg):
         logger.info(f"[WS CLOSED] Connection closed. status={close_status_code}, msg={close_msg}")

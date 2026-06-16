@@ -98,3 +98,30 @@ class TestKISWebSocketClient(unittest.TestCase):
 
         self.assertIn(("H0STCNT0", "005930"), self.client.active_subscriptions)
         self.assertIn(("H0STASP0", "000660"), self.client.active_subscriptions)
+
+    @patch("src.api.kis_websocket.slack_error")
+    def test_on_error_sends_slack_when_enabled(self, mock_slack_error):
+        client = KISWebSocketClient(notify_errors=True)
+
+        client.on_error(None, "Connection to remote host was lost.")
+
+        self.assertEqual(client.last_error, "Connection to remote host was lost.")
+        mock_slack_error.assert_called_once_with(
+            "KIS WebSocket error: Connection to remote host was lost."
+        )
+
+    @patch("src.api.kis_websocket.slack_error")
+    def test_on_error_does_not_send_slack_when_disabled(self, mock_slack_error):
+        self.client.on_error(None, "Connection to remote host was lost.")
+
+        self.assertEqual(self.client.last_error, "Connection to remote host was lost.")
+        mock_slack_error.assert_not_called()
+
+    @patch("src.api.kis_websocket.slack_error")
+    def test_on_error_throttles_repeated_slack_notifications(self, mock_slack_error):
+        client = KISWebSocketClient(notify_errors=True)
+
+        client.on_error(None, "first")
+        client.on_error(None, "second")
+
+        mock_slack_error.assert_called_once_with("KIS WebSocket error: first")
