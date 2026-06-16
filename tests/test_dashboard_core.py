@@ -445,6 +445,62 @@ class DashboardCoreTests(unittest.TestCase):
             dashboard._get_api = original_get_api
             dashboard._get_balance_data = original_get_balance_data
 
+    def test_balance_hides_holdings_with_active_sell_approvals(self):
+        original_db_path = dashboard.trader.config.trade_db_path
+        original_required_env_missing = dashboard._required_env_missing
+        original_get_api = dashboard._get_api
+        original_get_balance_data = dashboard._get_balance_data
+        try:
+            with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+                dashboard.trader.config.trade_db_path = f"{tmpdir}/trades.sqlite"
+                dashboard._required_env_missing = lambda: []
+                dashboard._get_api = lambda: object()
+                dashboard._get_balance_data = lambda api: {
+                    "output1": [
+                        {
+                            "pdno": "005930",
+                            "prdt_name": "Samsung",
+                            "hldg_qty": "2",
+                            "prpr": "70000",
+                        },
+                        {
+                            "pdno": "000660",
+                            "prdt_name": "SK Hynix",
+                            "hldg_qty": "1",
+                            "prpr": "120000",
+                        },
+                    ],
+                    "output2": [{"dnca_tot_amt": "1000", "tot_evlu_amt": "331000"}],
+                }
+
+                dashboard._create_approval_row({
+                    "symbol": "005930",
+                    "name": "Samsung",
+                    "action": "sell",
+                    "qty": 2,
+                    "price": 0,
+                    "reason": "dashboard sell current holding",
+                    "source": "dashboard_holding_sell",
+                })
+
+                balance = dashboard.get_balance()
+
+                self.assertEqual([holding["symbol"] for holding in balance["holdings"]], ["000660"])
+                self.assertEqual(balance["pending_sell_symbols"], ["005930"])
+
+                with dashboard.trader.connect_db() as conn:
+                    conn.execute("UPDATE approvals SET status = 'executed' WHERE symbol = '005930'")
+
+                balance = dashboard.get_balance()
+
+                self.assertEqual([holding["symbol"] for holding in balance["holdings"]], ["000660"])
+                self.assertEqual(balance["pending_sell_symbols"], ["005930"])
+        finally:
+            dashboard.trader.config.trade_db_path = original_db_path
+            dashboard._required_env_missing = original_required_env_missing
+            dashboard._get_api = original_get_api
+            dashboard._get_balance_data = original_get_balance_data
+
     def test_auto_approval_state_can_toggle(self):
         original_state = dashboard.AUTO_APPROVAL_STATE
         try:

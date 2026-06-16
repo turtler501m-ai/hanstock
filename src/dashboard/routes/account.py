@@ -7,6 +7,36 @@ globals().update({k: v for k, v in _core.__dict__.items() if not k.startswith('_
 
 router = APIRouter(tags=["account"])
 
+
+def _active_sell_approval_symbols() -> set[str]:
+    _init_approval_db()
+    with trader.connect_db() as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            """
+            SELECT DISTINCT symbol
+            FROM approvals
+            WHERE action = 'sell'
+              AND status IN ('pending', 'executing', 'executed')
+              AND source IN ('dashboard_holding_sell', 'dashboard_sell_all')
+              AND COALESCE(symbol, '') <> ''
+            """
+        ).fetchall()
+    return {str(row["symbol"]) for row in rows}
+
+
+def _hide_active_sell_approval_holdings(parsed: dict) -> dict:
+    active_symbols = _active_sell_approval_symbols()
+    if not active_symbols:
+        return parsed
+    holdings = parsed.get("holdings") or []
+    parsed["holdings"] = [
+        holding for holding in holdings
+        if str(holding.get("symbol") or "") not in active_symbols
+    ]
+    parsed["pending_sell_symbols"] = sorted(active_symbols)
+    return parsed
+
 @router.get("/api/health")
 def health():
     missing = _required_env_missing()
@@ -160,6 +190,7 @@ def get_balance():
         if balance_data is None:
             raise HTTPException(status_code=503, detail="Online access is blocked and no balance snapshot is available")
         parsed = _parse_balance(balance_data)
+        _hide_active_sell_approval_holdings(parsed)
         for holding in parsed["holdings"]:
             holding.pop("_raw", None)
         parsed["_offline"] = True
@@ -181,6 +212,7 @@ def get_balance():
         api = _get_api()
         balance_data = _get_balance_data(api)
         parsed = _parse_balance(balance_data)
+        _hide_active_sell_approval_holdings(parsed)
         for holding in parsed["holdings"]:
             holding.pop("_raw", None)
         if balance_data.get("_cache"):

@@ -282,7 +282,27 @@ def mistock_update_env(payload: dict = Body(...)):
 
 @router.get("/api/mistock/balance")
 def mistock_balance():
-    return mistock_trader.get_balance()
+    balance = mistock_trader.get_balance()
+    active_symbols = {
+        str(row["symbol"])
+        for row in mistock_db.rows(
+            """
+            SELECT DISTINCT symbol
+            FROM approvals
+            WHERE action = 'sell'
+              AND status IN ('pending', 'executing', 'executed')
+              AND source IN ('dashboard_holding_sell', 'mistock_holding_sell', 'mistock_sell_all')
+              AND COALESCE(symbol, '') <> ''
+            """
+        )
+    }
+    if active_symbols:
+        balance["holdings"] = [
+            holding for holding in balance.get("holdings", [])
+            if str(holding.get("symbol") or "") not in active_symbols
+        ]
+        balance["pending_sell_symbols"] = sorted(active_symbols)
+    return balance
 
 
 @router.get("/api/mistock/portfolio-optimizer")

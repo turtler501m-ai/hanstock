@@ -80,6 +80,39 @@ class MistockDashboardTests(unittest.TestCase):
         self.assertEqual(balance["holdings"][0]["symbol"], "AAPL")
         self.assertEqual(len(trades["trades"]), 1)
 
+    def test_mistock_balance_hides_holdings_with_active_sell_approvals(self):
+        object.__setattr__(mistock_config, "trading_env", "sim")
+        mistock_trader.place_order("AAPL", "buy", 2, 100, reason="seed holding")
+        mistock_trader.place_order("MSFT", "buy", 1, 200, reason="seed holding")
+
+        approval = mistock.mistock_create_approval({
+            "symbol": "AAPL",
+            "name": "Apple",
+            "action": "sell",
+            "qty": 2,
+            "price": 100,
+            "reason": "mistock sell current holding",
+            "source": "dashboard_holding_sell",
+        })
+
+        quotes = {
+            "AAPL": {"current": 100.0, "ask1": 100.0, "bid1": 100.0},
+            "MSFT": {"current": 200.0, "ask1": 200.0, "bid1": 200.0},
+        }
+        with patch.object(mistock_trader, "quote", side_effect=lambda symbol: quotes[symbol]):
+            balance = mistock.mistock_balance()
+
+        self.assertEqual(approval["status"], "pending")
+        self.assertEqual([holding["symbol"] for holding in balance["holdings"]], ["MSFT"])
+        self.assertEqual(balance["pending_sell_symbols"], ["AAPL"])
+
+        mistock_db.execute("UPDATE approvals SET status = 'executed' WHERE id = ?", (approval["id"],))
+        with patch.object(mistock_trader, "quote", side_effect=lambda symbol: quotes[symbol]):
+            balance = mistock.mistock_balance()
+
+        self.assertEqual([holding["symbol"] for holding in balance["holdings"]], ["MSFT"])
+        self.assertEqual(balance["pending_sell_symbols"], ["AAPL"])
+
     def test_demo_balance_does_not_mix_paper_cash_when_kis_cash_is_missing(self):
         class FakeClient:
             def get_overseas_balance(self):
