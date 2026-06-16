@@ -1876,6 +1876,45 @@ async function renderAiAllocation() {
     }
 }
 
+function isHoldingSellPayload(payload) {
+    return payload.action === 'sell'
+        && (payload.source === 'dashboard_holding_sell' || payload.source === 'mistock_holding_sell');
+}
+
+function removeQueuedHoldingRow(button, payload) {
+    if (!isHoldingSellPayload(payload)) {
+        return;
+    }
+    holdingsCache = holdingsCache.filter((holding) => String(holding.symbol) !== String(payload.symbol));
+    const row = button.closest('tr');
+    if (row) {
+        row.remove();
+    }
+    const tbody = document.querySelector('#table-holdings tbody');
+    if (tbody && !tbody.querySelector('tr')) {
+        setTableMessage('#table-holdings tbody', 7, 'Sell request is now tracked in the orders tab');
+    }
+}
+
+function showOrdersTab() {
+    const tabEl = document.querySelector('[data-dashboard-tab="orders"]');
+    if (tabEl) {
+        tabEl.click();
+    }
+}
+
+function scheduleOrderProgressRefresh() {
+    setTimeout(() => {
+        renderApprovals();
+        renderTrades();
+    }, 1500);
+    setTimeout(() => {
+        renderApprovals();
+        renderTrades();
+        renderBalance();
+    }, 5000);
+}
+
 async function createApprovalFromButton(button) {
     const payload = {
         symbol: button.dataset.symbol,
@@ -1893,12 +1932,17 @@ async function createApprovalFromButton(button) {
     button.disabled = true;
     try {
         const result = await postJson('/api/mistock/approvals', payload);
+        removeQueuedHoldingRow(button, payload);
+        await renderApprovals();
+        if (isHoldingSellPayload(payload)) {
+            showOrdersTab();
+            scheduleOrderProgressRefresh();
+        }
         if (result.auto_approved) {
             setStatus(`${toKorAction(payload.action)} ${payload.symbol} 주문을 자동승인 처리했습니다.`, result.status !== 'failed');
-            await Promise.all([renderApprovals(), renderTrades(), renderBalance()]);
+            await Promise.all([renderTrades(), renderBalance()]);
         } else {
             setStatus(`${toKorAction(payload.action)} ${payload.symbol} 주문을 승인 대기에 올렸습니다.`, true);
-            await renderApprovals();
         }
     } catch (err) {
         setStatus(`승인 대기 등록 실패: ${err.message}`);
@@ -2018,7 +2062,10 @@ async function renderApprovals() {
             const status = String(row.status || '');
             const statusKind = status === 'pending' ? 'warn' : (status === 'executed' ? 'buy' : (status === 'failed' ? 'sell' : 'hold'));
             const estimatedCost = Number(row.qty || 0) * Number(row.price || 0);
-            const controls = status === 'pending'
+            const autoApprovalInProgress = Boolean(row.auto_approval_in_progress);
+            const controls = status === 'pending' && autoApprovalInProgress
+                ? `<span class="time-muted">Auto approval in progress</span>`
+                : status === 'pending'
                 ? `<div class="button-row">
                     <button type="button" class="approve-order" data-id="${row.id}">승인</button>
                     <button type="button" class="button-danger reject-order" data-id="${row.id}">거절</button>

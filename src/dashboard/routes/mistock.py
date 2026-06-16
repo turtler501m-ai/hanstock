@@ -808,6 +808,15 @@ def mistock_create_approval(payload: dict = Body(...)):
         and mistock_db.get_setting("auto_approval", "false") == "true"
         and mistock_trader.broker_submission_available()
     ):
+        if str(payload.get("source") or "") in {"dashboard_holding_sell", "mistock_holding_sell"}:
+            _run_mistock_auto_approval_batch_async([approval_id])
+            return {
+                "ok": True,
+                "id": approval_id,
+                "status": "pending",
+                "auto_approved": False,
+                "auto_approval_queued": True,
+            }
         result = _execute_approval(approval_id, approve=True)
         result["auto_approved"] = True
         return result
@@ -817,7 +826,17 @@ def mistock_create_approval(payload: dict = Body(...)):
 @router.get("/api/mistock/approvals")
 def mistock_approvals(limit: int = 50):
     rows = mistock_db.rows("SELECT * FROM approvals ORDER BY id DESC LIMIT ?", (max(1, min(limit, 200)),))
-    return {"approvals": rows}
+    auto_approval_enabled = mistock_db.get_setting("auto_approval", "false") == "true"
+    approvals = []
+    for row in rows:
+        item = dict(row)
+        item["auto_approval_in_progress"] = (
+            auto_approval_enabled
+            and item.get("status") == "pending"
+            and item.get("source") in {"dashboard_holding_sell", "mistock_holding_sell", "mistock_sell_all"}
+        )
+        approvals.append(item)
+    return {"approvals": approvals}
 
 
 def _execute_approval(approval_id: int, *, approve: bool) -> dict:
@@ -1534,6 +1553,20 @@ def _auto_approve_mistock_pending_approvals() -> list[dict]:
         except Exception:
             continue
     return results
+
+
+def _run_mistock_auto_approval_batch_async(approval_ids: list[int]) -> None:
+    def worker() -> None:
+        for approval_id in approval_ids:
+            try:
+                _execute_approval(int(approval_id), approve=True)
+            except Exception as exc:
+                logger.warning(f"mistock auto approval failed approval_id={approval_id}: {exc}")
+
+    import threading
+
+    thread = threading.Thread(target=worker, name="mistock-holding-auto-approval", daemon=True)
+    thread.start()
 
 
 @router.post("/api/mistock/auto-approval")

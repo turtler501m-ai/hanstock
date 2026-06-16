@@ -1001,7 +1001,7 @@ def get_approvals(limit: int = 50):
         item["auto_approval_in_progress"] = (
             auto_approval_enabled
             and item.get("status") == "pending"
-            and item.get("source") == "dashboard_sell_all"
+            and item.get("source") in {"dashboard_sell_all", "dashboard_holding_sell"}
         )
         approvals.append(item)
     return {"approvals": approvals}
@@ -1013,6 +1013,15 @@ def get_approvals(limit: int = 50):
 def create_approval(payload: dict = Body(...)):
     approval_id = _create_approval_row(payload)
     if _auto_approval_enabled():
+        source = str(payload.get("source") or "")
+        if source == "dashboard_holding_sell":
+            _run_auto_approval_batch_async([approval_id])
+            return {
+                "id": approval_id,
+                "status": "pending",
+                "auto_approved": False,
+                "auto_approval_queued": True,
+            }
         result = _approve_pending_approval(approval_id, "auto approval")
         result["auto_approved"] = True
         return result

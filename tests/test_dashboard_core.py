@@ -861,6 +861,41 @@ class DashboardCoreTests(unittest.TestCase):
             stock_routes._clear_balance_cache = original_clear_balance_cache
             stock_routes._required_env_missing = original_required_env_missing
 
+    def test_holding_sell_queues_before_auto_approval(self):
+        import src.dashboard.routes.stock as stock_routes
+
+        original_db_path = dashboard.trader.config.trade_db_path
+        original_auto_approval = stock_routes._auto_approval_enabled
+        original_batch_async = stock_routes._run_auto_approval_batch_async
+
+        queued_ids = []
+        try:
+            with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+                dashboard.trader.config.trade_db_path = f"{tmpdir}/trades.sqlite"
+                stock_routes._auto_approval_enabled = lambda: True
+                stock_routes._run_auto_approval_batch_async = lambda approval_ids: queued_ids.extend(approval_ids)
+
+                result = stock_routes.create_approval({
+                    "symbol": "005930",
+                    "name": "Samsung",
+                    "action": "sell",
+                    "qty": 2,
+                    "price": 0,
+                    "reason": "dashboard sell current holding",
+                    "source": "dashboard_holding_sell",
+                })
+
+                self.assertEqual(result["status"], "pending")
+                self.assertFalse(result["auto_approved"])
+                self.assertTrue(result["auto_approval_queued"])
+                approvals = stock_routes.get_approvals()["approvals"]
+                self.assertEqual(queued_ids, [approvals[0]["id"]])
+                self.assertTrue(approvals[0]["auto_approval_in_progress"])
+        finally:
+            dashboard.trader.config.trade_db_path = original_db_path
+            stock_routes._auto_approval_enabled = original_auto_approval
+            stock_routes._run_auto_approval_batch_async = original_batch_async
+
     def test_sell_all_holdings_uses_sellable_quantity_and_skips_locked_holdings(self):
         import src.dashboard.routes.stock as stock_routes
 
