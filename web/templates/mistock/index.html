@@ -253,6 +253,7 @@
                         </div>
                         <button type="button" id="btn-sell-all-holdings" class="button-danger">전량 매도 요청</button>
                     </div>
+                    <div id="holding-account-summary" class="ai-strategy-summary holdings-account-summary"></div>
                     <div class="table-responsive">
                         <table id="table-holdings">
                             <thead>
@@ -466,6 +467,10 @@
                             <div class="setting-item">
                                 <span class="label">거래 환경</span>
                                 <strong id="sched-trading-env">-</strong>
+                            </div>
+                            <div class="setting-item" style="grid-column: span 2;">
+                                <span class="label">현재 활성화된 매매 전략</span>
+                                <strong id="sched-active-strategy" style="color: #60a5fa; font-weight: bold;">-</strong>
                             </div>
                         </div>
                     </section>

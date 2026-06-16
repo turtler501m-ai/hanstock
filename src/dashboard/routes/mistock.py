@@ -1484,6 +1484,33 @@ def mistock_scheduler_status():
     run_state_to_return = _mistock_scheduler_run_state.copy()
     if run_state_to_return.get("result"):
         run_state_to_return["result"] = map_mistock_to_kis_format(run_state_to_return["result"])
+
+    active_strategy_id = "mistock-default-v1"
+    active_strategy_name = "미스톡 기본 Seven Split"
+    try:
+        active = mistock_db.row("SELECT * FROM ai_strategies WHERE selected = 1 ORDER BY last_used_at DESC, id DESC LIMIT 1")
+        if active:
+            active_strategy_id = active.get("id") or active_strategy_id
+            active_strategy_name = active.get("name") or active_strategy_id
+    except Exception:
+        pass
+
+    strategy_dispatch = {
+        "enabled_count": 1,
+        "schedule_count": 1,
+        "universe_count": len(mistock_config.universe_list or []),
+        "schedules": [{
+            "strategy_id": active_strategy_id,
+            "enabled": True,
+            "interval_minutes": 60,
+            "start_hm": "2100",
+            "end_hm": "0600",
+            "weekdays": "1-5/2-6",
+            "mode": "execute",
+            "auto_approve": mistock_db.get_setting("auto_approval", "false") == "true",
+            "universe_count": len(mistock_config.universe_list or []),
+        }],
+    }
         
     return {
         "config": {
@@ -1501,7 +1528,10 @@ def mistock_scheduler_status():
             **mistock_trader.runtime_flags(),
         },
         "last_result": last_result,
-        "run_state": run_state_to_return
+        "run_state": run_state_to_return,
+        "active_strategy_id": active_strategy_id,
+        "active_strategy_name": active_strategy_name,
+        "strategy_dispatch": strategy_dispatch,
     }
 
 
