@@ -51,6 +51,51 @@ def _order_delay_seconds() -> float:
     except ValueError:
         return 1.2
 
+
+def _execute_pending_scheduler_approvals() -> list[dict]:
+    pending = mistock_db.rows(
+        """
+        SELECT *
+        FROM approvals
+        WHERE status = 'pending'
+          AND source = 'scheduler'
+        ORDER BY CASE action WHEN 'sell' THEN 0 ELSE 1 END, id
+        LIMIT 50
+        """
+    )
+    processed = []
+    for idx, item in enumerate(pending):
+        result = mistock_trader.place_order(
+            item["symbol"],
+            item["action"],
+            float(item["qty"]),
+            float(item["price"]),
+            reason=item.get("reason") or "scheduler pending approval",
+        )
+        status = "executed" if result.get("ok") else "failed"
+        mistock_db.execute(
+            "UPDATE approvals SET status = ?, updated_at = ?, response_msg = ? WHERE id = ?",
+            (
+                status,
+                mistock_db.now_text(),
+                result.get("message") or result.get("msg1") or status,
+                item["id"],
+            ),
+        )
+        processed.append(
+            {
+                "id": item["id"],
+                "symbol": item["symbol"],
+                "action": item["action"],
+                "qty": float(item["qty"]),
+                "price": float(item["price"]),
+                "result": result,
+            }
+        )
+        if idx < len(pending) - 1:
+            time.sleep(_order_delay_seconds())
+    return processed
+
 def run_mistock_scheduled_cycle(mode: str = "execute") -> dict:
     """
     [미장 자동매매 스케줄러]
@@ -72,6 +117,9 @@ def run_mistock_scheduled_cycle(mode: str = "execute") -> dict:
     flags = mistock_trader.runtime_flags()
     broker_submission_available = mistock_trader.broker_submission_available(balance)
     market_open = is_us_market_open()
+    pending_approved = []
+    if mode == "execute" and auto_approve and broker_submission_available and market_open:
+        pending_approved = _execute_pending_scheduler_approvals()
     
     # 3. 매도 신호 처리 및 주문 집행/대기등록
     sell_sigs = [sig for sig in mistock_trader.signals() if sig["action"] == "sell" and float(sig["signal_qty"]) > 0]
@@ -159,7 +207,7 @@ def run_mistock_scheduled_cycle(mode: str = "execute") -> dict:
             
     order_failures = [
         item
-        for item in sold_items + bought_items
+        for item in pending_approved + sold_items + bought_items
         if not (item.get("result") or {}).get("ok", False)
     ]
     result = {
@@ -169,11 +217,12 @@ def run_mistock_scheduled_cycle(mode: str = "execute") -> dict:
         "candidates": len(candidates),
         "sold": sold_items,
         "bought": bought_items,
+        "pending_approved": pending_approved,
         "plan": orders,
         "errors": [
             {
                 "symbol": item.get("symbol"),
-                "action": "sell" if item in sold_items else "buy",
+                "action": item.get("action") or ("sell" if item in sold_items else "buy"),
                 "message": (item.get("result") or {}).get("msg1")
                 or (item.get("result") or {}).get("message")
                 or "order failed",

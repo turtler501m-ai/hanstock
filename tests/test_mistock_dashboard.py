@@ -485,6 +485,33 @@ class MistockDashboardTests(unittest.TestCase):
         self.assertEqual(len(pending), 1)
         self.assertEqual(pending[0]["symbol"], "AAPL")
 
+    def test_scheduler_executes_pending_scheduler_approvals_when_market_open(self):
+        now = mistock_db.now_text()
+        approval_id = mistock_db.execute(
+            """
+            INSERT INTO approvals (created_at, updated_at, symbol, name, action, qty, price, reason, source, status, response_msg)
+            VALUES (?, ?, 'AAPL', 'Apple', 'buy', 1, 100, 'before market', 'scheduler', 'pending', '')
+            """,
+            (now, now),
+        )
+
+        with patch.object(mistock_trader, "scan_candidates", return_value={"scanned": 1, "candidates": []}), \
+                patch.object(mistock_trader, "get_balance", return_value={"cash": 1000.0, "total_eval": 1000.0}), \
+                patch.object(mistock_trader, "signals", return_value=[]), \
+                patch.object(mistock_trader, "build_orders", return_value=[]), \
+                patch.object(mistock_trader, "broker_submission_available", return_value=True), \
+                patch.object(mistock_trader, "place_order", return_value={"ok": True, "message": "filled"}) as place_order, \
+                patch.object(mistock_db, "get_setting", return_value="true"), \
+                patch.object(mistock_scheduler, "is_us_market_open", return_value=True), \
+                patch.object(mistock_scheduler, "send_mistock_slack"):
+            result = mistock_scheduler.run_mistock_scheduled_cycle(mode="execute")
+
+        row = mistock_db.row("SELECT status, response_msg FROM approvals WHERE id = ?", (approval_id,))
+        self.assertTrue(result["ok"])
+        self.assertEqual(row["status"], "executed")
+        self.assertEqual(result["pending_approved"][0]["symbol"], "AAPL")
+        place_order.assert_called_once_with("AAPL", "buy", 1.0, 100.0, reason="before market")
+
     def test_create_approval_does_not_auto_execute_when_broker_balance_is_fallback(self):
         mistock_db.set_setting("auto_approval", "true")
 
