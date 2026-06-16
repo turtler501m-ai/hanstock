@@ -112,6 +112,32 @@ class SchedulerModeTests(unittest.TestCase):
         sync_status.assert_called_once()
         self.assertEqual(result["order_status_sync"]["updated_count"], 1)
 
+    def test_daily_auto_treats_already_processed_approval_as_done(self):
+        expected = {
+            "results": [
+                {"approval_id": 123, "category": "ai_rebalance"},
+            ]
+        }
+
+        with patch.object(scheduler.trader, "run", return_value=expected), patch(
+            "src.dashboard._approval_by_id",
+            return_value={"id": 123, "status": "executed", "response_msg": "already submitted"},
+        ), patch(
+            "src.dashboard._approve_pending_approval",
+        ) as approve_mock, patch.object(scheduler.time, "sleep"), patch.object(
+            scheduler, "_write_cycle_result"
+        ):
+            result = scheduler.run_scheduled_cycle(mode="daily_auto")
+
+        approve_mock.assert_not_called()
+        self.assertEqual(result["auto_approval_errors"], [])
+        self.assertEqual(result["auto_approved"], [{
+            "id": 123,
+            "status": "executed",
+            "response_msg": "already submitted",
+            "already_processed": True,
+        }])
+
     def test_order_status_sync_failure_is_recorded_without_failing_cycle(self):
         expected = {
             "results": [
