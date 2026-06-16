@@ -2111,6 +2111,15 @@ function removeQueuedHoldingRow(button, payload) {
     }
 }
 
+function removeSellableHoldingRows() {
+    holdingsCache = holdingsCache.filter((holding) => {
+        const qty = Number(holding.qty || 0);
+        const sellableQty = Number(holding.sellable_qty ?? holding.qty ?? 0);
+        return !(qty > 0 && sellableQty > 0);
+    });
+    renderHoldingRows();
+}
+
 function showOrdersTab() {
     const tabEl = document.querySelector('[data-dashboard-tab="orders"]');
     if (tabEl) {
@@ -2193,7 +2202,10 @@ async function sellAllHoldings() {
             `전량 매도 요청 ${result.created_count || 0}건을 등록했습니다. ${details}. ${fillNote}`,
             (result.failed_count || 0) === 0
         );
-        await Promise.all([renderApprovals(), renderTrades(), renderBalance()]);
+        removeSellableHoldingRows();
+        showOrdersTab();
+        scheduleOrderProgressRefresh();
+        await Promise.all([renderApprovals(), renderTrades()]);
     } catch (err) {
         setStatus(`전량 매도 요청 실패: ${err.message}`);
     } finally {
