@@ -2448,8 +2448,10 @@ def _sync_watchlist_from_scan_result(
     watchlist_data: dict,
     scan_result: dict,
     add_threshold: float,
-    keep_threshold: float = WATCHLIST_MIN_SCAN_SCORE,
+    keep_threshold: float | None = None,
 ) -> dict:
+    if keep_threshold is None:
+        keep_threshold = add_threshold
     symbols = list(watchlist_data.get("symbols", []))
     symbol_set = set(symbols)
     scanned_rows = scan_result.get("scan_summary") or scan_result.get("candidates") or []
