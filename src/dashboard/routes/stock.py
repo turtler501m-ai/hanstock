@@ -1091,10 +1091,22 @@ def sell_all_holdings(payload: dict | None = Body(default=None)):
         raise HTTPException(status_code=502, detail=f"KIS balance API request failed: {e}") from e
 
     orders = []
+    skipped = []
     for holding in parsed.get("holdings", []):
         symbol = str(holding.get("symbol", "")).strip()
-        qty = _to_int(holding.get("qty"))
-        if not symbol or qty <= 0:
+        holding_qty = _to_int(holding.get("qty"))
+        sellable_qty = _to_int(holding.get("sellable_qty", holding_qty))
+        qty = min(holding_qty, sellable_qty) if holding_qty > 0 else 0
+        if not symbol:
+            continue
+        if qty <= 0:
+            skipped.append({
+                "symbol": symbol,
+                "name": str(holding.get("name") or symbol),
+                "qty": holding_qty,
+                "sellable_qty": sellable_qty,
+                "reason": "sellable quantity is zero",
+            })
             continue
         orders.append({
             "symbol": symbol,
@@ -1107,7 +1119,13 @@ def sell_all_holdings(payload: dict | None = Body(default=None)):
         })
 
     if not orders:
-        return {"status": "empty", "created_count": 0, "orders": []}
+        return {
+            "status": "empty",
+            "created_count": 0,
+            "skipped_count": len(skipped),
+            "skipped": skipped,
+            "orders": [],
+        }
 
     approval_ids = [_create_approval_row(order) for order in orders]
     created = [{"id": approval_id, "status": "pending"} for approval_id in approval_ids]
@@ -1127,6 +1145,8 @@ def sell_all_holdings(payload: dict | None = Body(default=None)):
         "auto_approved": False,
         "auto_approval_queued": auto_approval_queued,
         "fill_status_note": "KIS 주문 접수 결과입니다. 실제 체결 여부는 주문내역 동기화 후 확정됩니다.",
+        "skipped_count": len(skipped),
+        "skipped": skipped,
         "orders": created,
     }
 

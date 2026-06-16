@@ -861,6 +861,59 @@ class DashboardCoreTests(unittest.TestCase):
             stock_routes._clear_balance_cache = original_clear_balance_cache
             stock_routes._required_env_missing = original_required_env_missing
 
+    def test_sell_all_holdings_uses_sellable_quantity_and_skips_locked_holdings(self):
+        import src.dashboard.routes.stock as stock_routes
+
+        original_db_path = dashboard.trader.config.trade_db_path
+        original_get_api = stock_routes._get_api
+        original_get_balance_data = stock_routes._get_balance_data
+        original_auto_approval = stock_routes._auto_approval_enabled
+        original_clear_balance_cache = stock_routes._clear_balance_cache
+        original_required_env_missing = stock_routes._required_env_missing
+
+        try:
+            with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+                dashboard.trader.config.trade_db_path = f"{tmpdir}/trades.sqlite"
+                stock_routes._get_api = lambda: object()
+                stock_routes._get_balance_data = lambda api, allow_cache=True: {
+                    "output1": [
+                        {
+                            "pdno": "005930",
+                            "prdt_name": "Samsung",
+                            "hldg_qty": "10",
+                            "ord_psbl_qty": "3",
+                            "prpr": "70000",
+                        },
+                        {
+                            "pdno": "000660",
+                            "prdt_name": "SK Hynix",
+                            "hldg_qty": "5",
+                            "ord_psbl_qty": "0",
+                            "prpr": "120000",
+                        },
+                    ],
+                    "output2": [{}],
+                }
+                stock_routes._auto_approval_enabled = lambda: False
+                stock_routes._clear_balance_cache = lambda: None
+                stock_routes._required_env_missing = lambda: []
+
+                result = stock_routes.sell_all_holdings({})
+
+                self.assertEqual(result["created_count"], 1)
+                self.assertEqual(result["skipped_count"], 1)
+                self.assertEqual(result["skipped"][0]["symbol"], "000660")
+                approvals = stock_routes.get_approvals()["approvals"]
+                self.assertEqual(approvals[0]["symbol"], "005930")
+                self.assertEqual(approvals[0]["qty"], 3)
+        finally:
+            dashboard.trader.config.trade_db_path = original_db_path
+            stock_routes._get_api = original_get_api
+            stock_routes._get_balance_data = original_get_balance_data
+            stock_routes._auto_approval_enabled = original_auto_approval
+            stock_routes._clear_balance_cache = original_clear_balance_cache
+            stock_routes._required_env_missing = original_required_env_missing
+
     def test_watchlist_inherits_shared_symbols_for_non_isolated_strategy(self):
         with patch("src.db.repository.load_watchlist_data", return_value={
             "symbols": ["005930", "000660"],

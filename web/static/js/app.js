@@ -867,13 +867,19 @@ function renderHoldingRows() {
 
     sortedHoldings().forEach((holding) => {
         const rtClass = Number(holding.rt || 0) >= 0 ? 'text-success' : 'text-danger';
+        const qty = Number(holding.qty || 0);
+        const sellableQty = Number(holding.sellable_qty ?? holding.qty ?? 0);
+        const canSell = sellableQty > 0;
+        const qtyText = sellableQty !== qty
+            ? `${qty.toLocaleString()} <small class="time-muted">매도가능 ${sellableQty.toLocaleString()}</small>`
+            : qty.toLocaleString();
         const tr = document.createElement('tr');
         tr.innerHTML = `
             <td>
                 <div class="symbol-name">${escapeHtml(holding.name)}</div>
                 <div class="symbol-code">${escapeHtml(holding.symbol)}</div>
             </td>
-            <td>${Number(holding.qty).toLocaleString()}</td>
+            <td>${qtyText}</td>
             <td>${formatCurrency(holding.price)}</td>
             <td>${formatCurrency(holding.value || Number(holding.qty || 0) * Number(holding.price || 0))}</td>
             <td class="${rtClass}">${formatPercent(holding.rt)}</td>
@@ -883,10 +889,12 @@ function renderHoldingRows() {
                     data-symbol="${escapeHtml(holding.symbol)}"
                     data-name="${escapeHtml(holding.name)}"
                     data-action="sell"
-                    data-qty="${Number(holding.qty || 0)}"
+                    data-qty="${sellableQty}"
                     data-price="0"
                     data-reason="dashboard sell current holding"
                     data-source="dashboard_holding_sell"
+                    ${canSell ? '' : 'disabled'}
+                    title="${canSell ? '매도가능수량 전량 매도' : '매도가능수량 없음'}"
                     style="padding:3px 8px;font-size:0.75rem;">전량</button>
             </td>
         `;
@@ -978,13 +986,19 @@ async function renderBalance() {
 
         balance.holdings.forEach((holding, idx) => {
             const rtClass = holding.rt >= 0 ? 'text-success' : 'text-danger';
+            const qty = Number(holding.qty || 0);
+            const sellableQty = Number(holding.sellable_qty ?? holding.qty ?? 0);
+            const canSell = sellableQty > 0;
+            const qtyText = sellableQty !== qty
+                ? `${qty.toLocaleString()} <small class="time-muted">매도가능 ${sellableQty.toLocaleString()}</small>`
+                : qty.toLocaleString();
             const tr = document.createElement('tr');
             tr.innerHTML = `
                 <td>
                     <div class="symbol-name">${escapeHtml(holding.name)}</div>
                     <div class="symbol-code">${escapeHtml(holding.symbol)}</div>
                 </td>
-                <td>${Number(holding.qty).toLocaleString()}</td>
+                <td>${qtyText}</td>
                 <td>${formatCurrency(holding.price)}</td>
                 <td>${formatCurrency(holding.value || Number(holding.qty || 0) * Number(holding.price || 0))}</td>
                 <td class="${rtClass}">${formatPercent(holding.rt)}</td>
@@ -994,10 +1008,12 @@ async function renderBalance() {
                         data-symbol="${escapeHtml(holding.symbol)}"
                         data-name="${escapeHtml(holding.name)}"
                         data-action="sell"
-                        data-qty="${Number(holding.qty || 0)}"
+                        data-qty="${sellableQty}"
                         data-price="0"
                         data-reason="dashboard sell current holding"
                         data-source="dashboard_holding_sell"
+                        ${canSell ? '' : 'disabled'}
+                        title="${canSell ? '매도가능수량 전량 매도' : '매도가능수량 없음'}"
                         style="padding:3px 8px;font-size:0.75rem;">전량</button>
                 </td>
             `;
@@ -2126,7 +2142,8 @@ async function sellAllHoldings() {
             return;
         }
         const submittedCount = result.submitted_count ?? result.executed_count ?? 0;
-        const details = `대기 ${result.pending_count || 0}건, 주문접수 ${submittedCount}건, 실패 ${result.failed_count || 0}건`;
+        const skippedCount = result.skipped_count || 0;
+        const details = `대기 ${result.pending_count || 0}건, 주문접수 ${submittedCount}건, 실패 ${result.failed_count || 0}건, 제외 ${skippedCount}건`;
         const fillNote = result.fill_status_note || '실제 체결 여부는 주문내역 동기화 후 확정됩니다.';
         setStatus(
             `전량 매도 요청 ${result.created_count || 0}건을 등록했습니다. ${details}. ${fillNote}`,

@@ -386,6 +386,20 @@ def _parse_balance(balance_data: dict) -> dict:
     holdings = []
     for stock in stocks:
         qty = _to_int(stock.get("hldg_qty"))
+        sellable_source = stock.get("hldg_qty")
+        for key in (
+            "ord_psbl_qty",
+            "ord_psbl_qty1",
+            "sell_psbl_qty",
+            "sll_psbl_qty",
+            "trad_psbl_qty",
+            "able_qty",
+        ):
+            if key in stock and stock.get(key) not in (None, ""):
+                sellable_source = stock.get(key)
+                break
+        sellable_qty = max(0, _to_int(sellable_source))
+        sellable_qty = min(qty, sellable_qty) if qty > 0 else 0
         price = _to_int(stock.get("prpr"))
         value = _holding_value(stock, qty, price)
         if price <= 0 and qty > 0:
@@ -394,6 +408,7 @@ def _parse_balance(balance_data: dict) -> dict:
             "symbol": stock.get("pdno", ""),
             "name": stock.get("prdt_name", stock.get("pdno", "")),
             "qty": qty,
+            "sellable_qty": sellable_qty,
             "price": price,
             "rt": _to_float(stock.get("evlu_pfls_rt")),
             "pnl": _to_int(stock.get("evlu_pfls_amt")),
