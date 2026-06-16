@@ -18,8 +18,23 @@ class HTTPSession(Protocol):
 
 def _default_session() -> HTTPSession:
     import requests
+    from urllib3.util import Retry
+    from requests.adapters import HTTPAdapter
 
-    return requests.Session()
+    session = requests.Session()
+    session.trust_env = False
+
+    _adapter = HTTPAdapter(
+        max_retries=Retry(
+            total=3,
+            backoff_factor=1.0,
+            status_forcelist=[500, 502, 503, 504],
+            raise_on_status=False
+        )
+    )
+    session.mount("http://", _adapter)
+    session.mount("https://", _adapter)
+    return session
 
 
 @dataclass(frozen=True)

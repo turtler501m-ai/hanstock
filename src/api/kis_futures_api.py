@@ -19,11 +19,25 @@ import requests
 
 from src.config import config
 from src.utils.logger import logger
+from urllib3.util import Retry
+from requests.adapters import HTTPAdapter
 
 
 HTTP = requests.Session()
 HTTP.trust_env = False
 HTTP.headers.update({"User-Agent": "python-requests/2.31.0"})
+
+# Mount HTTPAdapter with automatic retries for transient errors (connection, 500, 502, 503, 504)
+_adapter = HTTPAdapter(
+    max_retries=Retry(
+        total=3,
+        backoff_factor=1.0,
+        status_forcelist=[500, 502, 503, 504],
+        raise_on_status=False
+    )
+)
+HTTP.mount("http://", _adapter)
+HTTP.mount("https://", _adapter)
 
 _KIS_FUTURES_THROTTLE_LOCK = threading.Lock()
 _KIS_FUTURES_LAST_CALL = 0.0

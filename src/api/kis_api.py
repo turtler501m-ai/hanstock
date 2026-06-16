@@ -11,9 +11,23 @@ from src.config import config
 from src.utils.logger import logger
 from src.notifier.slack import slack_error
 from src.online_access import require_online_access
+from urllib3.util import Retry
+from requests.adapters import HTTPAdapter
 
 HTTP = requests.Session()
 HTTP.trust_env = False
+
+# Mount HTTPAdapter with automatic retries for transient errors (connection, 500, 502, 503, 504)
+_adapter = HTTPAdapter(
+    max_retries=Retry(
+        total=3,
+        backoff_factor=1.0,
+        status_forcelist=[500, 502, 503, 504],
+        raise_on_status=False
+    )
+)
+HTTP.mount("http://", _adapter)
+HTTP.mount("https://", _adapter)
 
 # KIS API 전역 스로틀: 초당 최대 1회 요청 강제 (EGW00201 방지)
 _KIS_THROTTLE_LOCK = threading.Lock()

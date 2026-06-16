@@ -371,6 +371,24 @@ def scan_candidates(min_score: int = 2, limit: int | None = None) -> dict[str, A
         except Exception as exc:
             scan_error = str(exc)
     candidates.sort(key=lambda item: (item["score"], item["price"] or 0), reverse=True)
+
+    # AI 자동 추가적용 로직 (스케줄러 주기적 관리 지원)
+    try:
+        if db.get_setting("ai_auto_add", "false") == "true":
+            threshold = float(db.get_setting("ai_auto_add_threshold", "3") or 3)
+            # Add candidates with score >= threshold
+            for candidate in candidates:
+                if candidate["score"] >= threshold:
+                    add_watchlist(candidate["symbol"], candidate["name"])
+            
+            # Remove symbols from watchlist if they were scanned and score < threshold
+            scanned_symbols = {c["symbol"] for c in candidates}
+            for candidate in candidates:
+                if candidate["symbol"] in scanned_symbols and candidate["score"] < threshold:
+                    delete_watchlist(candidate["symbol"])
+    except Exception:
+        pass
+
     return {
         "candidates": candidates,
         "scanned": scanned,

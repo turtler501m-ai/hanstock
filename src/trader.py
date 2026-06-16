@@ -922,6 +922,53 @@ def build_runtime_plan(
                 "scan_error": scan_result.get("scan_error"),
             }
 
+            # AI 자동 추가적용 로직 (스케줄러 주기적 관리 지원)
+            if not halted:
+                from src.db.repository import load_watchlist_data, save_watchlist_data
+                from src.strategy.seven_split import sync_watchlist_runtime
+                try:
+                    watchlist_data = load_watchlist_data()
+                    if watchlist_data.get("ai_auto_add", False):
+                        threshold = float(watchlist_data.get("ai_auto_add_threshold", 3.0))
+                        symbols = list(watchlist_data.get("symbols", []))
+                        symbol_set = set(symbols)
+                        
+                        score_by_symbol = {}
+                        name_by_symbol = {}
+                        for row in scan_result.get("scan_summary", []) or []:
+                            sym = row.get("ticker") or row.get("symbol")
+                            if sym:
+                                score_by_symbol[str(sym)] = float(row.get("score", 0.0) or 0.0)
+                                if row.get("name"):
+                                    name_by_symbol[str(sym)] = row["name"]
+                                    
+                        changed = False
+                        for cand in candidates:
+                            score = float(cand.get("score", 0.0) or 0.0)
+                            if score >= threshold:
+                                sym = str(cand["ticker"])
+                                name_by_symbol.setdefault(sym, cand.get("name") or sym)
+                                if sym not in symbol_set:
+                                    symbols.append(sym)
+                                    symbol_set.add(sym)
+                                    changed = True
+                                    logger.info(f"[WATCHLIST AUTO-ADD] Added {sym} (score={score})")
+                                    
+                        kept_symbols = []
+                        for sym in symbols:
+                            if sym in score_by_symbol and score_by_symbol[sym] < threshold:
+                                changed = True
+                                logger.info(f"[WATCHLIST AUTO-REMOVE] Removed {sym} (score={score_by_symbol[sym]})")
+                                continue
+                            kept_symbols.append(sym)
+                            
+                        if changed:
+                            watchlist_data["symbols"] = kept_symbols
+                            save_watchlist_data(watchlist_data)
+                            sync_watchlist_runtime()
+                except Exception as w_err:
+                    logger.warning(f"Failed to auto-add high score candidate to watchlist in cycle: {w_err}")
+
     plan = build_execution_plan(position_rows=position_rows, candidate_rows=candidate_rows)
     ai_rebalance_rows = []
     if include_ai_rebalance and not halted:
