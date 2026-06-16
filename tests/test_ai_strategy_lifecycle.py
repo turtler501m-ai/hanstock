@@ -54,7 +54,14 @@ class AiStrategyLifecycleTests(unittest.TestCase):
         self.assertEqual(body["active_strategy"]["id"], "lifecycle_rule")
         self.assertFalse(body["active_strategy"]["approval_gate"]["ok"])
         self.assertIn("static verification", body["active_strategy"]["approval_gate"]["missing"])
+        self.assertFalse(body["active_strategy"]["operation_status"]["ready"])
+        self.assertEqual(body["active_strategy"]["operation_status"]["mode"], "blocked")
         self.assertTrue(body["safety"]["require_backtest_pass"])
+
+        list_body = dashboard.get_ai_strategies()
+        listed = list_body["strategies"][0]
+        self.assertFalse(listed["approval_gate"]["ok"])
+        self.assertFalse(listed["operation_status"]["ready"])
 
     def test_strategy_apis_normalize_non_finite_validation_values(self):
         strategy = load_ai_strategies()[0]
@@ -114,6 +121,10 @@ class AiStrategyLifecycleTests(unittest.TestCase):
 
         approved = dashboard.approve_ai_strategy("lifecycle_rule")
         self.assertEqual(approved["strategy"]["status"], "approved")
+
+        context = dashboard.get_strategy_context()
+        self.assertTrue(context["active_strategy"]["approval_gate"]["ok"])
+        self.assertTrue(context["active_strategy"]["operation_status"]["ready"])
 
         loaded = load_ai_strategies()
         found = next(strategy for strategy in loaded if strategy["id"] == "lifecycle_rule")
