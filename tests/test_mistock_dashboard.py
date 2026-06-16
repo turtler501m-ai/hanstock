@@ -469,6 +469,32 @@ class MistockDashboardTests(unittest.TestCase):
         self.assertEqual(result["status"], "pending")
         place_order.assert_not_called()
 
+    def test_create_approval_does_not_auto_execute_before_market_open(self):
+        mistock_db.set_setting("auto_approval", "true")
+
+        with patch.object(mistock_trader, "broker_submission_available", return_value=True), \
+                patch.object(mistock, "_is_mistock_order_window_open", return_value=False), \
+                patch.object(mistock_trader, "place_order") as place_order:
+            result = mistock.mistock_create_approval({
+                "symbol": "AAPL",
+                "name": "Apple",
+                "action": "buy",
+                "qty": 1,
+                "price": 100,
+                "reason": "before market",
+            })
+            with self.assertRaises(mistock.HTTPException) as raised:
+                mistock.mistock_approve(result["id"])
+
+        row = mistock_db.row("SELECT status, response_msg FROM approvals WHERE id = ?", (result["id"],))
+        self.assertEqual(raised.exception.status_code, 409)
+        self.assertTrue(result["ok"])
+        self.assertFalse(result["auto_approved"])
+        self.assertEqual(result["status"], "pending")
+        self.assertEqual(row["status"], "pending")
+        self.assertEqual(row["response_msg"], "")
+        place_order.assert_not_called()
+
     def test_online_access_block_keeps_mistock_approval_pending(self):
         main_config.online_access_blocked = True
         mistock_db.set_setting("auto_approval", "true")

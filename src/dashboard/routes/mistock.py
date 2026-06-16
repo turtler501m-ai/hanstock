@@ -802,6 +802,12 @@ def mistock_execution_plan():
     return mistock_trader.execution_plan()
 
 
+def _is_mistock_order_window_open() -> bool:
+    from src.mistock.scheduler import is_us_market_open
+
+    return is_us_market_open()
+
+
 @router.post("/api/mistock/approvals")
 def mistock_create_approval(payload: dict = Body(...)):
     from src.online_access import is_online_access_blocked
@@ -827,6 +833,7 @@ def mistock_create_approval(payload: dict = Body(...)):
         not is_online_access_blocked()
         and mistock_db.get_setting("auto_approval", "false") == "true"
         and mistock_trader.broker_submission_available()
+        and _is_mistock_order_window_open()
     ):
         if str(payload.get("source") or "") in {"dashboard_holding_sell", "mistock_holding_sell"}:
             _run_mistock_auto_approval_batch_async([approval_id])
@@ -876,6 +883,8 @@ def _execute_approval(approval_id: int, *, approve: bool) -> dict:
         return {**updated, "ok": True}
     if is_online_access_blocked():
         raise HTTPException(status_code=409, detail="Online access is blocked. Approval remains pending.")
+    if not _is_mistock_order_window_open():
+        raise HTTPException(status_code=409, detail="US market is not open. Approval remains pending.")
     result = mistock_trader.place_order(item["symbol"], item["action"], item["qty"], item["price"], item.get("reason") or "")
     status = "executed" if result.get("ok") else "failed"
     mistock_db.execute(
@@ -1552,8 +1561,8 @@ def mistock_reset_circuit():
 
 def _auto_approve_mistock_pending_approvals() -> list[dict]:
     import time
-    from src.mistock.scheduler import is_us_market_open
-    if not is_us_market_open():
+
+    if not _is_mistock_order_window_open():
         logger.info("[MISTOCK] auto-approve skipped: US market is not open")
         return []
     pending = mistock_db.rows("SELECT id FROM approvals WHERE status = 'pending'")
@@ -1577,6 +1586,9 @@ def _auto_approve_mistock_pending_approvals() -> list[dict]:
 
 def _run_mistock_auto_approval_batch_async(approval_ids: list[int]) -> None:
     def worker() -> None:
+        if not _is_mistock_order_window_open():
+            logger.info("[MISTOCK] async auto-approve skipped: US market is not open")
+            return
         for approval_id in approval_ids:
             try:
                 _execute_approval(int(approval_id), approve=True)

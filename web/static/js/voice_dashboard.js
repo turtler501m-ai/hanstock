@@ -25,6 +25,7 @@
     let displayStream = null;
     let audioStream = null;
     let mediaRecorder = null;
+    let isStreaming = false;
     let recordingStartedAt = 0;
     let chunkIndex = 0;
     let activeUploads = 0;
@@ -88,6 +89,7 @@
             <div class="transcript-segment">
                 <div class="segment-time">${formatTime(segment.start)}-${formatTime(segment.end)}</div>
                 <div class="segment-text">${escapeHtml(segment.text)}</div>
+                <button type="button" class="segment-copy-btn" data-text="${escapeHtml(segment.text)}">복사</button>
             </div>
         `).join('');
         transcriptEl.scrollTop = transcriptEl.scrollHeight;
@@ -170,6 +172,13 @@
 
         if (copied) {
             setStatus('인식 결과를 클립보드에 복사했습니다.', 'ok');
+            const prev = copyButton.textContent;
+            copyButton.textContent = '복사됨';
+            copyButton.classList.add('btn-copied');
+            setTimeout(() => {
+                copyButton.textContent = prev;
+                copyButton.classList.remove('btn-copied');
+            }, 1500);
         } else {
             setStatus('자동 복사가 막혔습니다. 아래 텍스트가 선택되어 있으니 Ctrl+C를 누르세요.', 'error');
         }
@@ -355,25 +364,45 @@
             renderSegments([]);
             chunkIndex = 0;
             recordingStartedAt = Date.now();
+            isStreaming = true;
             const mimeType = pickSupportedMimeType();
-            mediaRecorder = new MediaRecorder(audioStream, mimeType ? { mimeType } : undefined);
 
-            mediaRecorder.addEventListener('dataavailable', (event) => {
-                if (!event.data || event.data.size < 512) return;
-                const index = chunkIndex;
-                chunkIndex += 1;
-                uploadStreamChunk(event.data, index);
-            });
-            mediaRecorder.addEventListener('stop', () => {
-                const seconds = Math.round((Date.now() - recordingStartedAt) / 1000);
-                setStatus(`스트림 캡처 중지됨: ${seconds}초`, 'ok');
-            });
+            // stop/restart 패턴: 매 청크마다 새 MediaRecorder를 생성해
+            // WebM 헤더(EBML 초기화 세그먼트)가 항상 포함된 완전한 파일을 만든다.
+            function startChunk() {
+                if (!isStreaming || !audioStream) return;
+                const recorder = new MediaRecorder(audioStream, mimeType ? { mimeType } : undefined);
+                const chunks = [];
+                recorder.addEventListener('dataavailable', (e) => {
+                    if (e.data && e.data.size > 0) chunks.push(e.data);
+                });
+                recorder.addEventListener('stop', () => {
+                    const blob = new Blob(chunks, { type: mimeType || 'audio/webm' });
+                    if (blob.size >= 512) {
+                        const index = chunkIndex;
+                        chunkIndex += 1;
+                        uploadStreamChunk(blob, index);
+                    }
+                    if (isStreaming) {
+                        startChunk();
+                    } else {
+                        mediaRecorder = null;
+                        const seconds = Math.round((Date.now() - recordingStartedAt) / 1000);
+                        setStatus(`스트림 캡처 중지됨: ${seconds}초`, 'ok');
+                    }
+                });
+                recorder.start();
+                mediaRecorder = recorder;
+                setTimeout(() => {
+                    if (recorder.state !== 'inactive') recorder.stop();
+                }, CHUNK_MS);
+            }
 
             displayStream.getTracks().forEach((track) => {
                 track.addEventListener('ended', stopStreamCapture, { once: true });
             });
 
-            mediaRecorder.start(CHUNK_MS);
+            startChunk();
             startStreamButton.disabled = true;
             stopStreamButton.disabled = false;
             clearButton.disabled = false;
@@ -387,6 +416,7 @@
     }
 
     function stopStreamCapture() {
+        isStreaming = false;
         if (mediaRecorder && mediaRecorder.state !== 'inactive') {
             mediaRecorder.stop();
         }
@@ -422,6 +452,41 @@
         transcribeButton.disabled = true;
         clearButton.disabled = true;
     }
+
+    transcriptEl.addEventListener('click', async (e) => {
+        const btn = e.target.closest('.segment-copy-btn');
+        if (!btn) return;
+        const text = btn.dataset.text || '';
+        if (!text) return;
+
+        let copied = false;
+        try {
+            if (navigator.clipboard && window.isSecureContext) {
+                await navigator.clipboard.writeText(text);
+                copied = true;
+            } else {
+                throw new Error('unavailable');
+            }
+        } catch (_err) {
+            const ta = document.createElement('textarea');
+            ta.value = text;
+            ta.style.position = 'fixed';
+            ta.style.left = '-9999px';
+            document.body.appendChild(ta);
+            ta.select();
+            copied = document.execCommand('copy');
+            document.body.removeChild(ta);
+        }
+
+        if (copied) {
+            btn.textContent = '완료';
+            btn.classList.add('copied');
+            setTimeout(() => {
+                btn.textContent = '복사';
+                btn.classList.remove('copied');
+            }, 1200);
+        }
+    });
 
     startStreamButton.addEventListener('click', startStreamCapture);
     stopStreamButton.addEventListener('click', stopStreamCapture);
