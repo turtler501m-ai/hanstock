@@ -3,6 +3,9 @@ let watchlistCache = [];
 let watchlistSortKey = '';
 let watchlistSortAsc = true;
 let watchlistInherited = false;
+let holdingsCache = [];
+let holdingsSortKey = 'value';
+let holdingsSortAsc = false;
 let activeStrategyAuditId = '';
 let schedulerPollInterval = null;
 
@@ -753,6 +756,171 @@ function renderRisk(balance) {
     document.getElementById('risk-loss-usage').textContent = lossUsage > 0 ? `${formatNumber(lossUsage, 1)}% 사용` : '정상';
 }
 
+function renderHoldingAccountSummary(balance, displayTotal, realizedPnl = 0) {
+    const summaryEl = document.getElementById('holding-account-summary');
+    if (!summaryEl) {
+        return;
+    }
+    const stockEval = Number(balance.stock_eval || 0);
+    const cash = Number(balance.cash || 0);
+    const pnl = Number(balance.pnl || 0);
+    const cashRatio = typeof balance.cash_ratio === 'number'
+        ? balance.cash_ratio
+        : (displayTotal > 0 ? cash / displayTotal : 0);
+    const stockRatio = typeof balance.stock_ratio === 'number'
+        ? balance.stock_ratio
+        : (displayTotal > 0 ? stockEval / displayTotal : 0);
+    const count = (balance.holdings || []).length;
+    const source = balance._cache?.stale
+        ? `최근 저장 계좌정보 ${balance._cache.cached_at || ''}`.trim()
+        : '증권앱/KIS 계좌정보';
+
+    summaryEl.innerHTML = `
+        <div>
+            <span>${escapeHtml(source)}</span>
+            <strong>${formatCurrency(displayTotal)}</strong>
+            <small>총 평가금액</small>
+        </div>
+        <div>
+            <span>주식 평가</span>
+            <strong>${formatCurrency(stockEval)}</strong>
+            <small>비중 ${formatNumber(stockRatio * 100, 1)}%</small>
+        </div>
+        <div>
+            <span>예수금</span>
+            <strong>${formatCurrency(cash)}</strong>
+            <small>비중 ${formatNumber(cashRatio * 100, 1)}%</small>
+        </div>
+        <div>
+            <span>평가손익</span>
+            <strong class="${pnl >= 0 ? 'text-success' : 'text-danger'}">${formatCurrency(pnl)}</strong>
+            <small>실현손익 ${formatCurrency(realizedPnl)}</small>
+        </div>
+        <div>
+            <span>보유종목</span>
+            <strong>${formatNumber(count)}개</strong>
+            <small>목록 헤더 클릭 시 정렬</small>
+        </div>
+    `;
+}
+
+function holdingSortValue(holding, key) {
+    if (key === 'name') {
+        return `${holding.name || ''} ${holding.symbol || ''}`.toLowerCase();
+    }
+    if (key === 'symbol') {
+        return String(holding.symbol || '').toLowerCase();
+    }
+    return Number(holding[key] || 0);
+}
+
+function sortedHoldings() {
+    const rows = [...holdingsCache];
+    rows.sort((a, b) => {
+        const av = holdingSortValue(a, holdingsSortKey);
+        const bv = holdingSortValue(b, holdingsSortKey);
+        if (typeof av === 'string' || typeof bv === 'string') {
+            return holdingsSortAsc
+                ? String(av).localeCompare(String(bv), 'ko-KR')
+                : String(bv).localeCompare(String(av), 'ko-KR');
+        }
+        return holdingsSortAsc ? av - bv : bv - av;
+    });
+    return rows;
+}
+
+function updateHoldingSortHeaders() {
+    const headers = document.querySelectorAll('#table-holdings thead th');
+    const headerMap = [
+        { key: 'name', title: '종목' },
+        { key: 'qty', title: '수량' },
+        { key: 'price', title: '현재가' },
+        { key: 'value', title: '평가금액' },
+        { key: 'rt', title: '수익률' },
+        { key: 'pnl', title: '평가손익' },
+    ];
+    headerMap.forEach((item, index) => {
+        const th = headers[index];
+        if (!th) {
+            return;
+        }
+        th.dataset.sort = item.key;
+        th.style.cursor = 'pointer';
+        th.style.userSelect = 'none';
+        th.title = `${item.title} 기준 정렬`;
+        const icon = holdingsSortKey === item.key ? (holdingsSortAsc ? ' ▲' : ' ▼') : '';
+        th.innerHTML = `${escapeHtml(item.title)}<span class="sort-icon">${icon}</span>`;
+    });
+}
+
+function renderHoldingRows() {
+    const tbodyHoldings = document.querySelector('#table-holdings tbody');
+    if (!tbodyHoldings) {
+        return;
+    }
+    tbodyHoldings.innerHTML = '';
+    if (!holdingsCache.length) {
+        setTableMessage('#table-holdings tbody', 7, '보유 종목이 없습니다');
+        updateHoldingSortHeaders();
+        return;
+    }
+
+    sortedHoldings().forEach((holding) => {
+        const rtClass = Number(holding.rt || 0) >= 0 ? 'text-success' : 'text-danger';
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+            <td>
+                <div class="symbol-name">${escapeHtml(holding.name)}</div>
+                <div class="symbol-code">${escapeHtml(holding.symbol)}</div>
+            </td>
+            <td>${Number(holding.qty).toLocaleString()}</td>
+            <td>${formatCurrency(holding.price)}</td>
+            <td>${formatCurrency(holding.value || Number(holding.qty || 0) * Number(holding.price || 0))}</td>
+            <td class="${rtClass}">${formatPercent(holding.rt)}</td>
+            <td class="${rtClass}">${formatCurrency(holding.pnl)}</td>
+            <td>
+                <button type="button" class="button-ghost queue-order"
+                    data-symbol="${escapeHtml(holding.symbol)}"
+                    data-name="${escapeHtml(holding.name)}"
+                    data-action="sell"
+                    data-qty="${Number(holding.qty || 0)}"
+                    data-price="0"
+                    data-reason="dashboard sell current holding"
+                    data-source="dashboard_holding_sell"
+                    style="padding:3px 8px;font-size:0.75rem;">전량</button>
+            </td>
+        `;
+        tbodyHoldings.appendChild(tr);
+    });
+    tbodyHoldings.querySelectorAll('.queue-order').forEach((button) => {
+        button.addEventListener('click', () => createApprovalFromButton(button), { once: true });
+    });
+    updateHoldingSortHeaders();
+}
+
+function bindHoldingSortHeaders() {
+    document.querySelectorAll('#table-holdings thead th').forEach((th) => {
+        if (th.dataset.holdingSortBound === 'true') {
+            return;
+        }
+        th.dataset.holdingSortBound = 'true';
+        th.addEventListener('click', () => {
+            const key = th.dataset.sort;
+            if (!key) {
+                return;
+            }
+            if (holdingsSortKey === key) {
+                holdingsSortAsc = !holdingsSortAsc;
+            } else {
+                holdingsSortKey = key;
+                holdingsSortAsc = key === 'name' || key === 'symbol';
+            }
+            renderHoldingRows();
+        });
+    });
+    updateHoldingSortHeaders();
+}
+
 async function renderBalance() {
     try {
         const [balance, perf] = await Promise.all([
@@ -842,6 +1010,10 @@ async function renderBalance() {
         tbodyHoldings.querySelectorAll('.queue-order').forEach((button) => {
             button.addEventListener('click', () => createApprovalFromButton(button), { once: true });
         });
+        holdingsCache = (balance.holdings || []).map((holding) => ({ ...holding }));
+        renderHoldingAccountSummary(balance, displayTotal, realizedPnl);
+        bindHoldingSortHeaders();
+        renderHoldingRows();
 
         renderPortfolioChart(chartLabels, chartData, chartColors);
         renderRisk(balance);

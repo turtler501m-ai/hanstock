@@ -1024,6 +1024,16 @@ tbody tr:hover {
     word-break: break-word;
 }
 
+.holdings-account-summary {
+    margin-bottom: 1rem;
+}
+
+#table-holdings thead th .sort-icon {
+    color: var(--text-muted);
+    font-size: 0.72rem;
+    margin-left: 0.25rem;
+}
+
 .ai-flow-list {
     display: grid;
     gap: 0.35rem;
