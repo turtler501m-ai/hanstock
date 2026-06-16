@@ -193,6 +193,41 @@ class MistockDashboardTests(unittest.TestCase):
         self.assertEqual(balance["total_eval"], 5000.0)
         self.assertEqual(balance["balance_source"], "demo_config_fallback")
 
+    def test_demo_order_success_updates_dashboard_before_broker_balance_catches_up(self):
+        class FakeClient:
+            def get_overseas_balance(self):
+                return {
+                    "output1": [],
+                    "output2": {},
+                    "output3": {"tot_asst_amt": "0", "frcr_use_psbl_amt": "0.00"},
+                    "rt_cd": "0",
+                }
+
+            def place_overseas_order(self, symbol, action, price, qty):
+                return {"rt_cd": "0", "msg1": "order accepted"}
+
+        object.__setattr__(mistock_config, "trading_env", "demo")
+        original_dry_run = mistock_config.dry_run
+        object.__setattr__(mistock_config, "dry_run", False)
+        object.__setattr__(mistock_config, "total_capital", 1000.0)
+        object.__setattr__(mistock_config, "currency", "USD")
+
+        try:
+            with patch.object(mistock_trader, "_get_kis_client", return_value=FakeClient()):
+                order = mistock_trader.place_order("AAPL", "buy", 2, 100, reason="unit test")
+                balance = mistock.mistock_balance()
+        finally:
+            object.__setattr__(mistock_config, "dry_run", original_dry_run)
+
+        self.assertTrue(order["ok"])
+        self.assertEqual(balance["balance_source"], "demo_local_shadow")
+        self.assertEqual(balance["cash"], 800.0)
+        self.assertEqual(balance["stock_eval"], 200.0)
+        self.assertEqual(balance["total_eval"], 1000.0)
+        self.assertEqual(balance["holdings"][0]["symbol"], "AAPL")
+        self.assertEqual(balance["holdings"][0]["qty"], 2.0)
+        self.assertEqual(balance["holdings"][0]["source"], "local_shadow")
+
     def test_demo_balance_converts_krw_config_capital_to_usd(self):
         class FakeClient:
             def get_overseas_balance(self):
