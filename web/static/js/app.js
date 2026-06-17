@@ -2287,7 +2287,7 @@ async function renderApprovals() {
         if (!tbody) return;
         tbody.innerHTML = '';
         if (!data.approvals.length) {
-            setTableMessage('#table-approvals tbody', 8, '승인 대기 주문이 없습니다');
+            setTableMessage('#table-approvals tbody', 9, '승인 대기 주문이 없습니다');
             return;
         }
 
@@ -2307,6 +2307,7 @@ async function renderApprovals() {
 
             const tr = document.createElement('tr');
             tr.innerHTML = `
+                <td>#${escapeHtml(row.id || '-')}</td>
                 <td>
                     <div>${escapeHtml(String(row.created_at || '').split(' ')[0])}</div>
                     <div class="time-muted">${escapeHtml(String(row.created_at || '').split(' ')[1] || '')}</div>
@@ -2332,7 +2333,7 @@ async function renderApprovals() {
             button.addEventListener('click', () => handleApprovalAction(button, 'reject'));
         });
     } catch (err) {
-        setTableMessage('#table-approvals tbody', 8, err.message);
+        setTableMessage('#table-approvals tbody', 9, err.message);
     }
 }
 
@@ -3142,7 +3143,7 @@ document.addEventListener('DOMContentLoaded', () => {
     setTableMessage('#table-signals tbody', 7, '진단하기를 누르면 보유 종목 신호를 확인합니다');
     setTableMessage('#table-candidates tbody', 9, '찾기를 누르면 관심종목에서 매수 후보를 검색합니다');
     setTableMessage('#table-execution-plan tbody', 8, '불러오기를 누르면 다음 사이클 실행 계획을 표시합니다');
-    setTableMessage('#table-approvals tbody', 8, '승인 대기 주문이 없습니다');
+    setTableMessage('#table-approvals tbody', 9, '승인 대기 주문이 없습니다');
     setTableMessage('#table-ai-allocation tbody', 8, '계산을 누르면 AI 목표 비중을 확인합니다');
     setTableMessage('#table-optimizer tbody', 7, '최적화를 누르면 리스크 기반 목표 비중을 확인합니다');
     
@@ -3352,7 +3353,8 @@ async function renderScheduleInfo() {
             
             // Update daily total summary metrics at the top
             const totalPlanCount = results.length;
-            const totalQueuedCount = results.filter(r => r.decision === 'queue').length;
+            const queuedCreatedCount = results.filter(r => r.decision === 'queue').length;
+            const totalQueuedCount = Math.max(0, queuedCreatedCount - approved.length - approvalErrors.length);
             const totalApprovedCount = approved.filter(a => a.status === 'executed').length;
             const totalFailedCount = approved.filter(a => a.status === 'failed').length + approvalErrors.length + runErrors.length;
             

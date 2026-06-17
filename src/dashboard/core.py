@@ -646,7 +646,7 @@ AUTO_APPROVAL_SWEEP_INTERVAL_SECONDS = int(
 # 이 시간(초)보다 오래 'executing'에 머문 승인은 프로세스 중단 등으로 고아가 된 것으로
 # 보고 failed 처리한다(정상 승인은 수 초 내 완료되므로 넉넉히 잡는다).
 AUTO_APPROVAL_STALE_EXECUTING_SECONDS = int(
-    os.environ.get("DASHBOARD_AUTO_APPROVAL_STALE_EXECUTING_SECONDS", "120")
+    os.environ.get("DASHBOARD_AUTO_APPROVAL_STALE_EXECUTING_SECONDS", "600")
 )
 _auto_approval_sweeper_thread: threading.Thread | None = None
 _auto_approval_sweeper_stop = threading.Event()
@@ -669,7 +669,7 @@ def _reclaim_stale_executing_approvals(max_age_seconds: int | None = None) -> in
                 """
                 UPDATE approvals
                 SET status = 'failed',
-                    response_msg = 'Orphaned in executing state (process interrupted); auto-reclaimed',
+                    response_msg = 'Order was left in Submitting order to broker state; process was interrupted or broker API did not return before timeout. Check KIS order history before retrying.',
                     updated_at = ?
                 WHERE status = 'executing' AND updated_at < ?
                 """,

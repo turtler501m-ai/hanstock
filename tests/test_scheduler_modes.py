@@ -267,6 +267,31 @@ class SchedulerModeTests(unittest.TestCase):
         self.assertIn("점검 시작", send_slack.call_args_list[0].kwargs["text"])
         self.assertIn("정상 완료", send_slack.call_args_list[1].kwargs["text"])
 
+    def test_daily_auto_slack_summary_counts_only_unprocessed_queue(self):
+        expected = {
+            "plan": [{}, {}, {}],
+            "results": [
+                {"approval_id": 123, "category": "ai_rebalance", "decision": "queue"},
+                {"approval_id": 124, "category": "ai_rebalance", "decision": "queue"},
+                {"approval_id": 125, "category": "ai_rebalance", "decision": "queue"},
+            ],
+        }
+
+        with patch.object(scheduler.trader, "run", return_value=expected), patch(
+            "src.dashboard._approve_pending_approval",
+            side_effect=[
+                {"id": 123, "status": "executed"},
+                {"id": 124, "status": "executed"},
+                {"id": 125, "status": "executed"},
+            ],
+        ), patch.object(scheduler.time, "sleep"), patch.object(
+            scheduler, "_write_cycle_result"
+        ), patch.object(scheduler, "send_slack") as send_slack:
+            scheduler.run_scheduled_cycle(mode="daily_auto")
+
+        text = send_slack.call_args_list[-1].kwargs["blocks"][0]["text"]["text"]
+        self.assertIn("계획/승인대기/완료: 3 / 0 / 3", text)
+
     def test_daily_auto_slack_summary_marks_approval_errors(self):
         expected = {"results": [{"approval_id": 123, "category": "ai_rebalance"}]}
 

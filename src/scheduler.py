@@ -219,7 +219,8 @@ def _slack_cycle_result(result: dict, *, mode: str) -> None:
     status = "문제 발생" if failed else "정상 완료"
 
     plan_count = len(result.get("plan", []) or [])
-    queued_count = sum(1 for row in results if row.get("decision") == "queue")
+    queued_created_count = sum(1 for row in results if row.get("decision") == "queue")
+    queued_count = max(0, queued_created_count - len(approved) - len(approval_errors))
     approved_count = sum(1 for row in approved if row.get("status") == "executed")
     failed_approval_count = sum(1 for row in approved if row.get("status") == "failed") + len(approval_errors)
     retry_count = int(result.get("retry_count", 0) or 0)

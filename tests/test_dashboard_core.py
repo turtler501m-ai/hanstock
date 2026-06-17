@@ -654,6 +654,43 @@ class DashboardCoreTests(unittest.TestCase):
             dashboard.trader.TRADING_ENV = original_trading_env
             dashboard.trader.ORDER_SUBMISSION_ENABLED = original_order_submission
 
+    def test_get_approvals_reclaims_stale_executing_orders(self):
+        original_db_path = dashboard.trader.config.trade_db_path
+        original_stale_seconds = dashboard.AUTO_APPROVAL_STALE_EXECUTING_SECONDS
+
+        try:
+            with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+                dashboard.trader.config.trade_db_path = f"{tmpdir}/trades.sqlite"
+                dashboard.AUTO_APPROVAL_STALE_EXECUTING_SECONDS = 0
+                approval_id = dashboard.trader.queue_approval(
+                    "005930",
+                    "Samsung",
+                    "buy",
+                    1,
+                    70000,
+                    "test",
+                )
+                with dashboard.trader.connect_db() as conn:
+                    conn.execute(
+                        """
+                        UPDATE approvals
+                        SET status = 'executing',
+                            response_msg = 'Submitting order to broker',
+                            updated_at = '2000-01-01 00:00:00'
+                        WHERE id = ?
+                        """,
+                        (approval_id,),
+                    )
+
+                approvals = dashboard.get_approvals()["approvals"]
+
+                row = next(item for item in approvals if item["id"] == approval_id)
+                self.assertEqual(row["status"], "failed")
+                self.assertIn("Submitting order to broker", row["response_msg"])
+        finally:
+            dashboard.trader.config.trade_db_path = original_db_path
+            dashboard.AUTO_APPROVAL_STALE_EXECUTING_SECONDS = original_stale_seconds
+
     def test_order_status_sync_marks_submitted_demo_order_filled(self):
         original_db_path = dashboard.trader.config.trade_db_path
         original_dry_run = dashboard.trader.DRY_RUN

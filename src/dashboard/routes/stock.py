@@ -987,6 +987,7 @@ def get_approvals(limit: int = 50):
         raise HTTPException(status_code=400, detail="limit must be greater than 0")
     limit = min(limit, 200)
     auto_approval_enabled = _auto_approval_enabled()
+    _reclaim_stale_executing_approvals()
 
     _init_approval_db()
     with trader.connect_db() as conn:
@@ -1081,7 +1082,7 @@ def _run_auto_approval_batch_async(approval_ids: list[int]) -> None:
 
     import threading
 
-    thread = threading.Thread(target=worker, name="sell-all-auto-approval", daemon=True)
+    thread = threading.Thread(target=worker, name="sell-all-auto-approval", daemon=False)
     thread.start()
 
 

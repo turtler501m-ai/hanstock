@@ -258,6 +258,30 @@ class RuntimePlanTests(unittest.TestCase):
             source="trader",
         )
 
+    def test_execute_plan_row_keeps_router_pending_result_as_queue(self):
+        api = Mock()
+        router = Mock()
+        router.route.return_value = {
+            "ok": True,
+            "msg": "Added to approval queue",
+            "status": "pending",
+            "approval_id": 321,
+        }
+        row = {
+            "symbol": "005930",
+            "name": "Samsung",
+            "action": "buy",
+            "qty": 3,
+            "price": 70000,
+            "reason": "approval required",
+        }
+
+        result = trader.execute_plan_row(api, {"router": router}, row)
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["decision"], "queue")
+        self.assertEqual(result["approval_id"], 321)
+
 
 if __name__ == "__main__":
     unittest.main()

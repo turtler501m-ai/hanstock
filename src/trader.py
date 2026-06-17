@@ -630,7 +630,10 @@ def execute_plan_row(api, context: dict, row: dict) -> dict:
         strategy_id=row.get("strategy_id") or row.get("source"),
     )
     ok = result.get("ok", False)
-    decision = "execute" if ok else "failed"
+    if result.get("status") == "pending" or "approval_id" in result:
+        decision = "queue" if ok else "failed"
+    else:
+        decision = "execute" if ok else "failed"
     ret = {**row, "decision": decision, "ok": ok}
     if "approval_id" in result:
         ret["approval_id"] = result["approval_id"]
