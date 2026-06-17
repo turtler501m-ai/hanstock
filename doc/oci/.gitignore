@@ -1,0 +1,12 @@
+__pycache__/
+*.pyc
+.env
+*.log
+*.lock
+oci-retry-state.json
+oci-capacity-request.json
+shape-*.json
+availability-config.json
+instance-options.json
+cron.log
+report-cron.log
