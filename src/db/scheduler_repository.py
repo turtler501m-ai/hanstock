@@ -87,19 +87,18 @@ def load_latest_scheduler_result() -> dict | None:
     return None
  
  
-def load_today_scheduler_results() -> dict | None:
+def load_recent_scheduler_results(days: int = 30) -> dict | None:
     try:
         init_db()
         with connect_db() as conn:
             conn.row_factory = sqlite3.Row
             
-            from datetime import datetime, timezone, timedelta
-            KST = timezone(timedelta(hours=9))
-            today_str = datetime.now(KST).strftime("%Y-%m-%d")
+            days = max(1, int(days or 30))
+            cutoff_str = (datetime.now(KST) - timedelta(days=days - 1)).strftime("%Y-%m-%d")
             
             c = conn.execute(
-                "SELECT * FROM scheduler_results WHERE recorded_at >= ? ORDER BY recorded_at ASC",
-                (f"{today_str} 00:00:00",)
+                "SELECT * FROM scheduler_results WHERE substr(recorded_at, 1, 10) >= ? ORDER BY replace(recorded_at, 'T', ' ') ASC",
+                (cutoff_str,)
             )
             rows = c.fetchall()
             if not rows:
@@ -121,52 +120,63 @@ def load_today_scheduler_results() -> dict | None:
                 
                 round_num = idx + 1
                 recorded_at_str = row["recorded_at"]
-                time_part = recorded_at_str.replace("T", " ").split(" ")[1][:5]
+                normalized_recorded_at = recorded_at_str.replace("T", " ")
+                date_part = normalized_recorded_at[:10]
+                time_part = normalized_recorded_at.split(" ")[1][:5]
+                display_time = f"{date_part[5:]} {time_part}"
                 
                 # plans / results
                 for item in res_data.get("results", []):
                     item_copy = dict(item)
-                    item_copy["time"] = time_part
+                    item_copy["time"] = display_time
+                    item_copy["run_date"] = date_part
+                    item_copy["run_recorded_at"] = recorded_at_str
                     item_copy["round"] = round_num
                     if "reason" in item_copy and item_copy["reason"]:
-                        item_copy["reason"] = f"[{time_part}] {item_copy['reason']}"
+                        item_copy["reason"] = f"[{display_time}] {item_copy['reason']}"
                     else:
-                        item_copy["reason"] = f"[{time_part}] 스케쥴 분석 결과"
+                        item_copy["reason"] = f"[{display_time}] 스케쥴 분석 결과"
                     merged_results.append(item_copy)
                     
                 # approved / auto_approved
                 for item in res_data.get("auto_approved", []):
                     item_copy = dict(item)
-                    item_copy["time"] = time_part
+                    item_copy["time"] = display_time
+                    item_copy["run_date"] = date_part
+                    item_copy["run_recorded_at"] = recorded_at_str
                     item_copy["round"] = round_num
                     if "response_msg" in item_copy and item_copy["response_msg"]:
-                        item_copy["response_msg"] = f"[{time_part}] {item_copy['response_msg']}"
+                        item_copy["response_msg"] = f"[{display_time}] {item_copy['response_msg']}"
                     else:
-                        item_copy["response_msg"] = f"[{time_part}] 정상 처리"
+                        item_copy["response_msg"] = f"[{display_time}] 정상 처리"
                     merged_approved.append(item_copy)
                     
                 # approval errors
                 for item in res_data.get("auto_approval_errors", []):
                     item_copy = dict(item)
-                    item_copy["time"] = time_part
+                    item_copy["time"] = display_time
+                    item_copy["run_date"] = date_part
+                    item_copy["run_recorded_at"] = recorded_at_str
                     item_copy["round"] = round_num
                     if "message" in item_copy and item_copy["message"]:
-                        item_copy["message"] = f"[{time_part}] {item_copy['message']}"
+                        item_copy["message"] = f"[{display_time}] {item_copy['message']}"
                     else:
-                        item_copy["message"] = f"[{time_part}] 오류 발생"
+                        item_copy["message"] = f"[{display_time}] 오류 발생"
                     merged_approval_errors.append(item_copy)
                     
                 # run errors
                 errors = res_data.get("errors", []) or res_data.get("retry_errors", [])
                 if isinstance(errors, list):
                     for err in errors:
-                        merged_run_errors.append(f"[{time_part}] {err}")
+                        merged_run_errors.append(f"[{display_time}] {err}")
                 elif errors:
-                    merged_run_errors.append(f"[{time_part}] {errors}")
+                    merged_run_errors.append(f"[{display_time}] {errors}")
                     
             return {
                 "mode": latest_mode,
-                "recorded_at": f"{today_str} (당일 전체 집계)",
+                "recorded_at": latest_recorded_at,
+                "summary_label": f"최근 {days}일 전체 집계",
+                "range_days": days,
                 "result": {
                     "results": merged_results,
                     "auto_approved": merged_approved,
@@ -177,8 +187,12 @@ def load_today_scheduler_results() -> dict | None:
                 }
             }
     except (sqlite3.Error, OSError, ValueError, TypeError) as e:
-        logger.warning(f"Failed to load today scheduler results from DB: {e}")
+        logger.warning(f"Failed to load recent scheduler results from DB: {e}")
     return None
+
+
+def load_today_scheduler_results() -> dict | None:
+    return load_recent_scheduler_results(days=1)
 
 
 def load_auto_approval_state() -> bool:
@@ -495,4 +509,4 @@ def reconstruct_strategy_positions(strategy_id: str, env: str | None = None) -> 
                 pos["qty"] = 0
                 pos["avg_cost"] = 0.0
     return [p for p in positions.values() if p["qty"] > 0 or p["realized_pnl"]]
-__all__ = ['KST', 'save_scheduler_result', 'load_latest_scheduler_result', 'load_today_scheduler_results', 'load_auto_approval_state', 'save_auto_approval_state', 'save_account_snapshot', 'load_account_snapshot', 'delete_account_snapshot', '_SCHEDULE_DEFAULTS', '_schedule_row_to_dict', 'load_strategy_schedule', 'list_strategy_schedules', 'save_strategy_schedule', 'mark_strategy_schedule_run', '_weekday_matches', 'is_schedule_due', 'load_strategy_universe', 'load_strategy_universe_symbols', 'add_strategy_universe_symbol', 'remove_strategy_universe_symbol', 'reconstruct_strategy_positions']
+__all__ = ['KST', 'save_scheduler_result', 'load_latest_scheduler_result', 'load_recent_scheduler_results', 'load_today_scheduler_results', 'load_auto_approval_state', 'save_auto_approval_state', 'save_account_snapshot', 'load_account_snapshot', 'delete_account_snapshot', '_SCHEDULE_DEFAULTS', '_schedule_row_to_dict', 'load_strategy_schedule', 'list_strategy_schedules', 'save_strategy_schedule', 'mark_strategy_schedule_run', '_weekday_matches', 'is_schedule_due', 'load_strategy_universe', 'load_strategy_universe_symbols', 'add_strategy_universe_symbol', 'remove_strategy_universe_symbol', 'reconstruct_strategy_positions']

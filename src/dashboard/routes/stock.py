@@ -1615,8 +1615,8 @@ def get_scheduler_status(strategy_id: str | None = None):
     
     last_result = None
     try:
-        from src.db.repository import load_today_scheduler_results, load_latest_scheduler_result
-        last_result = load_today_scheduler_results()
+        from src.db.repository import load_recent_scheduler_results, load_latest_scheduler_result
+        last_result = load_recent_scheduler_results(days=30)
         if last_result is None:
             last_result = load_latest_scheduler_result()
     except Exception:

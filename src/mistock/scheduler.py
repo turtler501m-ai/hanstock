@@ -242,13 +242,23 @@ def run_mistock_scheduled_cycle(mode: str = "execute") -> dict:
     
     # 누적 기록 파일에도 크로노그래피컬하게 누적 저장 (VM 크론탭 실행 누락 방지)
     today_path = Path(".runtime/mistock/daily_auto_today_results.json")
-    today_str = datetime.now(KST).strftime("%Y-%m-%d")
+    cutoff_date = (datetime.now(KST) - timedelta(days=29)).date()
     today_runs = []
     if today_path.exists():
         try:
             data = json.loads(today_path.read_text(encoding="utf-8"))
             if isinstance(data, list):
-                today_runs = [r for r in data if r.get("recorded_at", "").startswith(today_str)]
+                for run in data:
+                    try:
+                        run_time = datetime.fromisoformat(str(run.get("recorded_at", "")).replace("Z", "+00:00"))
+                    except ValueError:
+                        continue
+                    if run_time.tzinfo is None:
+                        run_time = run_time.replace(tzinfo=KST)
+                    else:
+                        run_time = run_time.astimezone(KST)
+                    if run_time.date() >= cutoff_date:
+                        today_runs.append(run)
         except Exception:
             pass
             

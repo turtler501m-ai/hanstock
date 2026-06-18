@@ -3344,7 +3344,10 @@ async function renderScheduleInfo() {
         const lastResult = data.last_result;
         if (lastResult) {
             const timeEl = document.getElementById('sched-last-run-time');
-            if (timeEl) timeEl.textContent = `최종 실행: ${formatKstTime(lastResult.recorded_at)}`;
+            if (timeEl) {
+                const summaryLabel = lastResult.summary_label || '최근 실행';
+                timeEl.textContent = `${summaryLabel} · 최종 실행: ${formatKstTime(lastResult.recorded_at)}`;
+            }
             
             const results = lastResult.result.results || [];
             const approved = lastResult.result.auto_approved || [];

@@ -64,6 +64,38 @@ class SchedulerApiTests(unittest.TestCase):
         self.assertEqual(status["active_strategy_id"], "selected_strategy")
         self.assertEqual(status["active_strategy_name"], "Selected")
 
+    def test_get_scheduler_status_merges_last_30_days_scheduler_results(self):
+        from datetime import datetime, timedelta
+        from src.db.scheduler_repository import KST
+        from src.db.repository import save_scheduler_result
+
+        today = datetime.now(KST)
+        in_range_day = today - timedelta(days=10)
+        old_day = today - timedelta(days=40)
+        save_scheduler_result(
+            "execute",
+            f"{in_range_day.strftime('%Y-%m-%d')}T09:00:00+09:00",
+            {"results": [{"symbol": "005930", "reason": "first"}], "auto_approved": []},
+        )
+        save_scheduler_result(
+            "execute",
+            f"{today.strftime('%Y-%m-%d')} 10:00:00",
+            {"results": [{"symbol": "000660", "reason": "second"}], "auto_approved": []},
+        )
+        save_scheduler_result(
+            "execute",
+            f"{old_day.strftime('%Y-%m-%d')} 10:00:00",
+            {"results": [{"symbol": "035420", "reason": "old"}], "auto_approved": []},
+        )
+
+        status = get_scheduler_status()
+        rows = status["last_result"]["result"]["results"]
+
+        self.assertEqual([row["symbol"] for row in rows], ["005930", "000660"])
+        self.assertEqual([row["round"] for row in rows], [1, 2])
+        self.assertEqual(status["last_result"]["range_days"], 30)
+        self.assertIn("run_date", rows[0])
+
     @patch("src.dashboard.threading.Thread")
     def test_trigger_scheduler_run_starts_background_thread(self, mock_thread):
         mock_thread_instance = MagicMock()

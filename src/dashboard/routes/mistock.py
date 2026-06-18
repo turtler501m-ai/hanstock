@@ -1262,6 +1262,21 @@ def map_mistock_to_kis_format(mistock_result: dict) -> dict:
             "price": s["price"],
             "message": msg1
         })
+
+    # Map pending approvals that were executed at the start of this cycle.
+    for p in mistock_result.get("pending_approved", []):
+        p_res = p.get("result") or {}
+        ok = p_res.get("ok", True)
+        msg1 = p_res.get("message") or p_res.get("msg1") or ("pending approval executed" if ok else "pending approval failed")
+        auto_approved.append({
+            "approval_id": p.get("id"),
+            "symbol": p.get("symbol"),
+            "action": p.get("action"),
+            "status": "executed" if ok else "failed",
+            "qty": p.get("qty"),
+            "price": p.get("price"),
+            "message": msg1
+        })
         
     # 2. Map 'bought' items
     for b in mistock_result.get("bought", []):
@@ -1313,7 +1328,7 @@ def map_mistock_to_kis_format(mistock_result: dict) -> dict:
         "results": results,
         "auto_approved": auto_approved,
         "auto_approval_errors": [],
-        "errors": [],
+        "errors": mistock_result.get("errors", []),
         "scanned": mistock_result.get("scanned", 0),
         "candidates": mistock_result.get("candidates", 0)
     }
@@ -1322,7 +1337,7 @@ def map_mistock_to_kis_format(mistock_result: dict) -> dict:
 def save_mistock_daily_run(recorded_at: str, mode: str, result: dict):
     from datetime import datetime, timezone, timedelta
     KST = timezone(timedelta(hours=9))
-    today_str = datetime.now(KST).strftime("%Y-%m-%d")
+    cutoff_date = (datetime.now(KST) - timedelta(days=29)).date()
     
     path = Path(".runtime/mistock/daily_auto_today_results.json")
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -1332,10 +1347,9 @@ def save_mistock_daily_run(recorded_at: str, mode: str, result: dict):
         try:
             data = json.loads(path.read_text(encoding="utf-8"))
             if isinstance(data, list):
-                # Filter to keep only today's runs (KST)
                 for run in data:
-                    run_time_str = run.get("recorded_at", "")
-                    if run_time_str.startswith(today_str):
+                    run_time = _parse_mistock_iso_datetime(run.get("recorded_at"))
+                    if run_time is not None and run_time.date() >= cutoff_date:
                         existing_runs.append(run)
         except Exception:
             pass
@@ -1349,10 +1363,11 @@ def save_mistock_daily_run(recorded_at: str, mode: str, result: dict):
     path.write_text(json.dumps(existing_runs, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
 
 
-def load_mistock_daily_runs() -> list:
+def load_mistock_daily_runs(days: int = 30) -> list:
     from datetime import datetime, timezone, timedelta
     KST = timezone(timedelta(hours=9))
-    today_str = datetime.now(KST).strftime("%Y-%m-%d")
+    days = max(1, int(days or 30))
+    cutoff_date = (datetime.now(KST) - timedelta(days=days - 1)).date()
     
     runs_path = Path(".runtime/mistock/daily_auto_today_results.json")
     runs = []
@@ -1361,8 +1376,8 @@ def load_mistock_daily_runs() -> list:
             data = json.loads(runs_path.read_text(encoding="utf-8"))
             if isinstance(data, list):
                 for run in data:
-                    run_time_str = run.get("recorded_at", "")
-                    if run_time_str.startswith(today_str):
+                    run_time = _parse_mistock_iso_datetime(run.get("recorded_at"))
+                    if run_time is not None and run_time.date() >= cutoff_date:
                         runs.append(run)
         except Exception:
             pass
@@ -1373,7 +1388,8 @@ def load_mistock_daily_runs() -> list:
             last_run = json.loads(last_path.read_text(encoding="utf-8"))
             if isinstance(last_run, dict) and "recorded_at" in last_run:
                 last_recorded = last_run["recorded_at"]
-                if last_recorded.startswith(today_str):
+                last_recorded_at = _parse_mistock_iso_datetime(last_recorded)
+                if last_recorded_at is not None and last_recorded_at.date() >= cutoff_date:
                     if not any(r.get("recorded_at") == last_recorded for r in runs):
                         runs.append({
                             "recorded_at": last_recorded,
@@ -1385,8 +1401,22 @@ def load_mistock_daily_runs() -> list:
         except Exception:
             pass
             
-    runs.sort(key=lambda r: r.get("recorded_at", ""))
-    return runs
+    unique_runs = []
+    seen_recent = {}
+    for run in sorted(runs, key=lambda r: r.get("recorded_at", "")):
+        try:
+            result_key = json.dumps(run.get("result"), ensure_ascii=False, sort_keys=True, default=str)
+        except Exception:
+            result_key = str(run.get("result"))
+        key = (run.get("mode"), result_key)
+        recorded_at = _parse_mistock_iso_datetime(run.get("recorded_at"))
+        previous_at = seen_recent.get(key)
+        if recorded_at is not None and previous_at is not None and abs((recorded_at - previous_at).total_seconds()) <= 5:
+            continue
+        if recorded_at is not None:
+            seen_recent[key] = recorded_at
+        unique_runs.append(run)
+    return unique_runs
 
 
 def merge_mistock_runs_to_kis_format(runs: list) -> dict | None:
@@ -1395,6 +1425,7 @@ def merge_mistock_runs_to_kis_format(runs: list) -> dict | None:
         
     merged_results = []
     merged_approved = []
+    merged_errors = []
     
     latest_recorded_at = runs[-1]["recorded_at"]
     latest_mode = runs[-1]["mode"]
@@ -1402,27 +1433,53 @@ def merge_mistock_runs_to_kis_format(runs: list) -> dict | None:
     for idx, run in enumerate(runs):
         round_num = idx + 1
         recorded_at_str = run["recorded_at"]
-        time_part = recorded_at_str.replace("T", " ").split(" ")[1][:5]
+        normalized_recorded_at = recorded_at_str.replace("T", " ")
+        date_part = normalized_recorded_at[:10]
+        time_part = normalized_recorded_at.split(" ")[1][:5]
+        display_time = f"{date_part[5:]} {time_part}"
         
         raw_result = run["result"]
         mapped = map_mistock_to_kis_format(raw_result)
         
         for item in mapped.get("results", []):
             item_copy = dict(item)
-            item_copy["time"] = time_part
+            item_copy["time"] = display_time
+            item_copy["run_date"] = date_part
+            item_copy["run_recorded_at"] = recorded_at_str
             item_copy["round"] = round_num
-            item_copy["reason"] = f"[{time_part}] {item_copy['reason']}"
+            item_copy["reason"] = f"[{display_time}] {item_copy['reason']}"
             merged_results.append(item_copy)
             
         for item in mapped.get("auto_approved", []):
             item_copy = dict(item)
-            item_copy["time"] = time_part
+            item_copy["time"] = display_time
+            item_copy["run_date"] = date_part
+            item_copy["run_recorded_at"] = recorded_at_str
             item_copy["round"] = round_num
-            item_copy["message"] = f"[{time_part}] {item_copy['message']}"
+            item_copy["message"] = f"[{display_time}] {item_copy.get('message') or item_copy.get('response_msg') or ''}"
             merged_approved.append(item_copy)
+
+        errors = mapped.get("errors", [])
+        if isinstance(errors, list):
+            for err in errors:
+                if isinstance(err, dict):
+                    err_copy = dict(err)
+                    err_copy["time"] = display_time
+                    err_copy["run_date"] = date_part
+                    err_copy["run_recorded_at"] = recorded_at_str
+                    err_copy["round"] = round_num
+                    if err_copy.get("message"):
+                        err_copy["message"] = f"[{display_time}] {err_copy['message']}"
+                    merged_errors.append(err_copy)
+                else:
+                    merged_errors.append(f"[{display_time}] {err}")
+        elif errors:
+            merged_errors.append(f"[{display_time}] {errors}")
             
     return {
         "recorded_at": latest_recorded_at,
+        "summary_label": "최근 30일 전체 집계",
+        "range_days": 30,
         "mode": latest_mode,
         "result": {
             "status": "success",
@@ -1430,7 +1487,7 @@ def merge_mistock_runs_to_kis_format(runs: list) -> dict | None:
             "results": merged_results,
             "auto_approved": merged_approved,
             "auto_approval_errors": [],
-            "errors": [],
+            "errors": merged_errors,
             "scanned": runs[-1]["result"].get("scanned", 0),
             "candidates": runs[-1]["result"].get("candidates", 0)
         }
@@ -1441,7 +1498,10 @@ def _parse_mistock_iso_datetime(value: object) -> datetime | None:
     if not value:
         return None
     try:
-        return datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        if parsed.tzinfo is None:
+            return parsed.replace(tzinfo=timezone(timedelta(hours=9)))
+        return parsed.astimezone(timezone(timedelta(hours=9)))
     except ValueError:
         return None
 
@@ -1477,7 +1537,7 @@ def mistock_scheduler_status():
     global _mistock_scheduler_run_state
     _mistock_scheduler_run_state.refresh()
     
-    runs = load_mistock_daily_runs()
+    runs = load_mistock_daily_runs(days=30)
     last_result = merge_mistock_runs_to_kis_format(runs)
     _clear_stale_mistock_scheduler_error(last_result)
         

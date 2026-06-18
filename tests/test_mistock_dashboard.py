@@ -402,6 +402,65 @@ class MistockDashboardTests(unittest.TestCase):
         self.assertEqual(result["run_state"]["completed_at"], "2026-06-16T05:00:26+09:00")
         self.assertTrue(result["last_result"]["result"]["ok"])
 
+    def test_mistock_scheduler_status_merges_all_daily_run_details(self):
+        runs = [
+            {
+                "recorded_at": "2026-06-18T01:00:00+09:00",
+                "mode": "execute",
+                "result": {
+                    "status": "success",
+                    "ok": True,
+                    "scanned": 10,
+                    "candidates": 1,
+                    "sold": [],
+                    "bought": [
+                        {"symbol": "AAPL", "qty": 1, "price": 100, "result": {"ok": True, "message": "filled"}}
+                    ],
+                    "pending_approved": [],
+                    "plan": [],
+                    "errors": [],
+                },
+            },
+            {
+                "recorded_at": "2026-06-18T02:00:00+09:00",
+                "mode": "execute",
+                "result": {
+                    "status": "failed",
+                    "ok": False,
+                    "scanned": 20,
+                    "candidates": 2,
+                    "sold": [],
+                    "bought": [],
+                    "pending_approved": [
+                        {
+                            "id": 7,
+                            "symbol": "MSFT",
+                            "action": "buy",
+                            "qty": 2,
+                            "price": 200,
+                            "result": {"ok": True, "message": "pending filled"},
+                        }
+                    ],
+                    "plan": [{"symbol": "NVDA", "quantity": 1, "price": 300, "reason": "candidate"}],
+                    "errors": [{"symbol": "TSLA", "message": "broker rejected"}],
+                },
+            },
+        ]
+
+        with patch("src.dashboard.routes.mistock.load_mistock_daily_runs", return_value=runs) as load_runs:
+            result = mistock.mistock_scheduler_status()
+
+        last = result["last_result"]["result"]
+        load_runs.assert_called_once_with(days=30)
+        self.assertEqual(result["last_result"]["range_days"], 30)
+        self.assertEqual(result["last_result"]["summary_label"], "최근 30일 전체 집계")
+        self.assertEqual([row["symbol"] for row in last["results"]], ["AAPL", "NVDA"])
+        self.assertEqual([row["symbol"] for row in last["auto_approved"]], ["AAPL", "MSFT"])
+        self.assertEqual(last["errors"][0]["symbol"], "TSLA")
+        self.assertEqual(last["results"][0]["round"], 1)
+        self.assertEqual(last["results"][1]["round"], 2)
+        self.assertEqual(last["results"][0]["time"], "06-18 01:00")
+
     def test_mistock_easy_preset_uses_nasdaq_profile_and_selects_strategy(self):
         result = mistock.mistock_apply_ai_strategy_preset("aggressive")
         strategies = mistock.mistock_ai_strategies()["strategies"]
