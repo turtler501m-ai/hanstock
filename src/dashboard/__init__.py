@@ -10,6 +10,7 @@ import src.dashboard.routes.settings as settings
 import src.dashboard.routes.stock as stock
 import src.dashboard.routes.mistock as mistock
 import src.dashboard.routes.plunge_bounce as plunge_bounce
+import src.dashboard.routes.narrative_momentum as narrative_momentum
 
 for route_module in [
     pages,
@@ -20,11 +21,12 @@ for route_module in [
     stock,
     mistock,
     plunge_bounce,
+    narrative_momentum,
 ]:
     app.include_router(route_module.router)
 
 # Dynamically expose all names from core and all route files for backward compatibility
 import src.dashboard.core as _core
 
-for mod in [_core, pages, account, futures, quantconnect, settings, stock, mistock, plunge_bounce]:
+for mod in [_core, pages, account, futures, quantconnect, settings, stock, mistock, plunge_bounce, narrative_momentum]:
     globals().update({k: v for k, v in mod.__dict__.items() if not k.startswith("__")})

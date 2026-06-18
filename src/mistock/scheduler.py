@@ -104,7 +104,12 @@ def run_mistock_scheduled_cycle(mode: str = "execute") -> dict:
     logger.info(f"[MISTOCK SCHEDULER] Starting scheduled cycle. Mode={mode}")
     
     # 1. 시세 조회 및 후보 종목 스캔
-    scan = mistock_trader.scan_candidates(min_score=2, limit=mistock_config.scan_universe_size)
+    min_score = (
+        int(mistock_config.indicator_min_score or 4)
+        if str(mistock_config.strategy_model or "").lower() == "macd_rsi_momentum"
+        else 2
+    )
+    scan = mistock_trader.scan_candidates(min_score=min_score, limit=mistock_config.scan_universe_size)
     candidates = scan["candidates"]
     logger.info(f"[MISTOCK SCHEDULER] Scanned {scan['scanned']} symbols. Found {len(candidates)} candidates.")
     

@@ -767,6 +767,108 @@ async function renderConfig() {
     }
 }
 
+function fillIndicatorStrategyForm(data) {
+    const form = document.getElementById('indicator-strategy-form');
+    if (!form || !data) return;
+    const enabled = form.querySelector('[name="enabled"]');
+    const minScore = form.querySelector('[name="min_score"]');
+    const rsiMin = form.querySelector('[name="rsi_entry_min"]');
+    const rsiMax = form.querySelector('[name="rsi_entry_max"]');
+    const volumeRatio = form.querySelector('[name="volume_ratio"]');
+    if (enabled) enabled.value = data.enabled ? 'true' : 'false';
+    if (minScore) minScore.value = data.min_score ?? 4;
+    if (rsiMin) rsiMin.value = data.rsi_entry_min ?? 50;
+    if (rsiMax) rsiMax.value = data.rsi_entry_max ?? 70;
+    if (volumeRatio) volumeRatio.value = data.volume_ratio ?? 1.3;
+}
+
+function renderIndicatorStrategySummary(data) {
+    if (!data) return;
+    setElementText('indicator-strategy-enabled', data.enabled ? '사용 중' : '사용 안 함');
+    setElementText('indicator-strategy-model', data.model || 'default');
+    setElementText('indicator-strategy-min-score', `${data.min_score ?? 4}점`);
+    setElementText('indicator-strategy-rsi-range', `${data.rsi_entry_min ?? 50}~${data.rsi_entry_max ?? 70}`);
+    setElementText('indicator-strategy-volume', `${formatNumber(data.volume_ratio ?? 1.3, 1)}x`);
+    const rulesEl = document.getElementById('indicator-strategy-rules');
+    if (rulesEl) {
+        const rules = Array.isArray(data.rules) ? data.rules : [];
+        rulesEl.innerHTML = rules.map((rule) => `<span>${escapeHtml(rule)}</span>`).join('');
+    }
+}
+
+async function renderIndicatorStrategy() {
+    try {
+        const data = await fetchJson('/api/mistock/indicator-strategy');
+        fillIndicatorStrategyForm(data);
+        renderIndicatorStrategySummary(data);
+        setTableMessage('#table-indicator-strategy tbody', 7, '스캔 테스트를 누르면 MACD+RSI 후보를 확인합니다');
+    } catch (err) {
+        setStatus(`지표전략 불러오기 실패: ${err.message}`);
+    }
+}
+
+async function saveIndicatorStrategy() {
+    const form = document.getElementById('indicator-strategy-form');
+    if (!form) return;
+    const payload = {
+        enabled: form.querySelector('[name="enabled"]')?.value === 'true',
+        min_score: Number(form.querySelector('[name="min_score"]')?.value || 4),
+        rsi_entry_min: Number(form.querySelector('[name="rsi_entry_min"]')?.value || 50),
+        rsi_entry_max: Number(form.querySelector('[name="rsi_entry_max"]')?.value || 70),
+        volume_ratio: Number(form.querySelector('[name="volume_ratio"]')?.value || 1.3),
+    };
+    setButtonBusy('btn-indicator-strategy-save', true);
+    try {
+        const result = await postJson('/api/mistock/indicator-strategy', payload);
+        renderIndicatorStrategySummary(result);
+        fillIndicatorStrategyForm(result);
+        await renderConfig();
+        setStatus(`지표전략을 ${result.enabled ? '적용' : '해제'}했습니다.`, true);
+    } catch (err) {
+        setStatus(`지표전략 저장 실패: ${err.message}`);
+    } finally {
+        setButtonBusy('btn-indicator-strategy-save', false);
+    }
+}
+
+async function scanIndicatorStrategy() {
+    const form = document.getElementById('indicator-strategy-form');
+    const minScore = Number(form?.querySelector('[name="min_score"]')?.value || 4);
+    setButtonBusy('btn-indicator-strategy-scan', true);
+    setTableMessage('#table-indicator-strategy tbody', 7, 'MACD+RSI 후보를 검색하고 있습니다...');
+    try {
+        const data = await postJson('/api/mistock/indicator-strategy/scan', { min_score: minScore, limit: 50 });
+        const tbody = document.querySelector('#table-indicator-strategy tbody');
+        if (!tbody) return;
+        tbody.innerHTML = '';
+        const rows = data.candidates || [];
+        if (!rows.length) {
+            setTableMessage('#table-indicator-strategy tbody', 7, `조건을 만족한 후보가 없습니다. 분석 ${data.scanned || 0}종목`);
+        } else {
+            rows.forEach((row) => {
+                const tr = document.createElement('tr');
+                const reasons = Array.isArray(row.reasons) ? row.reasons : String(row.reasons || '').split(',').filter(Boolean);
+                tr.innerHTML = `
+                    <td><strong>${escapeHtml(row.symbol || row.ticker || '-')}</strong><br><span class="time-muted">${escapeHtml(row.name || '')}</span></td>
+                    <td>${escapeHtml(formatNumber(row.score || 0, 1))}</td>
+                    <td>${escapeHtml(formatNumber(row.rsi || 0, 1))} / ${escapeHtml(formatNumber(row.rsi2 || 0, 1))}</td>
+                    <td>${escapeHtml(formatNumber(row.macd_hist || 0, 4))}</td>
+                    <td>${escapeHtml(formatCurrency(row.price || 0))}</td>
+                    <td>${escapeHtml(row.planned_qty || row.qty || 0)}</td>
+                    <td>${reasons.map((reason) => `<span class="reason-chip">${escapeHtml(strategyReasonLabel(reason))}</span>`).join(' ')}</td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+        setStatus(`지표전략 스캔 완료: ${rows.length}개 후보 / ${data.scanned || 0}종목 분석`, true);
+    } catch (err) {
+        setTableMessage('#table-indicator-strategy tbody', 7, err.message);
+        setStatus(`지표전략 스캔 실패: ${err.message}`);
+    } finally {
+        setButtonBusy('btn-indicator-strategy-scan', false);
+    }
+}
+
 function renderRisk(balance) {
     const holdingValue = (balance.holdings || []).reduce((sum, holding) => {
         return sum + Number(holding.value || (Number(holding.qty || 0) * Number(holding.price || 0)));
@@ -1809,9 +1911,11 @@ async function renderCandidates() {
     try {
         const strategyId = document.getElementById('select-ai-ranker')?.value || localStorage.getItem('mistock_ai_ranker') || '';
         const optimizer = document.getElementById('select-portfolio-optimizer')?.value || 'score_tilted_inverse_vol';
+        const indicator = latestConfig?.indicator_strategy || {};
+        const minScore = indicator.enabled ? Number(indicator.min_score || 4) : 2;
         const query = strategyId
-            ? `/api/mistock/candidates?min_score=2&strategy_id=${encodeURIComponent(strategyId)}&optimizer=${encodeURIComponent(optimizer)}`
-            : `/api/mistock/candidates?min_score=2&ranker=rule_only&optimizer=${encodeURIComponent(optimizer)}`;
+            ? `/api/mistock/candidates?min_score=${encodeURIComponent(minScore)}&strategy_id=${encodeURIComponent(strategyId)}&optimizer=${encodeURIComponent(optimizer)}`
+            : `/api/mistock/candidates?min_score=${encodeURIComponent(minScore)}&ranker=rule_only&optimizer=${encodeURIComponent(optimizer)}`;
         const data = await fetchJson(query, 45000);
         const tbody = document.querySelector('#table-candidates tbody');
         if (!tbody) return;
@@ -2800,6 +2904,7 @@ async function fetchDashboardData() {
         syncStrategiesToDropdown(),
         renderStrategyContext(),
         renderAiStrategies(),
+        renderIndicatorStrategy(),
         renderWatchlist()
     ]);
 }
@@ -3045,6 +3150,14 @@ document.addEventListener('DOMContentLoaded', () => {
     if (btnCandidates) {
         btnCandidates.addEventListener('click', renderCandidates);
     }
+    const btnIndicatorSave = document.getElementById('btn-indicator-strategy-save');
+    if (btnIndicatorSave) {
+        btnIndicatorSave.addEventListener('click', saveIndicatorStrategy);
+    }
+    const btnIndicatorScan = document.getElementById('btn-indicator-strategy-scan');
+    if (btnIndicatorScan) {
+        btnIndicatorScan.addEventListener('click', scanIndicatorStrategy);
+    }
     const btnExecutionPlan = document.getElementById('btn-execution-plan');
     if (btnExecutionPlan) {
         btnExecutionPlan.addEventListener('click', renderExecutionPlan);
@@ -3080,6 +3193,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     setTableMessage('#table-signals tbody', 7, '진단하기를 누르면 보유 종목 신호를 확인합니다');
     setTableMessage('#table-candidates tbody', 9, '찾기를 누르면 관심종목에서 매수 후보를 검색합니다');
+    setTableMessage('#table-indicator-strategy tbody', 7, '스캔 테스트를 누르면 MACD+RSI 후보를 확인합니다');
     setTableMessage('#table-execution-plan tbody', 8, '불러오기를 누르면 다음 사이클 실행 계획을 표시합니다');
     setTableMessage('#table-approvals tbody', 8, '승인 대기 주문이 없습니다');
     setTableMessage('#table-ai-allocation tbody', 8, '계산을 누르면 AI 목표 비중을 확인합니다');
@@ -3095,6 +3209,7 @@ document.addEventListener('DOMContentLoaded', () => {
         renderCandidateHistory(),
         syncStrategiesToDropdown(),
         renderAiStrategies(),
+        renderIndicatorStrategy(),
         renderWatchlist()
     ]).catch(err => console.error("Polling error:", err)), 30000);
 });

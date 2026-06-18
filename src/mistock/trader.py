@@ -382,7 +382,14 @@ def get_balance() -> dict[str, Any]:
             }
 
 
-def scan_candidates(min_score: int = 2, limit: int | None = None) -> dict[str, Any]:
+def _active_min_score(default: int = 2, model: str | None = None) -> int:
+    active_model = str(model or config.strategy_model or "").lower()
+    if active_model == "macd_rsi_momentum":
+        return int(config.indicator_min_score or default)
+    return default
+
+
+def scan_candidates(min_score: int | None = None, limit: int | None = None, model: str | None = None) -> dict[str, Any]:
     api = None
     try:
         api = _get_kis_client()
@@ -392,13 +399,14 @@ def scan_candidates(min_score: int = 2, limit: int | None = None) -> dict[str, A
     watchlist = [item["symbol"] for item in get_watchlist()]
     dynamic_universe = build_scan_universe(api)
     universe = list(dict.fromkeys(watchlist + dynamic_universe))[: limit or config.scan_universe_size]
+    effective_min_score = int(min_score if min_score is not None else _active_min_score(model=model))
     candidates = []
     scanned = 0
     scan_error = ""
     for symbol in universe:
         try:
             hist = fetch_history(symbol)
-            profile = strategy_profile(hist["close"], hist["high"], hist["volume"])
+            profile = strategy_profile(hist["close"], hist["high"], hist["volume"], model=model)
             scanned += 1
             score = float(profile["score"])
             row = {
@@ -425,7 +433,7 @@ def scan_candidates(min_score: int = 2, limit: int | None = None) -> dict[str, A
                     row["price"], config.trading_env, row["rsi"], row["rsi2"], row["macd_hist"], row["sma20"], row["sma60"],
                 ),
             )
-            if score >= min_score:
+            if score >= effective_min_score:
                 candidates.append(row)
         except Exception as exc:
             scan_error = str(exc)
@@ -451,7 +459,7 @@ def scan_candidates(min_score: int = 2, limit: int | None = None) -> dict[str, A
     return {
         "candidates": candidates,
         "scanned": scanned,
-        "min_score": min_score,
+        "min_score": effective_min_score,
         "scan_summary": {"scanned": scanned, "matched": len(candidates), "scan_error": scan_error},
         "scan_error": scan_error,
     }
@@ -525,7 +533,11 @@ def signals() -> list[dict[str, Any]]:
         hist = fetch_history(holding["symbol"])
         profile = strategy_profile(hist["close"], hist["high"], hist["volume"])
         action = "hold"
-        if profile["rsi"] >= config.rsi_sell or holding["rt"] >= config.take_profit:
+        if str(config.strategy_model or "").lower() == "macd_rsi_momentum" and (
+            profile.get("macd_bear_cross") or profile["rsi"] < config.indicator_rsi_entry_min
+        ):
+            action = "sell"
+        elif profile["rsi"] >= config.rsi_sell or holding["rt"] >= config.take_profit:
             action = "sell"
         elif holding["rt"] <= config.stop_loss_pct:
             action = "sell"

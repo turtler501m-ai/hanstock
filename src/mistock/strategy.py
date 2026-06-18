@@ -134,7 +134,87 @@ def symbol_name(symbol: str) -> str:
     return NASDAQ_NAMES.get(symbol, symbol)
 
 
-def strategy_profile(prices: list[float], highs: list[float] | None = None, volumes: list[float] | None = None) -> dict[str, Any]:
+def _macd_rsi_momentum_profile(
+    prices: list[float],
+    highs: list[float] | None = None,
+    volumes: list[float] | None = None,
+) -> dict[str, Any]:
+    highs = highs or prices
+    volumes = volumes or []
+    current = prices[-1] if prices else 0.0
+    rsi14 = calc_rsi(prices, 14)
+    prev_rsi = calc_rsi(prices[:-1], 14) if len(prices) >= 16 else rsi14
+    sma20 = calc_sma(prices, 20)
+    sma60 = calc_sma(prices, 60)
+    macd = calc_macd(prices)
+    prev_macd = calc_macd(prices[:-1]) if len(prices) >= 36 else {"hist": 0.0}
+    hist = float(macd.get("hist", 0.0) or 0.0)
+    prev_hist = float(prev_macd.get("hist", 0.0) or 0.0)
+    score = 0
+    reasons: list[str] = []
+
+    if macd["bull_cross"]:
+        score += 2
+        reasons.append("MACD bullish cross")
+    elif hist > 0:
+        score += 1
+        reasons.append("MACD positive")
+
+    if hist > prev_hist:
+        score += 1
+        reasons.append("MACD histogram rising")
+
+    entry_min = float(config.indicator_rsi_entry_min)
+    entry_max = float(config.indicator_rsi_entry_max)
+    if prev_rsi < entry_min <= rsi14:
+        score += 2
+        reasons.append(f"RSI 50 cross {prev_rsi:.0f}->{rsi14:.0f}")
+    elif entry_min <= rsi14 < entry_max:
+        score += 1
+        reasons.append(f"RSI momentum zone {rsi14:.0f}")
+
+    if len(prices) >= 60 and current > sma60:
+        score += 1
+        reasons.append("above SMA60 trend")
+    if len(prices) >= 20 and current > sma20:
+        score += 1
+        reasons.append("above SMA20")
+
+    if len(volumes) >= 20:
+        vol_avg = sum(volumes[-20:]) / 20
+        if vol_avg > 0 and volumes[-1] > vol_avg * float(config.indicator_volume_ratio):
+            score += 1
+            reasons.append(f"volume confirmation {volumes[-1] / vol_avg:.1f}x")
+
+    if rsi14 >= entry_max and not macd["bull_cross"]:
+        score -= 2
+        reasons.append(f"RSI overheated {rsi14:.0f}")
+
+    return {
+        "score": max(0, score),
+        "reasons": reasons or ["no indicator signal"],
+        "rsi": rsi14,
+        "rsi2": calc_rsi(prices, 2),
+        "macd_hist": hist,
+        "macd_bull_cross": bool(macd.get("bull_cross")),
+        "macd_bear_cross": bool(macd.get("bear_cross")),
+        "sma20": sma20,
+        "sma60": sma60,
+        "price": current,
+        "strategy_model": "macd_rsi_momentum",
+    }
+
+
+def strategy_profile(
+    prices: list[float],
+    highs: list[float] | None = None,
+    volumes: list[float] | None = None,
+    model: str | None = None,
+) -> dict[str, Any]:
+    active_model = (model or config.strategy_model or "default").strip().lower()
+    if active_model == "macd_rsi_momentum":
+        return _macd_rsi_momentum_profile(prices, highs, volumes)
+
     highs = highs or prices
     volumes = volumes or []
     current = prices[-1] if prices else 0.0
@@ -200,6 +280,7 @@ def strategy_profile(prices: list[float], highs: list[float] | None = None, volu
         "sma20": sma20,
         "sma60": sma60,
         "price": current,
+        "strategy_model": "default",
     }
 
 

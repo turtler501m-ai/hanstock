@@ -31,6 +31,11 @@ MISTOCK_ENV_FIELDS = [
     {"key": "MISTOCK_TAKE_PROFIT", "attr": "take_profit", "type": "float", "default": "25"},
     {"key": "MISTOCK_RSI_BUY", "attr": "rsi_buy", "type": "int", "default": "35"},
     {"key": "MISTOCK_RSI_SELL", "attr": "rsi_sell", "type": "int", "default": "72"},
+    {"key": "MISTOCK_STRATEGY_MODEL", "attr": "strategy_model", "type": "select", "default": "default", "options": ["default", "macd_rsi_momentum"]},
+    {"key": "MISTOCK_INDICATOR_MIN_SCORE", "attr": "indicator_min_score", "type": "int", "default": "4"},
+    {"key": "MISTOCK_INDICATOR_RSI_ENTRY_MIN", "attr": "indicator_rsi_entry_min", "type": "int", "default": "50"},
+    {"key": "MISTOCK_INDICATOR_RSI_ENTRY_MAX", "attr": "indicator_rsi_entry_max", "type": "int", "default": "70"},
+    {"key": "MISTOCK_INDICATOR_VOLUME_RATIO", "attr": "indicator_volume_ratio", "type": "float", "default": "1.3"},
     {"key": "MISTOCK_MAX_POSITIONS", "attr": "max_positions", "type": "int", "default": "5"},
     {"key": "MISTOCK_MAX_SINGLE_WEIGHT", "attr": "max_single_weight", "type": "float", "default": "0.25"},
     {"key": "MISTOCK_CASH_BUFFER", "attr": "cash_buffer", "type": "float", "default": "0.20"},
@@ -56,6 +61,11 @@ MISTOCK_STRATEGY_ALIAS = {
     "TAKE_PROFIT": "MISTOCK_TAKE_PROFIT",
     "RSI_BUY": "MISTOCK_RSI_BUY",
     "RSI_SELL": "MISTOCK_RSI_SELL",
+    "STRATEGY_MODEL": "MISTOCK_STRATEGY_MODEL",
+    "INDICATOR_MIN_SCORE": "MISTOCK_INDICATOR_MIN_SCORE",
+    "INDICATOR_RSI_ENTRY_MIN": "MISTOCK_INDICATOR_RSI_ENTRY_MIN",
+    "INDICATOR_RSI_ENTRY_MAX": "MISTOCK_INDICATOR_RSI_ENTRY_MAX",
+    "INDICATOR_VOLUME_RATIO": "MISTOCK_INDICATOR_VOLUME_RATIO",
     "TOTAL_CAPITAL": "MISTOCK_TOTAL_CAPITAL",
     "MAX_POSITIONS": "MISTOCK_MAX_POSITIONS",
     "MAX_SINGLE_WEIGHT": "MISTOCK_MAX_SINGLE_WEIGHT",
@@ -210,6 +220,17 @@ def mistock_config_api():
         "take_profit": mistock_config.take_profit,
         "rsi_buy": mistock_config.rsi_buy,
         "rsi_sell": mistock_config.rsi_sell,
+        "strategy_model": mistock_config.strategy_model,
+        "indicator_strategy": {
+            "model": mistock_config.strategy_model,
+            "enabled": str(mistock_config.strategy_model or "").lower() == "macd_rsi_momentum",
+            "min_score": mistock_config.indicator_min_score,
+            "rsi_entry_min": mistock_config.indicator_rsi_entry_min,
+            "rsi_entry_max": mistock_config.indicator_rsi_entry_max,
+            "volume_ratio": mistock_config.indicator_volume_ratio,
+            "strategy_id": "macd_rsi_momentum",
+            "strategy_name": "MACD+RSI 모멘텀",
+        },
         "total_capital": mistock_config.total_capital,
         "max_positions": mistock_config.max_positions,
         "max_single_weight": mistock_config.max_single_weight,
@@ -773,6 +794,65 @@ def mistock_candidates(min_score: int = 2, limit: int = 100, ranker: str = "mist
         "min_score": min_score,
         "cash": balance["cash"],
         "balance_source": balance.get("balance_source", "kis"),
+    }
+
+
+@router.get("/api/mistock/indicator-strategy")
+def mistock_indicator_strategy():
+    return {
+        "ok": True,
+        "model": mistock_config.strategy_model,
+        "enabled": str(mistock_config.strategy_model or "").lower() == "macd_rsi_momentum",
+        "min_score": mistock_config.indicator_min_score,
+        "rsi_entry_min": mistock_config.indicator_rsi_entry_min,
+        "rsi_entry_max": mistock_config.indicator_rsi_entry_max,
+        "volume_ratio": mistock_config.indicator_volume_ratio,
+        "take_profit": mistock_config.take_profit,
+        "stop_loss_pct": mistock_config.stop_loss_pct,
+        "rules": [
+            "MACD bullish cross 또는 MACD histogram 양수",
+            "RSI 50 상향 돌파 또는 RSI 50~70 모멘텀 구간",
+            "현재가가 SMA60/SMA20 위에 있을수록 가점",
+            "거래량이 20일 평균보다 크면 신뢰도 가점",
+            "RSI 과열은 재진입 조건이 아니면 감점",
+        ],
+    }
+
+
+@router.post("/api/mistock/indicator-strategy")
+def mistock_update_indicator_strategy(payload: dict = Body(...)):
+    enabled = bool(payload.get("enabled"))
+    values = {
+        "MISTOCK_STRATEGY_MODEL": "macd_rsi_momentum" if enabled else "default",
+        "MISTOCK_INDICATOR_MIN_SCORE": str(payload.get("min_score", mistock_config.indicator_min_score)),
+        "MISTOCK_INDICATOR_RSI_ENTRY_MIN": str(payload.get("rsi_entry_min", mistock_config.indicator_rsi_entry_min)),
+        "MISTOCK_INDICATOR_RSI_ENTRY_MAX": str(payload.get("rsi_entry_max", mistock_config.indicator_rsi_entry_max)),
+        "MISTOCK_INDICATOR_VOLUME_RATIO": str(payload.get("volume_ratio", mistock_config.indicator_volume_ratio)),
+    }
+    updates = {key: _validate_mistock_env_value(key, value) for key, value in values.items()}
+    _core._write_env_values(updates, _core._public_value("ENV_PATH", _core.ENV_PATH))
+    _apply_mistock_env_updates(updates)
+    return {"ok": True, "updated": sorted(updates), **mistock_indicator_strategy()}
+
+
+@router.post("/api/mistock/indicator-strategy/scan")
+def mistock_indicator_strategy_scan(payload: dict = Body(default={})):
+    limit = int(payload.get("limit") or min(mistock_config.scan_universe_size, 50))
+    min_score = int(payload.get("min_score") or mistock_config.indicator_min_score or 4)
+    scan = mistock_trader.scan_candidates(
+        min_score=min_score,
+        limit=max(1, min(limit, 200)),
+        model="macd_rsi_momentum",
+    )
+    balance = mistock_trader.get_balance()
+    candidates = mistock_trader.annotate_candidates_with_order_plan(scan["candidates"], balance["cash"])
+    return {
+        "ok": True,
+        "candidates": candidates,
+        "scan_summary": scan["scan_summary"],
+        "scanned": scan["scanned"],
+        "min_score": scan["min_score"],
+        "model": "macd_rsi_momentum",
     }
 
 
