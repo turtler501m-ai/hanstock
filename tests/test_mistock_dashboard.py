@@ -228,6 +228,44 @@ class MistockDashboardTests(unittest.TestCase):
         self.assertEqual(balance["holdings"][0]["qty"], 2.0)
         self.assertEqual(balance["holdings"][0]["source"], "local_shadow")
 
+    def test_demo_local_shadow_sell_does_not_call_kis_order_api(self):
+        class FakeClient:
+            def get_overseas_balance(self):
+                return {
+                    "output1": [],
+                    "output2": {},
+                    "output3": {"tot_asst_amt": "0", "frcr_use_psbl_amt": "0.00"},
+                    "rt_cd": "0",
+                }
+
+            def place_overseas_order(self, symbol, action, price, qty):
+                raise AssertionError("local shadow sell should not call KIS")
+
+        object.__setattr__(mistock_config, "trading_env", "demo")
+        original_dry_run = mistock_config.dry_run
+        object.__setattr__(mistock_config, "dry_run", False)
+        object.__setattr__(mistock_config, "total_capital", 1000.0)
+        object.__setattr__(mistock_config, "currency", "USD")
+
+        try:
+            with patch.object(mistock_trader, "_get_kis_client", return_value=FakeClient()), \
+                    patch.object(mistock_trader, "notify_slack_order"):
+                mistock_db.execute(
+                    "INSERT INTO holdings (symbol, name, qty, avg_price, updated_at) VALUES (?, ?, ?, ?, ?)",
+                    ("KLAC", "KLAC", 3.0, 100.0, mistock_db.now_text()),
+                )
+                result = mistock_trader.place_order("KLAC", "sell", 2, 110, reason="unit test")
+                balance = mistock.mistock_balance()
+        finally:
+            object.__setattr__(mistock_config, "dry_run", original_dry_run)
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["source"], "local_shadow")
+        self.assertEqual(balance["balance_source"], "demo_local_shadow")
+        self.assertEqual(balance["cash"], 900.0)
+        self.assertEqual(balance["holdings"][0]["symbol"], "KLAC")
+        self.assertEqual(balance["holdings"][0]["qty"], 1.0)
+
     def test_demo_balance_converts_krw_config_capital_to_usd(self):
         class FakeClient:
             def get_overseas_balance(self):
