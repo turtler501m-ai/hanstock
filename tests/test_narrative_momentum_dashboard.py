@@ -40,6 +40,8 @@ class NarrativeMomentumDashboardTest(unittest.TestCase):
         self.assertIn("/api/narrative-momentum/schedule", script)
         self.assertIn("/api/narrative-momentum/run-scheduled", script)
         self.assertIn("narrative-schedule-history-body", template)
+        self.assertIn("narrative-schedule-summary", template)
+        self.assertIn("내러티브 이력 파일이 없어", script)
         self.assertIn("narrative-price", script)
         self.assertIn("지정가와 수량", script)
 

@@ -175,6 +175,7 @@
 
     function renderSchedule() {
         const schedule = state.schedule || {};
+        const status = state.status || {};
         if ($('narrative-schedule-enabled')) {
             $('narrative-schedule-enabled').checked = !!schedule.enabled;
             $('narrative-schedule-interval').value = schedule.interval_minutes || 30;
@@ -185,6 +186,25 @@
         }
         const rows = state.scheduleHistory || [];
         const body = $('narrative-schedule-history-body');
+        const summaryBox = $('narrative-schedule-summary');
+        if (summaryBox) {
+            if (status.state === 'missing') {
+                summaryBox.textContent = '내러티브 이력 파일이 없어 스케줄은 실행됐지만 후보가 생성되지 않았습니다. 내러티브 이력 탭에서 오늘 날짜 narrative_history JSON을 저장한 뒤 다시 실행하세요.';
+            } else if (!rows.length) {
+                summaryBox.textContent = '최근 스케줄 실행 결과가 없습니다.';
+            } else {
+                const latest = rows[0];
+                const summary = latest.summary || {};
+                const top = (summary.top_signals || []).map(function (item) {
+                    return (item.name || item.ticker || '-') + ' ' + (item.score == null ? '' : item.score);
+                }).join(', ');
+                summaryBox.textContent = '최근 실행 ' + (latest.recorded_at || '-')
+                    + ' | 상태 ' + (summary.state || '-')
+                    + ' | 후보 ' + (summary.candidate_count || 0) + '개'
+                    + ' | 저장 ' + (summary.saved_count || 0) + '개'
+                    + ' | 상위 ' + (top || '-');
+            }
+        }
         if (!body) return;
         if (!rows.length) {
             body.innerHTML = '<tr><td colspan="6" class="narrative-muted">스케줄 실행 이력이 없습니다.</td></tr>';
