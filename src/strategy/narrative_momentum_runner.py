@@ -7,6 +7,7 @@ from typing import Any
 
 from src import trader
 from src.db.repository import save_scanned_candidate
+from src.strategy.narrative_collector import collect_narrative_history
 from src.strategy.narrative_momentum import (
     STRATEGY_ID,
     NarrativeMomentumStrategy,
@@ -75,6 +76,7 @@ def run_narrative_momentum_cycle(
     *,
     save_candidates: bool = True,
     write_latest: bool = True,
+    auto_collect: bool = False,
     history_path: Path = NARRATIVE_HISTORY_PATH,
     theme_map_path: Path = THEME_MAP_PATH,
     latest_path: Path = LATEST_RESULT_PATH,
@@ -82,6 +84,16 @@ def run_narrative_momentum_cycle(
     history, theme_map, errors = load_inputs(history_path, theme_map_path)
     strategy = NarrativeMomentumStrategy()
     status = strategy.status(history, theme_map)
+    collection = None
+    if auto_collect and status.get("state") != "fresh":
+        collection = collect_narrative_history(
+            history_path=history_path,
+            theme_map_path=theme_map_path,
+        )
+        if collection.get("generated"):
+            history, theme_map, errors = load_inputs(history_path, theme_map_path)
+            strategy = NarrativeMomentumStrategy()
+            status = strategy.status(history, theme_map)
     signals = strategy.calculate_signals(history, theme_map)
     unmatched = strategy.unmatched_narratives(history, theme_map)
     result = {
@@ -97,6 +109,8 @@ def run_narrative_momentum_cycle(
         "ok": not errors,
         "ran_at": trader.datetime.now(trader.KST).isoformat(),
     }
+    if collection is not None:
+        result["collection"] = collection
     if errors:
         result["summary"] = build_summary(result)
         if write_latest:

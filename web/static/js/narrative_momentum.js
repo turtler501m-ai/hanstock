@@ -324,13 +324,28 @@
         const result = await fetchJson('/api/narrative-momentum/scan', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({save_candidates: !!saveCandidates}),
+            body: JSON.stringify({save_candidates: !!saveCandidates, auto_collect: true}),
         });
         state.latest = {
             status: result.status,
             signals: result.signals,
             unmatched: [],
         };
+        await loadAll();
+    }
+
+    async function collectNarratives() {
+        const statusEl = $('narrative-editor-status');
+        if (statusEl) statusEl.textContent = '뉴스에서 내러티브 JSON을 자동 생성하는 중입니다.';
+        const result = await fetchJson('/api/narrative-momentum/collect', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({}),
+        });
+        if (statusEl) {
+            statusEl.textContent = '자동 생성 완료: 내러티브 ' + (result.narrative_count || 0)
+                + '개, 기사 ' + (result.article_count || 0) + '개';
+        }
         await loadAll();
     }
 
@@ -360,7 +375,7 @@
         const result = await fetchJson('/api/narrative-momentum/run-scheduled', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({save_candidates: saveCandidates}),
+            body: JSON.stringify({save_candidates: saveCandidates, auto_collect: true}),
         });
         $('narrative-schedule-status').textContent = '완료: 후보 ' + (result.total_scanned || 0) + '개, 저장 ' + (result.saved_count || 0) + '개';
         await loadAll();
@@ -413,6 +428,7 @@
             });
         });
         $('btn-narrative-refresh').addEventListener('click', loadAll);
+        $('btn-narrative-collect').addEventListener('click', function () { collectNarratives().catch(alert); });
         $('btn-narrative-scan').addEventListener('click', function () { runScan(false).catch(alert); });
         $('btn-narrative-save-scan').addEventListener('click', function () { runScan(true).catch(alert); });
         $('btn-narrative-save-schedule').addEventListener('click', function () { saveSchedule().catch(alert); });

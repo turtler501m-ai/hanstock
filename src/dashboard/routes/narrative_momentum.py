@@ -13,6 +13,7 @@ from src import trader
 from src.dashboard.core import WEB_DIR
 from src.db.repository import init_db, save_scanned_candidate
 from src.db.scheduler_repository import save_scheduler_result
+from src.strategy.narrative_collector import collect_narrative_history
 from src.strategy.narrative_momentum import (
     STRATEGY_ID,
     NarrativeMomentumSettings,
@@ -91,8 +92,10 @@ def get_narrative_momentum_latest():
 
 @router.post("/api/narrative-momentum/scan")
 def scan_narrative_momentum(payload: dict | None = Body(default=None)):
+    auto_collect = True if payload is None else bool(payload.get("auto_collect", True))
     result = runner.run_narrative_momentum_cycle(
         save_candidates=bool(payload and payload.get("save_candidates")),
+        auto_collect=auto_collect,
         latest_path=LATEST_RESULT_PATH,
         history_path=NARRATIVE_HISTORY_PATH,
         theme_map_path=THEME_MAP_PATH,
@@ -105,14 +108,27 @@ def scan_narrative_momentum(payload: dict | None = Body(default=None)):
 @router.post("/api/narrative-momentum/run-scheduled")
 def run_narrative_momentum_scheduled(payload: dict | None = Body(default=None)):
     save_candidates = True if payload is None else bool(payload.get("save_candidates", True))
+    auto_collect = True if payload is None else bool(payload.get("auto_collect", True))
     result = runner.run_narrative_momentum_cycle(
         save_candidates=save_candidates,
+        auto_collect=auto_collect,
         latest_path=LATEST_RESULT_PATH,
         history_path=NARRATIVE_HISTORY_PATH,
         theme_map_path=THEME_MAP_PATH,
     )
     mode = "execute" if save_candidates else "analysis_only"
     save_scheduler_result(mode, trader.datetime.now(trader.KST).isoformat(), result)
+    return result
+
+
+@router.post("/api/narrative-momentum/collect")
+def collect_narrative_momentum_history():
+    result = collect_narrative_history(
+        history_path=NARRATIVE_HISTORY_PATH,
+        theme_map_path=THEME_MAP_PATH,
+    )
+    if not result.get("generated"):
+        raise HTTPException(status_code=409, detail="; ".join(result.get("errors") or ["narrative collection did not generate history"]))
     return result
 
 

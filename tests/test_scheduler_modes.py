@@ -44,7 +44,7 @@ class SchedulerModeTests(unittest.TestCase):
             ran = strategy_scheduler.dispatch_due_schedules()
 
         self.assertEqual(ran, ["narrative_momentum_strategy"])
-        run_mock.assert_called_once_with(save_candidates=True)
+        run_mock.assert_called_once_with(save_candidates=True, auto_collect=True)
         save_mock.assert_called_once()
         self.assertEqual(save_mock.call_args.args[0], "execute")
         self.assertEqual(save_mock.call_args.args[2], expected)

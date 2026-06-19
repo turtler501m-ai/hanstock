@@ -56,7 +56,10 @@ def dispatch_due_schedules() -> list[str]:
                 f"[dispatch] running {strategy_id} (mode={mode}, auto_approve={auto_approve})"
             )
             if strategy_id == NARRATIVE_MOMENTUM_STRATEGY_ID:
-                result = run_narrative_momentum_cycle(save_candidates=(mode != "analysis_only"))
+                result = run_narrative_momentum_cycle(
+                    save_candidates=(mode != "analysis_only"),
+                    auto_collect=True,
+                )
                 save_scheduler_result(mode, datetime.now(KST).isoformat(), result)
             else:
                 run_scheduled_cycle(

@@ -10,12 +10,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from src.strategy.narrative_momentum import (  # noqa: E402
-    STRATEGY_ID,
-    NarrativeMomentumStrategy,
-    load_json_file,
-    save_json_file,
-)
+from src.strategy.narrative_momentum_runner import run_narrative_momentum_cycle  # noqa: E402
 
 
 def main() -> int:
@@ -23,28 +18,19 @@ def main() -> int:
     parser.add_argument("--history", default=str(ROOT / ".runtime" / "narrative_history.json"))
     parser.add_argument("--theme-map", default=str(ROOT / "config" / "theme_map.json"))
     parser.add_argument("--output", default=str(ROOT / ".runtime" / "narrative_momentum_latest.json"))
-    parser.add_argument("--today", default=None)
     parser.add_argument("--limit", type=int, default=20)
+    parser.add_argument("--save-candidates", action="store_true")
+    parser.add_argument("--auto-collect", action="store_true")
     args = parser.parse_args()
 
-    history = load_json_file(args.history, [])
-    theme_map = load_json_file(args.theme_map, {})
-    if not isinstance(history, list):
-        raise SystemExit("narrative history must be a list")
-    if not isinstance(theme_map, dict):
-        raise SystemExit("theme map must be an object")
-
-    strategy = NarrativeMomentumStrategy()
-    status = strategy.status(history, theme_map, today_str=args.today)
-    signals = strategy.calculate_signals(history, theme_map, today_str=args.today)
-    payload = {
-        "strategy": STRATEGY_ID,
-        "status": status,
-        "signals": signals,
-        "total_scanned": len(signals),
-    }
-    save_json_file(args.output, payload)
-    print(json.dumps({"status": status, "total_scanned": len(signals), "top": signals[: args.limit]}, ensure_ascii=False, indent=2))
+    payload = run_narrative_momentum_cycle(
+        save_candidates=args.save_candidates,
+        auto_collect=args.auto_collect,
+        history_path=Path(args.history),
+        theme_map_path=Path(args.theme_map),
+        latest_path=Path(args.output),
+    )
+    print(json.dumps({"status": payload.get("status"), "total_scanned": payload.get("total_scanned"), "saved_count": payload.get("saved_count"), "collection": payload.get("collection"), "top": payload.get("signals", [])[: args.limit]}, ensure_ascii=False, indent=2))
     return 0
 
 
