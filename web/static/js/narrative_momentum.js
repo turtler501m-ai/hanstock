@@ -57,6 +57,38 @@
         }).join('');
     }
 
+    function renderReadiness() {
+        const box = $('narrative-readiness');
+        if (!box) return;
+        const status = state.status || {};
+        const stateName = status.state || '-';
+        const themeCount = Number(status.theme_count || 0);
+        const candidateCount = Number(status.candidate_count || 0);
+        const historyPath = status.history_path || '.runtime/narrative_history.json';
+        const latestDate = status.latest_date || '-';
+        box.className = 'narrative-readiness ' + escapeHtml(stateName);
+        if (stateName === 'missing') {
+            box.innerHTML = '<strong>입력 내러티브 이력이 없습니다.</strong>'
+                + '<span>현재 테마맵 ' + escapeHtml(themeCount) + '개는 정상 로드됐지만, '
+                + escapeHtml(historyPath) + ' 파일이 없어 후보 값은 0개입니다. '
+                + '내러티브 이력 탭에 오늘 날짜 JSON을 저장한 뒤 스캔 또는 즉시 실행을 누르세요.</span>';
+            return;
+        }
+        if (stateName === 'stale') {
+            box.innerHTML = '<strong>내러티브 날짜가 오래됐습니다.</strong>'
+                + '<span>최신 입력 날짜가 ' + escapeHtml(latestDate) + '라서 오늘 기준 후보를 생성하지 않습니다. '
+                + '오늘 날짜 JSON으로 갱신하세요.</span>';
+            return;
+        }
+        if (stateName === 'fresh') {
+            box.innerHTML = '<strong>내러티브 입력이 준비됐습니다.</strong>'
+                + '<span>테마맵 ' + escapeHtml(themeCount) + '개 기준으로 후보 '
+                + escapeHtml(candidateCount) + '개를 계산했습니다.</span>';
+            return;
+        }
+        box.innerHTML = '<strong>상태 확인 필요</strong><span>현재 상태: ' + escapeHtml(stateName) + '</span>';
+    }
+
     function renderSummary() {
         const status = state.status || {};
         const safety = status.safety || {};
@@ -257,6 +289,7 @@
     }
 
     function renderAll() {
+        renderReadiness();
         renderStatusCards();
         renderSummary();
         renderSignals();

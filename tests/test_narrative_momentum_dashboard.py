@@ -33,6 +33,9 @@ class NarrativeMomentumDashboardTest(unittest.TestCase):
             script = handle.read()
         self.assertIn("/static/css/narrative_momentum.css", template)
         self.assertIn("/static/js/narrative_momentum.js", template)
+        self.assertIn("narrative_momentum.css?v=2", template)
+        self.assertIn("narrative_momentum.js?v=2", template)
+        self.assertIn("narrative-readiness", template)
         self.assertIn("narrative-history-editor", template)
         self.assertIn("가격/수량", template)
         self.assertIn("/api/narrative-momentum", script)
@@ -42,6 +45,8 @@ class NarrativeMomentumDashboardTest(unittest.TestCase):
         self.assertIn("narrative-schedule-history-body", template)
         self.assertIn("narrative-schedule-summary", template)
         self.assertIn("내러티브 이력 파일이 없어", script)
+        self.assertIn("입력 내러티브 이력이 없습니다.", script)
+        self.assertIn("테마맵", script)
         self.assertIn("narrative-price", script)
         self.assertIn("지정가와 수량", script)
 
