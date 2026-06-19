@@ -114,13 +114,11 @@ def save_candidates_from_signals(signals: list[dict[str, Any]]) -> int:
     saved_count = 0
     for signal in signals:
         price = int(_to_float(signal.get("current_price", signal.get("price"))))
-        if price <= 0:
-            continue
         top_features = {
             "themes": signal.get("themes", []),
             "narratives": signal.get("narratives", []),
             "breakdown": signal.get("breakdown", []),
-            "price_source": "signal",
+            "price_source": "signal" if price > 0 else "not_available",
         }
         saved_id = save_scanned_candidate(
             symbol=signal.get("ticker", ""),

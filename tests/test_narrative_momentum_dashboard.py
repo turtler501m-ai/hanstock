@@ -191,13 +191,15 @@ class NarrativeMomentumDashboardTest(unittest.TestCase):
                         self.assertEqual(ctx.exception.status_code, 400)
                         self.assertIn("qty", ctx.exception.detail)
 
-    def test_save_candidates_skips_zero_price_signals(self):
-        with patch.object(narrative_momentum, "save_scanned_candidate", return_value=1) as save:
+    def test_save_candidates_persists_zero_price_analysis_signals(self):
+        with patch.object(narrative_momentum.runner, "save_scanned_candidate", return_value=1) as save:
             saved = narrative_momentum._save_candidates(
                 [{"ticker": "005930", "name": "삼성전자", "score": 90, "current_price": 0, "reasons": []}]
             )
-        self.assertEqual(saved, 0)
-        save.assert_not_called()
+        self.assertEqual(saved, 1)
+        save.assert_called_once()
+        self.assertEqual(save.call_args.kwargs["price"], 0)
+        self.assertEqual(save.call_args.kwargs["scoring"]["top_features"]["price_source"], "not_available")
 
     def test_scan_persists_saved_count_after_candidate_save(self):
         today = trader.datetime.now(trader.KST).strftime("%Y-%m-%d")
