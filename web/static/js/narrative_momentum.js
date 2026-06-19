@@ -8,6 +8,7 @@
         scheduleHistory: [],
         activeTab: 'summary',
         selectedResultIndex: 0,
+        selectedResultDate: null,
     };
 
     function $(id) {
@@ -91,6 +92,36 @@
             saved_count: Number(summary.saved_count || 0),
             top_signals: Array.isArray(summary.top_signals) ? summary.top_signals : [],
         };
+    }
+
+    function resultDate(row) {
+        return String((row && row.recorded_at) || '').slice(0, 10) || '-';
+    }
+
+    function groupResultsByDate(rows) {
+        const groups = [];
+        const byDate = {};
+        (Array.isArray(rows) ? rows : []).forEach(function (row) {
+            const date = resultDate(row);
+            if (!byDate[date]) {
+                byDate[date] = {
+                    date,
+                    rows: [],
+                    run_count: 0,
+                    candidate_count: 0,
+                    saved_count: 0,
+                    latest: row,
+                };
+                groups.push(byDate[date]);
+            }
+            const group = byDate[date];
+            const summary = resultSummary(row);
+            group.rows.push(row);
+            group.run_count += 1;
+            group.candidate_count += summary.candidate_count;
+            group.saved_count += summary.saved_count;
+        });
+        return groups;
     }
 
     function renderStatusCards() {
@@ -360,7 +391,7 @@
                 fetchJson('/api/narrative-momentum/history'),
                 fetchJson('/api/narrative-momentum/theme-map'),
                 fetchJson('/api/narrative-momentum/schedule'),
-                fetchJson('/api/narrative-momentum/schedule-history'),
+                fetchJson('/api/narrative-momentum/schedule-history?limit=100'),
             ]);
             state.status = results[0];
             state.latest = results[1];
@@ -368,8 +399,9 @@
             state.themes = results[3].themes || [];
             state.schedule = (results[4] || {}).schedule || {};
             state.scheduleHistory = (results[5] || {}).history || [];
-            if (state.selectedResultIndex >= state.scheduleHistory.length) {
-                state.selectedResultIndex = 0;
+            const groups = groupResultsByDate(state.scheduleHistory);
+            if (!groups.some(function (group) { return group.date === state.selectedResultDate; })) {
+                state.selectedResultDate = groups.length ? groups[0].date : null;
             }
             renderAll();
         } catch (err) {
@@ -379,38 +411,37 @@
 
     function renderResults() {
         const rows = state.scheduleHistory || [];
+        const groups = groupResultsByDate(rows);
         const count = $('narrative-result-count');
         const body = $('narrative-results-body');
-        if (count) count.textContent = rows.length + '개 결과';
+        if (count) count.textContent = groups.length + '일 / ' + rows.length + '회';
         if (!body) return;
-        if (!rows.length) {
+        if (!groups.length) {
             body.innerHTML = '<tr><td colspan="5" class="narrative-muted">아직 실행 결과가 없습니다. 상단의 자동 실행 버튼을 누르세요.</td></tr>';
             renderResultDetail(null);
             return;
         }
-        body.innerHTML = rows.map(function (row, idx) {
-            const summary = resultSummary(row);
-            const top = summary.top_signals.map(function (item) {
-                return (item.name || item.ticker || '-') + ' ' + (item.score == null ? '' : item.score);
-            }).join(', ');
-            return '<tr class="narrative-result-row ' + (idx === state.selectedResultIndex ? 'active' : '') + '" data-result-index="' + idx + '">'
-                + '<td>' + escapeHtml(row.recorded_at || '-') + '</td>'
+        body.innerHTML = groups.map(function (group) {
+            const summary = resultSummary(group.latest);
+            return '<tr class="narrative-result-row ' + (group.date === state.selectedResultDate ? 'active' : '') + '" data-result-date="' + escapeHtml(group.date) + '">'
+                + '<td><strong>' + escapeHtml(group.date) + '</strong></td>'
+                + '<td>' + escapeHtml(group.run_count) + '회</td>'
                 + '<td>' + escapeHtml(summary.state || '-') + '</td>'
-                + '<td>' + escapeHtml(summary.candidate_count) + '</td>'
-                + '<td>' + escapeHtml(summary.saved_count) + '</td>'
-                + '<td>' + escapeHtml(top || '-') + '</td>'
+                + '<td>' + escapeHtml(group.candidate_count) + '</td>'
+                + '<td>' + escapeHtml(group.saved_count) + '</td>'
                 + '</tr>';
         }).join('');
-        renderResultDetail(rows[state.selectedResultIndex] || rows[0]);
+        renderResultDetail(groups.find(function (group) { return group.date === state.selectedResultDate; }) || groups[0]);
     }
 
-    function renderResultDetail(row) {
+    function renderResultDetail(group) {
         const box = $('narrative-result-detail');
         if (!box) return;
-        if (!row) {
-            box.innerHTML = '결과를 선택하면 세부정보가 표시됩니다.';
+        if (!group) {
+            box.innerHTML = '날짜를 선택하면 세부목록이 표시됩니다.';
             return;
         }
+        const row = group.latest;
         const summary = resultSummary(row);
         const detail = row.detail || {};
         const collection = detail.collection || null;
@@ -419,6 +450,14 @@
         const collectionText = collection
             ? describeCollection(collection)
             : '기존 최신 내러티브를 사용했습니다.';
+        const runItems = group.rows.map(function (item) {
+            const itemSummary = resultSummary(item);
+            return '<div class="narrative-detail-signal">'
+                + '<strong>' + escapeHtml(item.recorded_at || '-') + '</strong>'
+                + '<p>모드: ' + escapeHtml(item.mode || '-') + ' / 상태: ' + escapeHtml(itemSummary.state || '-')
+                + ' / 후보: ' + escapeHtml(itemSummary.candidate_count) + '개 / 저장: ' + escapeHtml(itemSummary.saved_count) + '개</p>'
+                + '</div>';
+        }).join('');
         const signalItems = signals.slice(0, 12).map(function (signal, idx) {
             const score = Number(signal.final_score || signal.score || 0);
             const themes = Array.isArray(signal.themes) ? signal.themes.join(', ') : '-';
@@ -431,17 +470,19 @@
                 + '<p>' + escapeHtml(reasons || '근거 없음') + '</p>'
                 + '</div>';
         }).join('');
-        box.innerHTML = '<h3>' + escapeHtml(row.recorded_at || '-') + '</h3>'
+        box.innerHTML = '<h3>' + escapeHtml(group.date) + ' 세부목록</h3>'
             + '<div class="narrative-detail-grid">'
             + '<div class="narrative-detail-item"><span>상태</span><strong>' + escapeHtml(summary.state || '-') + '</strong></div>'
-            + '<div class="narrative-detail-item"><span>모드</span><strong>' + escapeHtml(row.mode || '-') + '</strong></div>'
-            + '<div class="narrative-detail-item"><span>후보</span><strong>' + escapeHtml(summary.candidate_count) + '개</strong></div>'
-            + '<div class="narrative-detail-item"><span>저장</span><strong>' + escapeHtml(summary.saved_count) + '개</strong></div>'
+            + '<div class="narrative-detail-item"><span>실행</span><strong>' + escapeHtml(group.run_count) + '회</strong></div>'
+            + '<div class="narrative-detail-item"><span>후보 합계</span><strong>' + escapeHtml(group.candidate_count) + '개</strong></div>'
+            + '<div class="narrative-detail-item"><span>저장 합계</span><strong>' + escapeHtml(group.saved_count) + '개</strong></div>'
             + '</div>'
             + '<h4>자동 생성</h4>'
             + '<p class="narrative-muted">' + escapeHtml(collectionText) + '</p>'
             + (errors.length ? '<h4>오류</h4><p class="narrative-muted">' + escapeHtml(errors.join('\n')) + '</p>' : '')
-            + '<h4>후보 세부정보</h4>'
+            + '<h4>실행 목록</h4>'
+            + '<div class="narrative-detail-list">' + (runItems || '<span class="narrative-muted">실행 목록이 없습니다.</span>') + '</div>'
+            + '<h4>최신 실행 후보 세부정보</h4>'
             + '<div class="narrative-detail-list">' + (signalItems || '<span class="narrative-muted">저장된 세부 후보가 없습니다.</span>') + '</div>';
     }
 
@@ -456,7 +497,7 @@
             });
             const message = '후보 ' + (result.total_scanned || 0) + '개, 저장 ' + (result.saved_count || 0) + '개';
             setActionStatus('success', '자동 실행 완료', message, describeCollection(result.collection) + ' 상위 후보: ' + describeTopSignals(result.signals));
-            state.selectedResultIndex = 0;
+            state.selectedResultDate = null;
             await loadAll();
             activateTab('results');
         } catch (err) {
@@ -629,7 +670,7 @@
         document.body.addEventListener('click', function (event) {
             const resultRow = event.target.closest('.narrative-result-row');
             if (resultRow) {
-                state.selectedResultIndex = Number(resultRow.dataset.resultIndex || 0);
+                state.selectedResultDate = resultRow.dataset.resultDate || null;
                 renderResults();
                 return;
             }

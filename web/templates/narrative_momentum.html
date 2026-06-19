@@ -8,7 +8,7 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Noto+Sans+KR:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/static/css/style.css?v=28">
-    <link rel="stylesheet" href="/static/css/narrative_momentum.css?v=5">
+    <link rel="stylesheet" href="/static/css/narrative_momentum.css?v=6">
 </head>
 <body>
     <div class="dashboard-container narrative-page">
@@ -110,8 +110,8 @@
             <section class="narrative-panel" id="narrative-tab-results" role="tabpanel" hidden>
                 <div class="panel-header split-header">
                     <div>
-                        <h2>실행 결과</h2>
-                        <p class="section-help">자동 실행과 스케줄 실행 결과를 목록으로 보고, 선택한 결과의 세부 후보와 근거를 확인합니다.</p>
+                        <h2>일별 성과</h2>
+                        <p class="section-help">날짜별 실행 성과를 선택하면 해당 날짜의 실행 목록과 후보 세부정보가 표시됩니다.</p>
                     </div>
                     <span class="time-muted" id="narrative-result-count">-</span>
                 </div>
@@ -120,18 +120,18 @@
                         <table class="narrative-table">
                             <thead>
                                 <tr>
-                                    <th>실행시각</th>
-                                    <th>상태</th>
+                                    <th>날짜</th>
+                                    <th>실행</th>
+                                    <th>최신상태</th>
                                     <th>후보</th>
                                     <th>저장</th>
-                                    <th>상위 후보</th>
                                 </tr>
                             </thead>
                             <tbody id="narrative-results-body"></tbody>
                         </table>
                     </div>
                     <div class="narrative-result-detail" id="narrative-result-detail">
-                        결과를 선택하면 세부정보가 표시됩니다.
+                        날짜를 선택하면 세부목록이 표시됩니다.
                     </div>
                 </div>
             </section>
@@ -259,6 +259,6 @@
         </main>
     </div>
 
-    <script src="/static/js/narrative_momentum.js?v=5"></script>
+    <script src="/static/js/narrative_momentum.js?v=6"></script>
 </body>
 </html>
