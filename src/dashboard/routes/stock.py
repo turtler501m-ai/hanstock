@@ -85,6 +85,29 @@ def _compact_scheduler_item(item, allowed_keys: set[str]) -> dict:
     return compact
 
 
+def _compact_scheduler_candidate_scan(candidate_scan) -> dict:
+    if not isinstance(candidate_scan, dict):
+        return {}
+    candidates = candidate_scan.get("candidates")
+    scan_summary = candidate_scan.get("scan_summary")
+    scanned = candidate_scan.get("scanned", candidate_scan.get("scanned_count"))
+    candidates_count = candidate_scan.get("candidates_count")
+    if candidates_count is None and isinstance(candidates, list):
+        candidates_count = len(candidates)
+    candidate_keys = {"symbol", "name", "score", "price", "reasons", "reason"}
+    return {
+        "scanned": scanned,
+        "scanned_count": scanned,
+        "candidates_count": candidates_count,
+        "candidates": [
+            _compact_scheduler_item(item, candidate_keys)
+            for item in _tail_items(candidates, 20)
+        ],
+        "scan_error": _trim_text(candidate_scan.get("scan_error")),
+        "summary_count": len(scan_summary) if isinstance(scan_summary, list) else candidate_scan.get("summary_count"),
+    }
+
+
 def _compact_scheduler_status_result(last_result: dict | None, item_limit: int = 100) -> dict | None:
     if not isinstance(last_result, dict):
         return last_result
@@ -150,8 +173,10 @@ def _compact_scheduler_status_result(last_result: dict | None, item_limit: int =
         },
     }
 
+    if "candidate_scan" in result:
+        compact_result["candidate_scan"] = _compact_scheduler_candidate_scan(result.get("candidate_scan"))
+
     for key in (
-        "candidate_scan",
         "remaining_cash",
         "daily_loss_halt",
         "cash",

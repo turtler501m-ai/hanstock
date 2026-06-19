@@ -133,6 +133,34 @@ class SchedulerApiTests(unittest.TestCase):
         self.assertEqual(result["summary_counts"]["approved_count"], 1)
         self.assertLessEqual(len(result["results"][0]["reason"]), 500)
 
+    def test_scheduler_status_compaction_summarizes_candidate_scan(self):
+        from src.dashboard.routes.stock import _compact_scheduler_status_result
+
+        last_result = {
+            "mode": "execute",
+            "recorded_at": "2026-06-19T09:00:00+09:00",
+            "result": {
+                "results": [],
+                "auto_approved": [],
+                "candidate_scan": {
+                    "scanned": 120,
+                    "candidates": [
+                        {"symbol": f"{idx:06d}", "score": idx, "payload": {"large": "x" * 700}}
+                        for idx in range(30)
+                    ],
+                    "scan_summary": [{"symbol": f"{idx:06d}"} for idx in range(120)],
+                },
+            },
+        }
+
+        result = _compact_scheduler_status_result(last_result)["result"]
+
+        self.assertEqual(result["candidate_scan"]["scanned_count"], 120)
+        self.assertEqual(result["candidate_scan"]["candidates_count"], 30)
+        self.assertEqual(result["candidate_scan"]["summary_count"], 120)
+        self.assertEqual(len(result["candidate_scan"]["candidates"]), 20)
+        self.assertNotIn("payload", result["candidate_scan"]["candidates"][0])
+
     def test_get_scheduler_status_can_return_full_result_when_requested(self):
         from datetime import datetime
         from src.db.scheduler_repository import KST
