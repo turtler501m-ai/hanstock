@@ -45,6 +45,17 @@ class NarrativeMomentumDashboardTest(unittest.TestCase):
         self.assertIn("narrative-price", script)
         self.assertIn("지정가와 수량", script)
 
+    def test_theme_map_uses_readable_korean_labels(self):
+        with open("config/theme_map.json", encoding="utf-8") as handle:
+            theme_map = __import__("json").load(handle)
+
+        self.assertIn("반도체", theme_map)
+        self.assertIn("AI", theme_map)
+        self.assertIn({"ticker": "005930", "name": "삼성전자"}, theme_map["반도체"])
+        serialized = __import__("json").dumps(theme_map, ensure_ascii=False)
+        self.assertNotIn("諛섎", serialized)
+        self.assertNotIn("?쇱", serialized)
+
     def test_save_history_writes_utf8_json(self):
         payload = {
             "history": [

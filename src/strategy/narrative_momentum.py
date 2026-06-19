@@ -165,21 +165,33 @@ class NarrativeMomentumStrategy:
     ) -> dict[str, Any]:
         entries = _normalize_history(narrative_history)
         today = today_str or datetime.now(trader.KST).strftime("%Y-%m-%d")
+        base = {
+            "today": today,
+            "theme_count": len(theme_map),
+            "approval_score_min": self.settings.approval_score_min,
+        }
         if not entries:
-            return {"state": "missing", "today": today, "latest_date": None, "message": "narrative_history is empty"}
+            return {
+                **base,
+                "state": "missing",
+                "latest_date": None,
+                "market_mood": None,
+                "mood_score": None,
+                "narrative_count": 0,
+                "shift_count": 0,
+                "message": "narrative_history is empty",
+            }
         latest = entries[0]
         latest_date = str(latest.get("date") or "")
         state = "fresh" if latest_date == today else "stale"
         return {
+            **base,
             "state": state,
-            "today": today,
             "latest_date": latest_date,
             "market_mood": latest.get("market_mood"),
             "mood_score": latest.get("mood_score"),
             "narrative_count": len(latest.get("dominant_narratives", []) or []),
             "shift_count": len(latest.get("narrative_shifts", []) or []),
-            "theme_count": len(theme_map),
-            "approval_score_min": self.settings.approval_score_min,
         }
 
     def unmatched_narratives(

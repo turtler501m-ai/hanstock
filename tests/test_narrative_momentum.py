@@ -70,6 +70,15 @@ class NarrativeMomentumStrategyTest(unittest.TestCase):
         signals = NarrativeMomentumStrategy().calculate_signals(history, self.theme_map, today_str="2026-06-18")
         self.assertEqual(signals, [])
 
+    def test_missing_history_status_keeps_static_dashboard_counts(self):
+        status = NarrativeMomentumStrategy().status([], self.theme_map, today_str="2026-06-18")
+
+        self.assertEqual(status["state"], "missing")
+        self.assertEqual(status["narrative_count"], 0)
+        self.assertEqual(status["shift_count"], 0)
+        self.assertEqual(status["theme_count"], len(self.theme_map))
+        self.assertEqual(status["approval_score_min"], 75.0)
+
     def test_weak_or_non_rising_narratives_are_filtered(self):
         history = [
             {

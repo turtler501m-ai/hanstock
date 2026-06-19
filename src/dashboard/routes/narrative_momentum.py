@@ -43,6 +43,7 @@ def get_narrative_momentum_status():
     status = strategy.status(history, theme_map)
     signals = strategy.calculate_signals(history, theme_map)
     unmatched = strategy.unmatched_narratives(history, theme_map)
+    settings = NarrativeMomentumSettings()
     status.update(
         {
             "ok": not errors,
@@ -50,6 +51,10 @@ def get_narrative_momentum_status():
             "strategy_id": STRATEGY_ID,
             "candidate_count": len(signals),
             "unmatched_count": len(unmatched),
+            "narrative_count": int(status.get("narrative_count") or 0),
+            "shift_count": int(status.get("shift_count") or 0),
+            "theme_count": len(theme_map),
+            "approval_score_min": float(status.get("approval_score_min") or settings.approval_score_min),
             "latest_result_path": _display_path(LATEST_RESULT_PATH),
             "history_path": _display_path(NARRATIVE_HISTORY_PATH),
             "theme_map_path": _display_path(THEME_MAP_PATH),
