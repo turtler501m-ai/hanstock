@@ -139,6 +139,7 @@ FINRL_DIR = BASE_DIR / "vendor" / "FinRL"
 BALANCE_CACHE = trader.RUNTIME_DIR / "balance_snapshot.json"
 CANDIDATE_CACHE = trader.RUNTIME_DIR / "candidate_snapshot.json"
 AUTO_APPROVAL_STATE = trader.RUNTIME_DIR / "auto_approval.json"
+AUTO_APPROVAL_EXCLUDED_SOURCES = {"narrative_momentum"}
 QUANTCONNECT_MNQ_DIR = BASE_DIR / "src" / "integrations" / "quantconnect" / "mnq_paper_auto"
 QUANTCONNECT_MNQ_RESULTS = trader.RUNTIME_DIR / "quantconnect_mnq_results.json"
 QUANTCONNECT_AUTH_CACHE = trader.RUNTIME_DIR / "quantconnect_auth_cache.json"
@@ -689,7 +690,7 @@ def _auto_approval_sweeper_loop() -> None:
                 logger.info(f"auto-approval sweeper: reclaimed {reclaimed} stale executing approval(s)")
             if not _auto_approval_enabled():
                 continue
-            if not _pending_approval_ids(limit=1):
+            if not _pending_approval_ids(limit=1, exclude_sources=AUTO_APPROVAL_EXCLUDED_SOURCES):
                 continue
             processed = _auto_approve_pending_approvals()
             done = [r for r in processed if isinstance(r, dict) and r.get("status") == "executed"]
@@ -2898,20 +2899,33 @@ def _current_holding_qty_from_balance(api, symbol: str) -> int:
     return 0
 
 
-def _pending_approval_ids(limit: int = 200) -> list[int]:
+def _pending_approval_ids(limit: int = 200, *, exclude_sources: set[str] | None = None) -> list[int]:
     _init_approval_db()
     with trader.connect_db() as conn:
         conn.row_factory = sqlite3.Row
-        rows = conn.execute(
-            "SELECT id FROM approvals WHERE status = 'pending' ORDER BY id ASC LIMIT ?",
-            (limit,),
-        ).fetchall()
+        if exclude_sources:
+            placeholders = ", ".join("?" for _ in exclude_sources)
+            rows = conn.execute(
+                f"""
+                SELECT id FROM approvals
+                WHERE status = 'pending'
+                  AND COALESCE(source, '') NOT IN ({placeholders})
+                ORDER BY id ASC
+                LIMIT ?
+                """,
+                (*sorted(exclude_sources), limit),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT id FROM approvals WHERE status = 'pending' ORDER BY id ASC LIMIT ?",
+                (limit,),
+            ).fetchall()
     return [int(row["id"]) for row in rows]
 
 
 def _auto_approve_pending_approvals(limit: int = 200) -> list[dict]:
     results = []
-    for approval_id in _pending_approval_ids(limit):
+    for approval_id in _pending_approval_ids(limit, exclude_sources=AUTO_APPROVAL_EXCLUDED_SOURCES):
         try:
             results.append(_approve_pending_approval(approval_id, "자동승인"))
         except Exception as exc:

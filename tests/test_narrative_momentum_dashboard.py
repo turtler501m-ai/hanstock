@@ -1,11 +1,14 @@
 import unittest
+import sqlite3
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
 from fastapi import HTTPException
 
+from src import trader
 from src.dashboard import app
+from src.dashboard import core as dashboard_core
 from src.dashboard.routes import narrative_momentum
 from src.strategy.narrative_momentum import save_json_file
 
@@ -60,9 +63,10 @@ class NarrativeMomentumDashboardTest(unittest.TestCase):
         self.assertIn("AI 반도체 투자 확대", text)
 
     def test_queue_approval_rejects_ticker_not_in_current_signals(self):
+        today = trader.datetime.now(trader.KST).strftime("%Y-%m-%d")
         history = [
             {
-                "date": "2026-06-18",
+                "date": today,
                 "dominant_narratives": [
                     {
                         "theme": "AI 반도체 투자 확대",
@@ -91,9 +95,10 @@ class NarrativeMomentumDashboardTest(unittest.TestCase):
         self.assertEqual(ctx.exception.status_code, 404)
 
     def test_queue_approval_accepts_current_signal_with_manual_price(self):
+        today = trader.datetime.now(trader.KST).strftime("%Y-%m-%d")
         history = [
             {
-                "date": "2026-06-18",
+                "date": today,
                 "dominant_narratives": [
                     {
                         "theme": "AI 반도체 투자 확대",
@@ -116,12 +121,48 @@ class NarrativeMomentumDashboardTest(unittest.TestCase):
                     patch.object(narrative_momentum, "_has_pending_buy", return_value=False), \
                     patch.object(narrative_momentum, "_create_approval_row", return_value=10) as create:
                 result = narrative_momentum.queue_narrative_approval(
-                    {"ticker": "005930", "name": "임의명", "score": 99, "qty": 2, "price": 80000}
+                    {"ticker": "005930", "name": "임의명", "score": 0, "qty": 2, "price": 80000}
                 )
         self.assertEqual(result["id"], 10)
         self.assertEqual(create.call_args.args[0]["name"], "삼성전자")
         self.assertEqual(create.call_args.args[0]["qty"], 2)
         self.assertEqual(create.call_args.args[0]["price"], 80000)
+
+    def test_queue_approval_rejects_missing_or_zero_qty(self):
+        today = trader.datetime.now(trader.KST).strftime("%Y-%m-%d")
+        history = [
+            {
+                "date": today,
+                "dominant_narratives": [
+                    {
+                        "theme": "AI 반도체 투자 확대",
+                        "strength": 88,
+                        "sentiment": "bullish",
+                        "direction": "rising",
+                        "affected_sectors": ["반도체"],
+                    }
+                ],
+            }
+        ]
+        theme_map = {"반도체": [{"ticker": "005930", "name": "삼성전자"}]}
+        with TemporaryDirectory() as tmp:
+            history_path = Path(tmp) / "narrative_history.json"
+            theme_path = Path(tmp) / "theme_map.json"
+            save_json_file(history_path, history)
+            save_json_file(theme_path, theme_map)
+            with patch.object(narrative_momentum, "NARRATIVE_HISTORY_PATH", history_path), \
+                    patch.object(narrative_momentum, "THEME_MAP_PATH", theme_path), \
+                    patch.object(narrative_momentum, "_has_pending_buy", return_value=False), \
+                    patch.object(narrative_momentum, "_create_approval_row", return_value=10):
+                for payload in (
+                    {"ticker": "005930", "price": 80000},
+                    {"ticker": "005930", "qty": 0, "price": 80000},
+                ):
+                    with self.subTest(payload=payload):
+                        with self.assertRaises(HTTPException) as ctx:
+                            narrative_momentum.queue_narrative_approval(payload)
+                        self.assertEqual(ctx.exception.status_code, 400)
+                        self.assertIn("qty", ctx.exception.detail)
 
     def test_save_candidates_skips_zero_price_signals(self):
         with patch.object(narrative_momentum, "save_scanned_candidate", return_value=1) as save:
@@ -130,6 +171,61 @@ class NarrativeMomentumDashboardTest(unittest.TestCase):
             )
         self.assertEqual(saved, 0)
         save.assert_not_called()
+
+    def test_auto_approval_pending_ids_exclude_narrative_source_when_requested(self):
+        with TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "approvals.sqlite"
+
+            class ClosingConnection(sqlite3.Connection):
+                def __exit__(self, exc_type, exc_value, traceback):
+                    super().__exit__(exc_type, exc_value, traceback)
+                    self.close()
+
+            def connect_db():
+                return sqlite3.connect(db_path, factory=ClosingConnection)
+
+            with patch.object(dashboard_core.trader, "connect_db", side_effect=connect_db):
+                with connect_db() as conn:
+                    conn.execute(
+                        """
+                        CREATE TABLE approvals (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            created_at TEXT NOT NULL,
+                            updated_at TEXT NOT NULL,
+                            symbol TEXT NOT NULL,
+                            name TEXT NOT NULL,
+                            action TEXT NOT NULL,
+                            qty INTEGER NOT NULL,
+                            price INTEGER NOT NULL,
+                            reason TEXT,
+                            source TEXT,
+                            status TEXT NOT NULL,
+                            response_msg TEXT
+                        )
+                        """
+                    )
+                    conn.execute(
+                        """
+                        INSERT INTO approvals
+                        (created_at, updated_at, symbol, name, action, qty, price, reason, source, status, response_msg)
+                        VALUES
+                        ('2026-06-19', '2026-06-19', '005930', '삼성전자', 'buy', 1, 80000, '', 'narrative_momentum', 'pending', ''),
+                        ('2026-06-19', '2026-06-19', '000660', 'SK하이닉스', 'buy', 1, 180000, '', 'dashboard', 'pending', '')
+                        """
+                    )
+                with patch.object(dashboard_core, "_init_approval_db", return_value=None):
+                    ids = dashboard_core._pending_approval_ids(
+                        exclude_sources=dashboard_core.AUTO_APPROVAL_EXCLUDED_SOURCES
+                    )
+                with connect_db() as conn:
+                    symbols = [
+                        row[0]
+                        for row in conn.execute(
+                            f"SELECT symbol FROM approvals WHERE id IN ({', '.join('?' for _ in ids)}) ORDER BY id",
+                            ids,
+                        ).fetchall()
+                    ]
+        self.assertEqual(symbols, ["000660"])
 
 
 if __name__ == "__main__":

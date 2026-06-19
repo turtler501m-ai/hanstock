@@ -158,10 +158,7 @@ def queue_narrative_approval(payload: dict = Body(...)):
     if not ticker:
         raise HTTPException(status_code=400, detail="ticker is required")
     name = str(payload.get("name") or ticker)
-    score = _to_float(payload.get("score"))
     settings = NarrativeMomentumSettings()
-    if score < settings.approval_score_min:
-        raise HTTPException(status_code=400, detail=f"score must be >= {settings.approval_score_min:g}")
 
     history, theme_map, errors = _load_inputs()
     if errors:
@@ -180,8 +177,10 @@ def queue_narrative_approval(payload: dict = Body(...)):
     if _has_pending_buy(ticker):
         raise HTTPException(status_code=409, detail="pending buy approval already exists")
 
-    qty = int(_to_float(payload.get("qty")) or 1)
+    qty = int(_to_float(payload.get("qty")))
     price = int(_to_float(payload.get("price")) or 0)
+    if qty <= 0:
+        raise HTTPException(status_code=400, detail="qty must be greater than 0")
     if price <= 0:
         raise HTTPException(status_code=400, detail="price must be greater than 0")
     name = str(signal.get("name") or name)
