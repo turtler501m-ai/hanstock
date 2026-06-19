@@ -7,6 +7,7 @@
         schedule: null,
         scheduleHistory: [],
         activeTab: 'summary',
+        selectedResultIndex: 0,
     };
 
     function $(id) {
@@ -80,6 +81,16 @@
     function showActionError(title, err) {
         const message = err && err.message ? err.message : String(err || '알 수 없는 오류');
         setActionStatus('error', title, message);
+    }
+
+    function resultSummary(row) {
+        const summary = row && row.summary ? row.summary : {};
+        return {
+            state: summary.state || (row && row.ok ? 'ok' : 'error'),
+            candidate_count: Number(summary.candidate_count || 0),
+            saved_count: Number(summary.saved_count || 0),
+            top_signals: Array.isArray(summary.top_signals) ? summary.top_signals : [],
+        };
     }
 
     function renderStatusCards() {
@@ -338,6 +349,7 @@
         renderHistory();
         renderThemes();
         renderSchedule();
+        renderResults();
     }
 
     async function loadAll() {
@@ -356,9 +368,101 @@
             state.themes = results[3].themes || [];
             state.schedule = (results[4] || {}).schedule || {};
             state.scheduleHistory = (results[5] || {}).history || [];
+            if (state.selectedResultIndex >= state.scheduleHistory.length) {
+                state.selectedResultIndex = 0;
+            }
             renderAll();
         } catch (err) {
             $('narrative-errors').textContent = err.message || String(err);
+        }
+    }
+
+    function renderResults() {
+        const rows = state.scheduleHistory || [];
+        const count = $('narrative-result-count');
+        const body = $('narrative-results-body');
+        if (count) count.textContent = rows.length + '개 결과';
+        if (!body) return;
+        if (!rows.length) {
+            body.innerHTML = '<tr><td colspan="5" class="narrative-muted">아직 실행 결과가 없습니다. 상단의 자동 실행 버튼을 누르세요.</td></tr>';
+            renderResultDetail(null);
+            return;
+        }
+        body.innerHTML = rows.map(function (row, idx) {
+            const summary = resultSummary(row);
+            const top = summary.top_signals.map(function (item) {
+                return (item.name || item.ticker || '-') + ' ' + (item.score == null ? '' : item.score);
+            }).join(', ');
+            return '<tr class="narrative-result-row ' + (idx === state.selectedResultIndex ? 'active' : '') + '" data-result-index="' + idx + '">'
+                + '<td>' + escapeHtml(row.recorded_at || '-') + '</td>'
+                + '<td>' + escapeHtml(summary.state || '-') + '</td>'
+                + '<td>' + escapeHtml(summary.candidate_count) + '</td>'
+                + '<td>' + escapeHtml(summary.saved_count) + '</td>'
+                + '<td>' + escapeHtml(top || '-') + '</td>'
+                + '</tr>';
+        }).join('');
+        renderResultDetail(rows[state.selectedResultIndex] || rows[0]);
+    }
+
+    function renderResultDetail(row) {
+        const box = $('narrative-result-detail');
+        if (!box) return;
+        if (!row) {
+            box.innerHTML = '결과를 선택하면 세부정보가 표시됩니다.';
+            return;
+        }
+        const summary = resultSummary(row);
+        const detail = row.detail || {};
+        const collection = detail.collection || null;
+        const signals = Array.isArray(detail.signals) ? detail.signals : [];
+        const errors = Array.isArray(row.errors) ? row.errors : [];
+        const collectionText = collection
+            ? describeCollection(collection)
+            : '기존 최신 내러티브를 사용했습니다.';
+        const signalItems = signals.slice(0, 12).map(function (signal, idx) {
+            const score = Number(signal.final_score || signal.score || 0);
+            const themes = Array.isArray(signal.themes) ? signal.themes.join(', ') : '-';
+            const reasons = Array.isArray(signal.reasons) ? signal.reasons.join(' / ') : '';
+            return '<div class="narrative-detail-signal">'
+                + '<strong>' + (idx + 1) + '. ' + escapeHtml(signal.name || signal.ticker || '-') + ' '
+                + '<span class="narrative-muted">' + escapeHtml(signal.ticker || '') + '</span>'
+                + ' · ' + escapeHtml(score.toFixed(1)) + '점</strong>'
+                + '<p>테마: ' + escapeHtml(themes || '-') + '</p>'
+                + '<p>' + escapeHtml(reasons || '근거 없음') + '</p>'
+                + '</div>';
+        }).join('');
+        box.innerHTML = '<h3>' + escapeHtml(row.recorded_at || '-') + '</h3>'
+            + '<div class="narrative-detail-grid">'
+            + '<div class="narrative-detail-item"><span>상태</span><strong>' + escapeHtml(summary.state || '-') + '</strong></div>'
+            + '<div class="narrative-detail-item"><span>모드</span><strong>' + escapeHtml(row.mode || '-') + '</strong></div>'
+            + '<div class="narrative-detail-item"><span>후보</span><strong>' + escapeHtml(summary.candidate_count) + '개</strong></div>'
+            + '<div class="narrative-detail-item"><span>저장</span><strong>' + escapeHtml(summary.saved_count) + '개</strong></div>'
+            + '</div>'
+            + '<h4>자동 생성</h4>'
+            + '<p class="narrative-muted">' + escapeHtml(collectionText) + '</p>'
+            + (errors.length ? '<h4>오류</h4><p class="narrative-muted">' + escapeHtml(errors.join('\n')) + '</p>' : '')
+            + '<h4>후보 세부정보</h4>'
+            + '<div class="narrative-detail-list">' + (signalItems || '<span class="narrative-muted">저장된 세부 후보가 없습니다.</span>') + '</div>';
+    }
+
+    async function runOneClick() {
+        setButtonBusy('btn-narrative-oneclick', true, '자동 실행 중...');
+        setActionStatus('running', '자동 실행 중', '뉴스 자동생성, 스캔, 후보저장을 한 번에 실행합니다.');
+        try {
+            const result = await fetchJson('/api/narrative-momentum/run-scheduled', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({save_candidates: true, auto_collect: true}),
+            });
+            const message = '후보 ' + (result.total_scanned || 0) + '개, 저장 ' + (result.saved_count || 0) + '개';
+            setActionStatus('success', '자동 실행 완료', message, describeCollection(result.collection) + ' 상위 후보: ' + describeTopSignals(result.signals));
+            state.selectedResultIndex = 0;
+            await loadAll();
+            activateTab('results');
+        } catch (err) {
+            showActionError('자동 실행 실패', err);
+        } finally {
+            setButtonBusy('btn-narrative-oneclick', false);
         }
     }
 
@@ -508,6 +612,7 @@
             });
         });
         $('btn-narrative-refresh').addEventListener('click', loadAll);
+        $('btn-narrative-oneclick').addEventListener('click', runOneClick);
         $('btn-narrative-collect').addEventListener('click', collectNarratives);
         $('btn-narrative-scan').addEventListener('click', function () { runScan(false); });
         $('btn-narrative-save-scan').addEventListener('click', function () { runScan(true); });
@@ -522,6 +627,12 @@
         $('btn-narrative-load-editor').addEventListener('click', loadEditorFromState);
         $('btn-narrative-save-history').addEventListener('click', saveHistoryFromEditor);
         document.body.addEventListener('click', function (event) {
+            const resultRow = event.target.closest('.narrative-result-row');
+            if (resultRow) {
+                state.selectedResultIndex = Number(resultRow.dataset.resultIndex || 0);
+                renderResults();
+                return;
+            }
             const button = event.target.closest('.narrative-approval');
             if (button) queueApproval(button);
         });

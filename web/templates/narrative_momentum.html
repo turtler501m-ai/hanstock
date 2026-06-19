@@ -8,7 +8,7 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Noto+Sans+KR:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/static/css/style.css?v=28">
-    <link rel="stylesheet" href="/static/css/narrative_momentum.css?v=4">
+    <link rel="stylesheet" href="/static/css/narrative_momentum.css?v=5">
 </head>
 <body>
     <div class="dashboard-container narrative-page">
@@ -36,6 +36,7 @@
                     <p class="section-help">전용 런타임 파일과 테마 매핑만 사용하며 기존 후보 스캐너와 분리되어 작동합니다.</p>
                 </div>
                 <div class="narrative-actions">
+                    <button type="button" id="btn-narrative-oneclick" class="narrative-primary-action">자동 실행</button>
                     <button type="button" id="btn-narrative-collect" class="button-ghost">뉴스 자동생성</button>
                     <button type="button" id="btn-narrative-scan">스캔 실행</button>
                     <button type="button" id="btn-narrative-save-scan" class="button-ghost">스캔+후보저장</button>
@@ -48,7 +49,7 @@
 
             <section class="narrative-action-status idle" id="narrative-action-status" role="status" aria-live="polite">
                 <strong>대기 중</strong>
-                <span>뉴스 자동생성, 스캔 실행, 후보저장 버튼을 누르면 진행 상태와 결과가 여기에 표시됩니다.</span>
+                <span>자동 실행 버튼을 누르면 뉴스 자동생성, 스캔, 후보저장을 한 번에 실행하고 결과 목록에 남깁니다.</span>
             </section>
 
             <section class="narrative-status-grid" id="narrative-status-grid"></section>
@@ -56,6 +57,7 @@
             <nav class="narrative-tabs" role="tablist">
                 <button type="button" class="narrative-tab active" data-tab="summary" role="tab" aria-selected="true">요약</button>
                 <button type="button" class="narrative-tab" data-tab="signals" role="tab" aria-selected="false">시그널</button>
+                <button type="button" class="narrative-tab" data-tab="results" role="tab" aria-selected="false">결과</button>
                 <button type="button" class="narrative-tab" data-tab="history" role="tab" aria-selected="false">내러티브 이력</button>
                 <button type="button" class="narrative-tab" data-tab="themes" role="tab" aria-selected="false">테마 매핑</button>
                 <button type="button" class="narrative-tab" data-tab="schedule" role="tab" aria-selected="false">스케줄</button>
@@ -102,6 +104,35 @@
                         </thead>
                         <tbody id="narrative-signals-body"></tbody>
                     </table>
+                </div>
+            </section>
+
+            <section class="narrative-panel" id="narrative-tab-results" role="tabpanel" hidden>
+                <div class="panel-header split-header">
+                    <div>
+                        <h2>실행 결과</h2>
+                        <p class="section-help">자동 실행과 스케줄 실행 결과를 목록으로 보고, 선택한 결과의 세부 후보와 근거를 확인합니다.</p>
+                    </div>
+                    <span class="time-muted" id="narrative-result-count">-</span>
+                </div>
+                <div class="narrative-results-layout">
+                    <div class="narrative-table-wrap">
+                        <table class="narrative-table">
+                            <thead>
+                                <tr>
+                                    <th>실행시각</th>
+                                    <th>상태</th>
+                                    <th>후보</th>
+                                    <th>저장</th>
+                                    <th>상위 후보</th>
+                                </tr>
+                            </thead>
+                            <tbody id="narrative-results-body"></tbody>
+                        </table>
+                    </div>
+                    <div class="narrative-result-detail" id="narrative-result-detail">
+                        결과를 선택하면 세부정보가 표시됩니다.
+                    </div>
                 </div>
             </section>
 
@@ -228,6 +259,6 @@
         </main>
     </div>
 
-    <script src="/static/js/narrative_momentum.js?v=4"></script>
+    <script src="/static/js/narrative_momentum.js?v=5"></script>
 </body>
 </html>

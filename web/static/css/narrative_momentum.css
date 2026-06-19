@@ -34,6 +34,13 @@
     justify-content: flex-end;
 }
 
+.narrative-primary-action {
+    border-color: rgba(34, 197, 94, 0.55);
+    background: linear-gradient(135deg, rgba(22, 163, 74, 0.92), rgba(37, 99, 235, 0.86));
+    color: #f8fafc;
+    font-weight: 800;
+}
+
 .narrative-status-grid {
     display: grid;
     grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -221,6 +228,88 @@
     white-space: pre-wrap;
 }
 
+.narrative-results-layout {
+    display: grid;
+    grid-template-columns: minmax(0, 1.08fr) minmax(20rem, 0.92fr);
+    gap: 1rem;
+    align-items: start;
+}
+
+.narrative-result-row {
+    cursor: pointer;
+}
+
+.narrative-result-row:hover,
+.narrative-result-row.active {
+    background: rgba(37, 99, 235, 0.14);
+}
+
+.narrative-result-detail {
+    min-height: 18rem;
+    border: 1px solid rgba(148, 163, 184, 0.14);
+    background: rgba(2, 6, 23, 0.45);
+    border-radius: 8px;
+    padding: 0.9rem;
+    color: #cbd5e1;
+}
+
+.narrative-result-detail h3,
+.narrative-result-detail h4 {
+    margin: 0;
+    color: #f8fafc;
+}
+
+.narrative-result-detail h4 {
+    margin-top: 1rem;
+    font-size: 0.95rem;
+}
+
+.narrative-detail-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.5rem;
+    margin-top: 0.75rem;
+}
+
+.narrative-detail-item {
+    border: 1px solid rgba(148, 163, 184, 0.12);
+    border-radius: 6px;
+    padding: 0.55rem;
+    background: rgba(15, 23, 42, 0.48);
+}
+
+.narrative-detail-item span {
+    display: block;
+    color: #94a3b8;
+    font-size: 0.75rem;
+}
+
+.narrative-detail-item strong {
+    display: block;
+    margin-top: 0.2rem;
+    color: #f8fafc;
+}
+
+.narrative-detail-list {
+    display: grid;
+    gap: 0.5rem;
+    margin-top: 0.65rem;
+}
+
+.narrative-detail-signal {
+    border: 1px solid rgba(148, 163, 184, 0.12);
+    border-radius: 6px;
+    padding: 0.65rem;
+    background: rgba(15, 23, 42, 0.45);
+}
+
+.narrative-detail-signal p {
+    margin: 0.35rem 0 0;
+    color: #94a3b8;
+    font-size: 0.82rem;
+    line-height: 1.45;
+}
+
 .narrative-editor {
     border: 1px solid rgba(148, 163, 184, 0.14);
     background: rgba(2, 6, 23, 0.32);
@@ -312,7 +401,8 @@
 
 @media (max-width: 920px) {
     .narrative-band,
-    .narrative-summary-layout {
+    .narrative-summary-layout,
+    .narrative-results-layout {
         grid-template-columns: 1fr;
         display: grid;
     }
@@ -324,6 +414,10 @@
 
 @media (max-width: 620px) {
     .narrative-status-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .narrative-detail-grid {
         grid-template-columns: 1fr;
     }
 }

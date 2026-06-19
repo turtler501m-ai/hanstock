@@ -227,12 +227,23 @@ def get_narrative_momentum_schedule_history(limit: int = 20):
         except (TypeError, json.JSONDecodeError):
             payload = {}
         summary = payload.get("summary") if isinstance(payload, dict) else {}
+        signals = payload.get("signals") if isinstance(payload, dict) and isinstance(payload.get("signals"), list) else []
+        detail = {
+            "status": payload.get("status", {}) if isinstance(payload, dict) else {},
+            "collection": payload.get("collection") if isinstance(payload, dict) else None,
+            "signals": signals[:50],
+            "unmatched": payload.get("unmatched", []) if isinstance(payload, dict) else [],
+            "total_scanned": payload.get("total_scanned", 0) if isinstance(payload, dict) else 0,
+            "saved_count": payload.get("saved_count", 0) if isinstance(payload, dict) else 0,
+            "ran_at": payload.get("ran_at") if isinstance(payload, dict) else None,
+        }
         rows.append(
             {
                 "recorded_at": row["recorded_at"],
                 "mode": row["mode"],
                 "strategy_id": row["strategy_id"],
                 "summary": summary or runner.build_summary(payload if isinstance(payload, dict) else {}),
+                "detail": detail,
                 "ok": bool(payload.get("ok", True)) if isinstance(payload, dict) else False,
                 "errors": payload.get("errors", []) if isinstance(payload, dict) else [],
             }
