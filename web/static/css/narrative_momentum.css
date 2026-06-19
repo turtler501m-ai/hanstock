@@ -215,6 +215,36 @@
     font-size: 0.86rem;
 }
 
+.narrative-schedule-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 12px;
+    margin-bottom: 16px;
+}
+
+.narrative-schedule-grid label {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    font-size: 0.82rem;
+    color: #94a3b8;
+}
+
+.narrative-schedule-grid input,
+.narrative-schedule-grid select {
+    min-height: 38px;
+    border: 1px solid rgba(148, 163, 184, 0.25);
+    border-radius: 6px;
+    padding: 8px 10px;
+    background: rgba(15, 23, 42, 0.55);
+    color: #e5e7eb;
+}
+
+.narrative-schedule-grid input[type="checkbox"] {
+    min-height: 20px;
+    width: 20px;
+}
+
 .narrative-panel[hidden] {
     display: none;
 }

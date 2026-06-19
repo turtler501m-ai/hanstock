@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+from datetime import datetime
 
 # Add project root to sys.path to allow running as a script directly
 ROOT = Path(__file__).resolve().parent.parent
@@ -19,8 +20,12 @@ from src.db.repository import (
     is_schedule_due,
     list_strategy_schedules,
     mark_strategy_schedule_run,
+    save_scheduler_result,
 )
 from src.scheduler import run_scheduled_cycle
+from src.db.scheduler_repository import KST
+from src.strategy.narrative_momentum import STRATEGY_ID as NARRATIVE_MOMENTUM_STRATEGY_ID
+from src.strategy.narrative_momentum_runner import run_narrative_momentum_cycle
 from src.utils.logger import logger
 
 
@@ -50,12 +55,16 @@ def dispatch_due_schedules() -> list[str]:
             logger.info(
                 f"[dispatch] running {strategy_id} (mode={mode}, auto_approve={auto_approve})"
             )
-            run_scheduled_cycle(
-                mode,
-                auto_approve=auto_approve,
-                force_strategy_id=strategy_id,
-                allowed_categories=_allowed_categories_for_strategy(strategy_id),
-            )
+            if strategy_id == NARRATIVE_MOMENTUM_STRATEGY_ID:
+                result = run_narrative_momentum_cycle(save_candidates=(mode != "analysis_only"))
+                save_scheduler_result(mode, datetime.now(KST).isoformat(), result)
+            else:
+                run_scheduled_cycle(
+                    mode,
+                    auto_approve=auto_approve,
+                    force_strategy_id=strategy_id,
+                    allowed_categories=_allowed_categories_for_strategy(strategy_id),
+                )
             mark_strategy_schedule_run(strategy_id)
             ran.append(strategy_id)
             logger.info(f"[dispatch] done {strategy_id}")

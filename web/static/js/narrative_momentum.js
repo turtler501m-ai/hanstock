@@ -4,6 +4,8 @@
         latest: null,
         history: [],
         themes: [],
+        schedule: null,
+        scheduleHistory: [],
         activeTab: 'summary',
     };
 
@@ -171,6 +173,39 @@
         }).join('');
     }
 
+    function renderSchedule() {
+        const schedule = state.schedule || {};
+        if ($('narrative-schedule-enabled')) {
+            $('narrative-schedule-enabled').checked = !!schedule.enabled;
+            $('narrative-schedule-interval').value = schedule.interval_minutes || 30;
+            $('narrative-schedule-start').value = schedule.start_hm || '0900';
+            $('narrative-schedule-end').value = schedule.end_hm || '1530';
+            $('narrative-schedule-weekdays').value = schedule.weekdays || '1-5';
+            $('narrative-schedule-mode').value = schedule.mode || 'execute';
+        }
+        const rows = state.scheduleHistory || [];
+        const body = $('narrative-schedule-history-body');
+        if (!body) return;
+        if (!rows.length) {
+            body.innerHTML = '<tr><td colspan="6" class="narrative-muted">스케줄 실행 이력이 없습니다.</td></tr>';
+            return;
+        }
+        body.innerHTML = rows.map(function (row) {
+            const summary = row.summary || {};
+            const top = (summary.top_signals || []).map(function (item) {
+                return (item.name || item.ticker || '-') + ' ' + (item.score == null ? '' : item.score);
+            }).join(', ');
+            return '<tr>'
+                + '<td>' + escapeHtml(row.recorded_at || '-') + '</td>'
+                + '<td>' + escapeHtml(row.mode || '-') + '</td>'
+                + '<td>' + escapeHtml(summary.state || (row.ok ? 'ok' : 'error')) + '</td>'
+                + '<td>' + escapeHtml(summary.candidate_count || 0) + '</td>'
+                + '<td>' + escapeHtml(summary.saved_count || 0) + '</td>'
+                + '<td>' + escapeHtml(top || '-') + '</td>'
+                + '</tr>';
+        }).join('');
+    }
+
     function loadEditorFromState() {
         $('narrative-history-editor').value = JSON.stringify(state.history || [], null, 2);
         $('narrative-editor-status').textContent = '현재 이력을 편집기에 불러왔습니다.';
@@ -207,6 +242,7 @@
         renderSignals();
         renderHistory();
         renderThemes();
+        renderSchedule();
     }
 
     async function loadAll() {
@@ -216,11 +252,15 @@
                 fetchJson('/api/narrative-momentum/latest'),
                 fetchJson('/api/narrative-momentum/history'),
                 fetchJson('/api/narrative-momentum/theme-map'),
+                fetchJson('/api/narrative-momentum/schedule'),
+                fetchJson('/api/narrative-momentum/schedule-history'),
             ]);
             state.status = results[0];
             state.latest = results[1];
             state.history = results[2].history || [];
             state.themes = results[3].themes || [];
+            state.schedule = (results[4] || {}).schedule || {};
+            state.scheduleHistory = (results[5] || {}).history || [];
             renderAll();
         } catch (err) {
             $('narrative-errors').textContent = err.message || String(err);
@@ -238,6 +278,38 @@
             signals: result.signals,
             unmatched: [],
         };
+        await loadAll();
+    }
+
+    async function saveSchedule() {
+        const payload = {
+            enabled: $('narrative-schedule-enabled').checked,
+            interval_minutes: Number($('narrative-schedule-interval').value || 30),
+            start_hm: $('narrative-schedule-start').value || '0900',
+            end_hm: $('narrative-schedule-end').value || '1530',
+            weekdays: $('narrative-schedule-weekdays').value || '1-5',
+            mode: $('narrative-schedule-mode').value || 'execute',
+            auto_approve: false,
+        };
+        const result = await fetchJson('/api/narrative-momentum/schedule', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(payload),
+        });
+        state.schedule = result.schedule || {};
+        $('narrative-schedule-status').textContent = '스케줄을 저장했습니다.';
+        renderSchedule();
+    }
+
+    async function runScheduledNow() {
+        const saveCandidates = ($('narrative-schedule-mode')?.value || 'execute') !== 'analysis_only';
+        $('narrative-schedule-status').textContent = '실행 중...';
+        const result = await fetchJson('/api/narrative-momentum/run-scheduled', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({save_candidates: saveCandidates}),
+        });
+        $('narrative-schedule-status').textContent = '완료: 후보 ' + (result.total_scanned || 0) + '개, 저장 ' + (result.saved_count || 0) + '개';
         await loadAll();
     }
 
@@ -290,6 +362,8 @@
         $('btn-narrative-refresh').addEventListener('click', loadAll);
         $('btn-narrative-scan').addEventListener('click', function () { runScan(false).catch(alert); });
         $('btn-narrative-save-scan').addEventListener('click', function () { runScan(true).catch(alert); });
+        $('btn-narrative-save-schedule').addEventListener('click', function () { saveSchedule().catch(alert); });
+        $('btn-narrative-run-scheduled').addEventListener('click', function () { runScheduledNow().catch(alert); });
         $('btn-narrative-theme-reload').addEventListener('click', function () {
             fetchJson('/api/narrative-momentum/theme-map/reload', {method: 'POST'}).then(function (data) {
                 state.themes = data.themes || [];

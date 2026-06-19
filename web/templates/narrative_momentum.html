@@ -48,6 +48,7 @@
                 <button type="button" class="narrative-tab" data-tab="signals" role="tab" aria-selected="false">시그널</button>
                 <button type="button" class="narrative-tab" data-tab="history" role="tab" aria-selected="false">내러티브 이력</button>
                 <button type="button" class="narrative-tab" data-tab="themes" role="tab" aria-selected="false">테마 매핑</button>
+                <button type="button" class="narrative-tab" data-tab="schedule" role="tab" aria-selected="false">스케줄</button>
             </nav>
 
             <section class="narrative-panel active" id="narrative-tab-summary" role="tabpanel">
@@ -152,6 +153,64 @@
                             </tr>
                         </thead>
                         <tbody id="narrative-theme-body"></tbody>
+                    </table>
+                </div>
+            </section>
+
+            <section class="narrative-panel" id="narrative-tab-schedule" role="tabpanel" hidden>
+                <div class="panel-header split-header">
+                    <div>
+                        <h2>자동 실행</h2>
+                        <p class="section-help">스케줄러가 내러티브 스캔을 주기적으로 실행하고 결과 요약을 저장합니다.</p>
+                    </div>
+                    <button type="button" id="btn-narrative-run-scheduled" class="compact-button">즉시 실행</button>
+                </div>
+                <div class="narrative-schedule-grid">
+                    <label>
+                        <span>사용</span>
+                        <input type="checkbox" id="narrative-schedule-enabled">
+                    </label>
+                    <label>
+                        <span>간격(분)</span>
+                        <input type="number" id="narrative-schedule-interval" min="1" step="1" value="30">
+                    </label>
+                    <label>
+                        <span>시작</span>
+                        <input type="text" id="narrative-schedule-start" value="0900" maxlength="4">
+                    </label>
+                    <label>
+                        <span>종료</span>
+                        <input type="text" id="narrative-schedule-end" value="1530" maxlength="4">
+                    </label>
+                    <label>
+                        <span>요일</span>
+                        <input type="text" id="narrative-schedule-weekdays" value="1-5">
+                    </label>
+                    <label>
+                        <span>모드</span>
+                        <select id="narrative-schedule-mode">
+                            <option value="execute">스캔+후보저장</option>
+                            <option value="analysis_only">스캔만 실행</option>
+                        </select>
+                    </label>
+                </div>
+                <div class="narrative-actions">
+                    <button type="button" id="btn-narrative-save-schedule">스케줄 저장</button>
+                    <span class="time-muted" id="narrative-schedule-status">-</span>
+                </div>
+                <div class="narrative-table-wrap">
+                    <table class="narrative-table">
+                        <thead>
+                            <tr>
+                                <th>실행시각</th>
+                                <th>모드</th>
+                                <th>상태</th>
+                                <th>후보</th>
+                                <th>저장</th>
+                                <th>상위 시그널</th>
+                            </tr>
+                        </thead>
+                        <tbody id="narrative-schedule-history-body"></tbody>
                     </table>
                 </div>
             </section>

@@ -28,6 +28,28 @@ class SchedulerModeTests(unittest.TestCase):
         )
         mark_mock.assert_called_once_with("plunge_bounce_strategy")
 
+    def test_strategy_dispatch_runs_narrative_momentum_cycle(self):
+        schedule = {
+            "strategy_id": "narrative_momentum_strategy",
+            "mode": "execute",
+            "auto_approve": False,
+        }
+        expected = {"strategy_id": "narrative_momentum_strategy", "summary": {"candidate_count": 2}}
+
+        with patch.object(strategy_scheduler, "list_strategy_schedules", return_value=[schedule]), \
+                patch.object(strategy_scheduler, "is_schedule_due", return_value=True), \
+                patch.object(strategy_scheduler, "run_narrative_momentum_cycle", return_value=expected) as run_mock, \
+                patch.object(strategy_scheduler, "save_scheduler_result") as save_mock, \
+                patch.object(strategy_scheduler, "mark_strategy_schedule_run") as mark_mock:
+            ran = strategy_scheduler.dispatch_due_schedules()
+
+        self.assertEqual(ran, ["narrative_momentum_strategy"])
+        run_mock.assert_called_once_with(save_candidates=True)
+        save_mock.assert_called_once()
+        self.assertEqual(save_mock.call_args.args[0], "execute")
+        self.assertEqual(save_mock.call_args.args[2], expected)
+        mark_mock.assert_called_once_with("narrative_momentum_strategy")
+
     def test_run_scheduled_cycle_delegates_execute_mode(self):
         expected = {"mode": "execute", "results": []}
 

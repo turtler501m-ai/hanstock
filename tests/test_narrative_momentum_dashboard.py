@@ -22,6 +22,9 @@ class NarrativeMomentumDashboardTest(unittest.TestCase):
         self.assertIn("/api/narrative-momentum/scan", paths)
         self.assertIn("/api/narrative-momentum/history", paths)
         self.assertIn("/api/narrative-momentum/theme-map", paths)
+        self.assertIn("/api/narrative-momentum/schedule", paths)
+        self.assertIn("/api/narrative-momentum/run-scheduled", paths)
+        self.assertIn("/api/narrative-momentum/schedule-history", paths)
 
     def test_template_links_dedicated_assets(self):
         with open("web/templates/narrative_momentum.html", encoding="utf-8") as handle:
@@ -34,6 +37,9 @@ class NarrativeMomentumDashboardTest(unittest.TestCase):
         self.assertIn("가격/수량", template)
         self.assertIn("/api/narrative-momentum", script)
         self.assertIn("/api/narrative-momentum/history", script)
+        self.assertIn("/api/narrative-momentum/schedule", script)
+        self.assertIn("/api/narrative-momentum/run-scheduled", script)
+        self.assertIn("narrative-schedule-history-body", template)
         self.assertIn("narrative-price", script)
         self.assertIn("지정가와 수량", script)
 
@@ -201,11 +207,27 @@ class NarrativeMomentumDashboardTest(unittest.TestCase):
             with patch.object(narrative_momentum, "NARRATIVE_HISTORY_PATH", history_path), \
                     patch.object(narrative_momentum, "THEME_MAP_PATH", theme_path), \
                     patch.object(narrative_momentum, "LATEST_RESULT_PATH", latest_path), \
-                    patch.object(narrative_momentum, "_save_candidates", return_value=1):
+                    patch.object(narrative_momentum.runner, "save_candidates_from_signals", return_value=1):
                 result = narrative_momentum.scan_narrative_momentum({"save_candidates": True})
             saved_payload = narrative_momentum.load_json_file(latest_path, {})
         self.assertEqual(result["saved_count"], 1)
         self.assertEqual(saved_payload["saved_count"], 1)
+
+    def test_run_scheduled_persists_scheduler_summary(self):
+        with patch.object(narrative_momentum.runner, "run_narrative_momentum_cycle", return_value={
+            "strategy_id": "narrative_momentum_strategy",
+            "total_scanned": 2,
+            "saved_count": 1,
+            "summary": {"candidate_count": 2, "saved_count": 1},
+            "errors": [],
+        }) as run_mock, patch.object(narrative_momentum, "save_scheduler_result") as save_mock:
+            result = narrative_momentum.run_narrative_momentum_scheduled({"save_candidates": True})
+
+        self.assertEqual(result["summary"]["candidate_count"], 2)
+        run_mock.assert_called_once()
+        self.assertTrue(run_mock.call_args.kwargs["save_candidates"])
+        save_mock.assert_called_once()
+        self.assertEqual(save_mock.call_args.args[0], "execute")
 
     def test_auto_approval_pending_ids_exclude_narrative_source_when_requested(self):
         with TemporaryDirectory() as tmp:

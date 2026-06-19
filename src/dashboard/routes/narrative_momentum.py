@@ -12,6 +12,7 @@ from fastapi.responses import FileResponse
 from src import trader
 from src.dashboard.core import WEB_DIR
 from src.db.repository import init_db, save_scanned_candidate
+from src.db.scheduler_repository import save_scheduler_result
 from src.strategy.narrative_momentum import (
     STRATEGY_ID,
     NarrativeMomentumSettings,
@@ -19,6 +20,7 @@ from src.strategy.narrative_momentum import (
     load_json_file,
     save_json_file,
 )
+from src.strategy import narrative_momentum_runner as runner
 from src.utils.logger import logger
 
 router = APIRouter(tags=["narrative-momentum"])
@@ -84,22 +86,28 @@ def get_narrative_momentum_latest():
 
 @router.post("/api/narrative-momentum/scan")
 def scan_narrative_momentum(payload: dict | None = Body(default=None)):
-    history, theme_map, errors = _load_inputs()
-    if errors:
-        raise HTTPException(status_code=400, detail="; ".join(errors))
-    strategy = _strategy()
-    status = strategy.status(history, theme_map)
-    signals = strategy.calculate_signals(history, theme_map)
-    result = {
-        "strategy": STRATEGY_ID,
-        "status": status,
-        "signals": signals,
-        "total_scanned": len(signals),
-        "saved_count": 0,
-    }
-    if payload and payload.get("save_candidates"):
-        result["saved_count"] = _save_candidates(signals)
-    save_json_file(LATEST_RESULT_PATH, result)
+    result = runner.run_narrative_momentum_cycle(
+        save_candidates=bool(payload and payload.get("save_candidates")),
+        latest_path=LATEST_RESULT_PATH,
+        history_path=NARRATIVE_HISTORY_PATH,
+        theme_map_path=THEME_MAP_PATH,
+    )
+    if result.get("errors"):
+        raise HTTPException(status_code=400, detail="; ".join(result["errors"]))
+    return result
+
+
+@router.post("/api/narrative-momentum/run-scheduled")
+def run_narrative_momentum_scheduled(payload: dict | None = Body(default=None)):
+    save_candidates = True if payload is None else bool(payload.get("save_candidates", True))
+    result = runner.run_narrative_momentum_cycle(
+        save_candidates=save_candidates,
+        latest_path=LATEST_RESULT_PATH,
+        history_path=NARRATIVE_HISTORY_PATH,
+        theme_map_path=THEME_MAP_PATH,
+    )
+    mode = "execute" if save_candidates else "analysis_only"
+    save_scheduler_result(mode, trader.datetime.now(trader.KST).isoformat(), result)
     return result
 
 
@@ -150,6 +158,65 @@ def get_narrative_theme_map():
 @router.post("/api/narrative-momentum/theme-map/reload")
 def reload_narrative_theme_map():
     return get_narrative_theme_map()
+
+
+@router.get("/api/narrative-momentum/schedule")
+def get_narrative_momentum_schedule():
+    from src.db.repository import load_strategy_schedule
+
+    return {"ok": True, "schedule": load_strategy_schedule(STRATEGY_ID)}
+
+
+@router.post("/api/narrative-momentum/schedule")
+def save_narrative_momentum_schedule(payload: dict = Body(...)):
+    from src.db.repository import save_strategy_schedule
+
+    allowed = {"enabled", "interval_minutes", "start_hm", "end_hm", "weekdays", "mode", "auto_approve"}
+    fields = {k: v for k, v in payload.items() if k in allowed}
+    if "mode" in fields and str(fields["mode"]).lower() not in {"execute", "analysis_only"}:
+        raise HTTPException(status_code=400, detail="mode must be 'execute' or 'analysis_only'")
+    if "interval_minutes" in fields:
+        try:
+            fields["interval_minutes"] = max(1, int(fields["interval_minutes"]))
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail="interval_minutes must be an integer")
+    schedule = save_strategy_schedule(STRATEGY_ID, **fields)
+    return {"ok": True, "schedule": schedule}
+
+
+@router.get("/api/narrative-momentum/schedule-history")
+def get_narrative_momentum_schedule_history(limit: int = 20):
+    init_db()
+    rows = []
+    with trader.connect_db() as conn:
+        conn.row_factory = sqlite3.Row
+        result_rows = conn.execute(
+            """
+            SELECT recorded_at, mode, result, strategy_id
+            FROM scheduler_results
+            WHERE strategy_id = ?
+            ORDER BY recorded_at DESC
+            LIMIT ?
+            """,
+            (STRATEGY_ID, max(1, min(int(limit or 20), 100))),
+        ).fetchall()
+    for row in result_rows:
+        try:
+            payload = json.loads(row["result"])
+        except (TypeError, json.JSONDecodeError):
+            payload = {}
+        summary = payload.get("summary") if isinstance(payload, dict) else {}
+        rows.append(
+            {
+                "recorded_at": row["recorded_at"],
+                "mode": row["mode"],
+                "strategy_id": row["strategy_id"],
+                "summary": summary or runner.build_summary(payload if isinstance(payload, dict) else {}),
+                "ok": bool(payload.get("ok", True)) if isinstance(payload, dict) else False,
+                "errors": payload.get("errors", []) if isinstance(payload, dict) else [],
+            }
+        )
+    return {"ok": True, "history": rows, "count": len(rows)}
 
 
 @router.post("/api/narrative-momentum/queue-approval")
@@ -208,60 +275,11 @@ def _strategy() -> NarrativeMomentumStrategy:
 
 
 def _load_inputs() -> tuple[list[dict[str, Any]], dict[str, list[dict[str, Any]]], list[str]]:
-    errors = []
-    try:
-        history = load_json_file(NARRATIVE_HISTORY_PATH, [])
-    except (json.JSONDecodeError, OSError, TypeError) as exc:
-        history = []
-        errors.append(f"failed to load narrative history: {exc}")
-    try:
-        theme_map = load_json_file(THEME_MAP_PATH, {})
-    except (json.JSONDecodeError, OSError, TypeError) as exc:
-        theme_map = {}
-        errors.append(f"failed to load theme map: {exc}")
-    if not isinstance(history, list):
-        errors.append("narrative_history must be a list")
-        history = []
-    if not isinstance(theme_map, dict):
-        errors.append("theme_map must be an object")
-        theme_map = {}
-    return history, theme_map, errors
+    return runner.load_inputs(NARRATIVE_HISTORY_PATH, THEME_MAP_PATH)
 
 
 def _save_candidates(signals: list[dict[str, Any]]) -> int:
-    saved_count = 0
-    for signal in signals:
-        price = int(_to_float(signal.get("current_price", signal.get("price"))))
-        if price <= 0:
-            continue
-        top_features = {
-            "themes": signal.get("themes", []),
-            "narratives": signal.get("narratives", []),
-            "breakdown": signal.get("breakdown", []),
-            "price_source": "signal",
-        }
-        saved_id = save_scanned_candidate(
-            symbol=signal.get("ticker", ""),
-            name=signal.get("name", signal.get("ticker", "")),
-            score=signal.get("score", 0),
-            reasons=signal.get("reasons", []),
-            price=price,
-            env=trader.TRADING_ENV,
-            indicators={},
-            strategy={"id": STRATEGY_ID},
-            ranker_model="rule_only",
-            optimizer="narrative_momentum",
-            scoring={
-                "rule_score": signal.get("rule_score"),
-                "ml_score": signal.get("ml_score"),
-                "final_score": signal.get("final_score"),
-                "ai_model_status": "not_used",
-                "top_features": top_features,
-            },
-        )
-        if saved_id:
-            saved_count += 1
-    return saved_count
+    return runner.save_candidates_from_signals(signals)
 
 
 def _create_approval_row(payload: dict[str, Any]) -> int:
