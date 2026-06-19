@@ -96,6 +96,63 @@ class SchedulerApiTests(unittest.TestCase):
         self.assertEqual(status["last_result"]["range_days"], 30)
         self.assertIn("run_date", rows[0])
 
+    def test_get_scheduler_status_compacts_large_result_but_keeps_counts(self):
+        from datetime import datetime
+        from src.db.scheduler_repository import KST
+        from src.db.repository import save_scheduler_result
+
+        now = datetime.now(KST)
+        long_reason = "x" * 700
+        save_scheduler_result(
+            "execute",
+            f"{now.strftime('%Y-%m-%d')}T09:00:00+09:00",
+            {
+                "results": [
+                    {
+                        "symbol": f"{idx:06d}",
+                        "name": f"stock-{idx}",
+                        "decision": "queue",
+                        "reason": long_reason,
+                    }
+                    for idx in range(120)
+                ],
+                "auto_approved": [{"id": 1, "status": "executed"}],
+                "auto_approval_errors": [],
+            },
+        )
+
+        status = get_scheduler_status()
+        last_result = status["last_result"]
+        result = last_result["result"]
+
+        self.assertTrue(last_result["compact"])
+        self.assertEqual(len(result["results"]), 100)
+        self.assertEqual(result["results"][0]["symbol"], "000020")
+        self.assertEqual(result["summary_counts"]["plan_count"], 120)
+        self.assertEqual(result["summary_counts"]["queue_count"], 119)
+        self.assertEqual(result["summary_counts"]["approved_count"], 1)
+        self.assertLessEqual(len(result["results"][0]["reason"]), 500)
+
+    def test_get_scheduler_status_can_return_full_result_when_requested(self):
+        from datetime import datetime
+        from src.db.scheduler_repository import KST
+        from src.db.repository import save_scheduler_result
+
+        now = datetime.now(KST)
+        save_scheduler_result(
+            "execute",
+            f"{now.strftime('%Y-%m-%d')}T09:00:00+09:00",
+            {
+                "results": [{"symbol": f"{idx:06d}"} for idx in range(105)],
+                "auto_approved": [],
+            },
+        )
+
+        status = get_scheduler_status(compact=False)
+
+        self.assertNotIn("compact", status["last_result"])
+        self.assertEqual(len(status["last_result"]["result"]["results"]), 105)
+
     @patch("src.dashboard.threading.Thread")
     def test_trigger_scheduler_run_starts_background_thread(self, mock_thread):
         mock_thread_instance = MagicMock()

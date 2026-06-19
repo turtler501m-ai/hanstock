@@ -3353,13 +3353,14 @@ async function renderScheduleInfo() {
             const approved = lastResult.result.auto_approved || [];
             const approvalErrors = lastResult.result.auto_approval_errors || [];
             const runErrors = lastResult.result.errors || lastResult.result.retry_errors || [];
+            const summaryCounts = lastResult.result.summary_counts || {};
             
             // Update daily total summary metrics at the top
-            const totalPlanCount = results.length;
+            const totalPlanCount = summaryCounts.plan_count ?? results.length;
             const queuedCreatedCount = results.filter(r => r.decision === 'queue').length;
-            const totalQueuedCount = Math.max(0, queuedCreatedCount - approved.length - approvalErrors.length);
-            const totalApprovedCount = approved.filter(a => a.status === 'executed').length;
-            const totalFailedCount = approved.filter(a => a.status === 'failed').length + approvalErrors.length + runErrors.length;
+            const totalQueuedCount = summaryCounts.queue_count ?? Math.max(0, queuedCreatedCount - approved.length - approvalErrors.length);
+            const totalApprovedCount = summaryCounts.approved_count ?? approved.filter(a => a.status === 'executed').length;
+            const totalFailedCount = summaryCounts.failed_count ?? approved.filter(a => a.status === 'failed').length + approvalErrors.length + runErrors.length;
             
             const planCntEl = document.getElementById('sched-result-plan-cnt');
             if (planCntEl) planCntEl.textContent = `${totalPlanCount}건`;

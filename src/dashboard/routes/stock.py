@@ -58,6 +58,115 @@ def _json_safe(value):
     return value
 
 
+def _trim_text(value, limit: int = 500):
+    if value is None:
+        return value
+    text = str(value)
+    if len(text) <= limit:
+        return text
+    return text[: max(0, limit - 3)] + "..."
+
+
+def _tail_items(items, limit: int):
+    if not isinstance(items, list):
+        return []
+    if len(items) <= limit:
+        return list(items)
+    return list(items[-limit:])
+
+
+def _compact_scheduler_item(item, allowed_keys: set[str]) -> dict:
+    if not isinstance(item, dict):
+        return {"value": _trim_text(item)}
+    compact = {key: item.get(key) for key in allowed_keys if key in item}
+    for key in ("reason", "response_msg", "message"):
+        if key in compact:
+            compact[key] = _trim_text(compact[key])
+    return compact
+
+
+def _compact_scheduler_status_result(last_result: dict | None, item_limit: int = 100) -> dict | None:
+    if not isinstance(last_result, dict):
+        return last_result
+    result = last_result.get("result")
+    if not isinstance(result, dict):
+        return last_result
+
+    plan_items = result.get("results") or []
+    approved_items = result.get("auto_approved") or []
+    approval_errors = result.get("auto_approval_errors") or []
+    run_errors = result.get("errors") or result.get("retry_errors") or []
+
+    if not isinstance(plan_items, list):
+        plan_items = []
+    if not isinstance(approved_items, list):
+        approved_items = []
+    if not isinstance(approval_errors, list):
+        approval_errors = []
+    if not isinstance(run_errors, list):
+        run_errors = [run_errors] if run_errors else []
+
+    queued_created = sum(1 for item in plan_items if isinstance(item, dict) and item.get("decision") == "queue")
+    approved_executed = sum(1 for item in approved_items if isinstance(item, dict) and item.get("status") == "executed")
+    approved_failed = sum(1 for item in approved_items if isinstance(item, dict) and item.get("status") == "failed")
+
+    plan_keys = {
+        "symbol", "name", "category", "decision", "approval_id", "action",
+        "qty", "signal_qty", "price", "signal_price", "reason", "skip_reason",
+        "time", "run_date", "run_recorded_at", "round",
+    }
+    approved_keys = {
+        "id", "approval_id", "symbol", "name", "action", "qty", "price",
+        "status", "response_msg", "message", "time", "run_date", "run_recorded_at",
+        "round",
+    }
+    error_keys = {"approval_id", "message", "time", "run_date", "run_recorded_at", "round"}
+
+    compact_result = {
+        "results": [
+            _compact_scheduler_item(item, plan_keys)
+            for item in _tail_items(plan_items, item_limit)
+        ],
+        "auto_approved": [
+            _compact_scheduler_item(item, approved_keys)
+            for item in _tail_items(approved_items, item_limit)
+        ],
+        "auto_approval_errors": [
+            _compact_scheduler_item(item, error_keys)
+            for item in _tail_items(approval_errors, 50)
+        ],
+        "errors": [_trim_text(item) for item in _tail_items(run_errors, 50)],
+        "status": result.get("status"),
+        "ok": result.get("ok"),
+        "summary_counts": {
+            "plan_count": len(plan_items),
+            "queue_count": max(0, queued_created - len(approved_items) - len(approval_errors)),
+            "approved_count": approved_executed,
+            "failed_count": approved_failed + len(approval_errors) + len(run_errors),
+            "shown_plan_count": min(len(plan_items), item_limit),
+            "shown_approved_count": min(len(approved_items), item_limit),
+            "shown_approval_error_count": min(len(approval_errors), 50),
+            "shown_error_count": min(len(run_errors), 50),
+        },
+    }
+
+    for key in (
+        "candidate_scan",
+        "remaining_cash",
+        "daily_loss_halt",
+        "cash",
+        "strategy_id",
+        "order_status_sync",
+    ):
+        if key in result and key not in compact_result:
+            compact_result[key] = _json_safe(result.get(key))
+
+    compact = {key: value for key, value in last_result.items() if key != "result"}
+    compact["result"] = compact_result
+    compact["compact"] = True
+    return compact
+
+
 def _validation_payload(strategy: dict) -> dict:
     import json
 
@@ -1595,7 +1704,7 @@ def deactivate_kill_switch():
 
 
 @router.get("/api/scheduler/status")
-def get_scheduler_status(strategy_id: str | None = None):
+def get_scheduler_status(strategy_id: str | None = None, compact: bool = True):
     global _scheduler_run_state
     _dashboard_scheduler_service.refresh()
     
@@ -1629,6 +1738,9 @@ def get_scheduler_status(strategy_id: str | None = None):
                 last_result = json.loads(path.read_text(encoding="utf-8"))
             except Exception:
                 pass
+
+    if compact:
+        last_result = _compact_scheduler_status_result(last_result)
             
     active_strategy_id = "seven_split"
     active_strategy_name = "기본 룰베이스 (Seven Split)"
