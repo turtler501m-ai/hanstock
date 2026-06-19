@@ -24,6 +24,15 @@ from src.scheduler import run_scheduled_cycle
 from src.utils.logger import logger
 
 
+_ISOLATED_STRATEGY_IDS = {"plunge_bounce_strategy", "heikin_ashi_scalping_strategy"}
+
+
+def _allowed_categories_for_strategy(strategy_id: str | None) -> set[str]:
+    if strategy_id in _ISOLATED_STRATEGY_IDS:
+        return {"candidate"}
+    return {"position", "candidate", "ai_rebalance"}
+
+
 def dispatch_due_schedules() -> list[str]:
     ran: list[str] = []
     schedules = list_strategy_schedules(enabled_only=True)
@@ -45,7 +54,7 @@ def dispatch_due_schedules() -> list[str]:
                 mode,
                 auto_approve=auto_approve,
                 force_strategy_id=strategy_id,
-                allowed_categories={"position", "candidate", "ai_rebalance"},
+                allowed_categories=_allowed_categories_for_strategy(strategy_id),
             )
             mark_strategy_schedule_run(strategy_id)
             ran.append(strategy_id)

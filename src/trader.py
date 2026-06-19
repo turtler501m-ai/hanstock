@@ -753,30 +753,32 @@ def build_runtime_plan(
     capital = operating_capital(total_eval)
     buying_cash = available_buying_cash(cash, stock_eval, total_eval)
     pnl = int(summary.get("evlu_pfls_smtl_amt", 0) or 0)
+    isolated_strategy_run = active_strategy_id in _ISOLATED_STRATEGY_IDS
 
     position_rows = []
-    for stock in stocks:
-        sym = stock.get("pdno", "")
-        name = stock.get("prdt_name", sym)
-        rt = float(stock.get("evlu_pfls_rt", 0) or 0)
-        daily = api.get_daily(sym, n=60)
-        strategy_model = ""
-        if active_strategy:
-            strategy_model = str(active_strategy.get("model") or "")
-            if strategy_model == "none":
-                strategy_model = ""
-        signal = generate_signal(stock, daily, strategy_model=strategy_model)
-        row = signal_to_plan_row(
-            sym,
-            name,
-            signal,
-            source="holding_signal",
-            include_hold=True,
-            metadata={"return_pct": rt},
-            strategy_id=active_strategy_id,
-        )
-        if row is not None:
-            position_rows.append(row)
+    if not isolated_strategy_run:
+        for stock in stocks:
+            sym = stock.get("pdno", "")
+            name = stock.get("prdt_name", sym)
+            rt = float(stock.get("evlu_pfls_rt", 0) or 0)
+            daily = api.get_daily(sym, n=60)
+            strategy_model = ""
+            if active_strategy:
+                strategy_model = str(active_strategy.get("model") or "")
+                if strategy_model == "none":
+                    strategy_model = ""
+            signal = generate_signal(stock, daily, strategy_model=strategy_model)
+            row = signal_to_plan_row(
+                sym,
+                name,
+                signal,
+                source="holding_signal",
+                include_hold=True,
+                metadata={"return_pct": rt},
+                strategy_id=active_strategy_id,
+            )
+            if row is not None:
+                position_rows.append(row)
 
     halted = daily_loss_halt_triggered(pnl)
     remaining_cash = buying_cash

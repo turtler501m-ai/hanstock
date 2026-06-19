@@ -97,9 +97,9 @@ def scan_narrative_momentum(payload: dict | None = Body(default=None)):
         "total_scanned": len(signals),
         "saved_count": 0,
     }
-    save_json_file(LATEST_RESULT_PATH, result)
     if payload and payload.get("save_candidates"):
         result["saved_count"] = _save_candidates(signals)
+    save_json_file(LATEST_RESULT_PATH, result)
     return result
 
 
@@ -184,9 +184,10 @@ def queue_narrative_approval(payload: dict = Body(...)):
     if price <= 0:
         raise HTTPException(status_code=400, detail="price must be greater than 0")
     name = str(signal.get("name") or name)
-    reason = str(payload.get("reason") or "")
-    if not reason:
-        reason = f"내러티브 모멘텀 {server_score:g}점: {', '.join(signal.get('narratives', [])[:2])}"
+    reason = f"내러티브 모멘텀 {server_score:g}점: {', '.join(signal.get('narratives', [])[:2])}"
+    client_reason = str(payload.get("reason") or "").strip()
+    if client_reason:
+        reason = f"{reason} / 요청메모: {client_reason[:120]}"
     approval_id = _create_approval_row(
         {
             "symbol": ticker,

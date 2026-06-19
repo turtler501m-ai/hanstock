@@ -338,6 +338,45 @@ class TraderCoreTests(unittest.TestCase):
         self.assertEqual(plan["candidate_scan"]["scanned"], 0)
         self.assertIn("dedicated universe", plan["candidate_scan"]["scan_error"])
 
+    def test_isolated_strategy_does_not_build_whole_account_position_rows(self):
+        from src import trader
+
+        class _FakeAPI:
+            def get_daily(self, _symbol, n=60):
+                return []
+
+            def get_quote(self, _symbol):
+                return {"current": 0, "ask1": 0, "bid1": 0}
+
+        balance = {
+            "output1": [{
+                "pdno": "078930",
+                "prdt_name": "GS",
+                "hldg_qty": "6369",
+                "prpr": "71300",
+                "evlu_amt": "454109700",
+                "evlu_pfls_rt": "2.0",
+            }],
+            "output2": [{
+                "dnca_tot_amt": "10000000",
+                "scts_evlu_amt": "454109700",
+                "tot_evlu_amt": "464109700",
+                "evlu_pfls_smtl_amt": "0",
+            }],
+        }
+
+        with patch("src.db.repository.load_strategy_universe_symbols", return_value=[]), \
+                patch.object(trader, "generate_signal") as signal_mock:
+            plan = trader.build_runtime_plan(
+                _FakeAPI(),
+                balance,
+                force_strategy_id="plunge_bounce_strategy",
+            )
+
+        signal_mock.assert_not_called()
+        self.assertEqual(plan["position_plan_rows"], [])
+        self.assertTrue(all(row.get("category") != "position" for row in plan["plan"]))
+
     def test_build_scan_universe_uses_volume_rank_when_available(self):
         extra = ["000020", "000030", "000040"]
 

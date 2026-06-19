@@ -2,10 +2,32 @@ import sys
 import unittest
 from unittest.mock import patch
 
-from src import scheduler
+from src import scheduler, strategy_scheduler
 
 
 class SchedulerModeTests(unittest.TestCase):
+    def test_strategy_dispatch_limits_isolated_strategy_to_candidate_orders(self):
+        schedule = {
+            "strategy_id": "plunge_bounce_strategy",
+            "mode": "execute",
+            "auto_approve": True,
+        }
+
+        with patch.object(strategy_scheduler, "list_strategy_schedules", return_value=[schedule]), \
+                patch.object(strategy_scheduler, "is_schedule_due", return_value=True), \
+                patch.object(strategy_scheduler, "run_scheduled_cycle") as cycle_mock, \
+                patch.object(strategy_scheduler, "mark_strategy_schedule_run") as mark_mock:
+            ran = strategy_scheduler.dispatch_due_schedules()
+
+        self.assertEqual(ran, ["plunge_bounce_strategy"])
+        cycle_mock.assert_called_once_with(
+            "execute",
+            auto_approve=True,
+            force_strategy_id="plunge_bounce_strategy",
+            allowed_categories={"candidate"},
+        )
+        mark_mock.assert_called_once_with("plunge_bounce_strategy")
+
     def test_run_scheduled_cycle_delegates_execute_mode(self):
         expected = {"mode": "execute", "results": []}
 
