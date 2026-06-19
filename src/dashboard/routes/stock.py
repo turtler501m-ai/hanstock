@@ -192,6 +192,18 @@ def _compact_scheduler_status_result(last_result: dict | None, item_limit: int =
     return compact
 
 
+def _compact_scheduler_run_state(run_state: dict, item_limit: int = 100) -> dict:
+    if not isinstance(run_state, dict):
+        return run_state
+    compact = dict(run_state)
+    if isinstance(compact.get("result"), dict):
+        wrapped = _compact_scheduler_status_result({"result": compact["result"]}, item_limit=item_limit)
+        if isinstance(wrapped, dict):
+            compact["result"] = wrapped.get("result")
+            compact["result_compact"] = True
+    return compact
+
+
 def _validation_payload(strategy: dict) -> dict:
     import json
 
@@ -1821,10 +1833,12 @@ def get_scheduler_status(strategy_id: str | None = None, compact: bool = True):
     except Exception:
         pass
 
+    run_state = _compact_scheduler_run_state(_scheduler_run_state) if compact else _scheduler_run_state
+
     return {
         "config": config,
         "last_result": last_result,
-        "run_state": _scheduler_run_state,
+        "run_state": run_state,
         "active_strategy_id": active_strategy_id,
         "active_strategy_name": active_strategy_name,
         "strategy_dispatch": strategy_dispatch,

@@ -181,6 +181,35 @@ class SchedulerApiTests(unittest.TestCase):
         self.assertNotIn("compact", status["last_result"])
         self.assertEqual(len(status["last_result"]["result"]["results"]), 105)
 
+    def test_get_scheduler_status_compacts_run_state_result(self):
+        with _scheduler_running_lock:
+            _scheduler_run_state["is_running"] = False
+            _scheduler_run_state["mode"] = "execute"
+            _scheduler_run_state["result"] = {
+                "results": [{"symbol": f"{idx:06d}", "reason": "x" * 700} for idx in range(120)],
+                "auto_approved": [],
+            }
+
+        status = get_scheduler_status()
+
+        self.assertTrue(status["run_state"]["result_compact"])
+        self.assertEqual(len(status["run_state"]["result"]["results"]), 100)
+        self.assertEqual(status["run_state"]["result"]["summary_counts"]["plan_count"], 120)
+
+    def test_get_scheduler_status_can_return_full_run_state_when_requested(self):
+        with _scheduler_running_lock:
+            _scheduler_run_state["is_running"] = False
+            _scheduler_run_state["mode"] = "execute"
+            _scheduler_run_state["result"] = {
+                "results": [{"symbol": f"{idx:06d}"} for idx in range(105)],
+                "auto_approved": [],
+            }
+
+        status = get_scheduler_status(compact=False)
+
+        self.assertNotIn("result_compact", status["run_state"])
+        self.assertEqual(len(status["run_state"]["result"]["results"]), 105)
+
     @patch("src.dashboard.threading.Thread")
     def test_trigger_scheduler_run_starts_background_thread(self, mock_thread):
         mock_thread_instance = MagicMock()
