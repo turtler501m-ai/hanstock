@@ -8,7 +8,7 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Noto+Sans+KR:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/static/css/style.css?v=28">
-    <link rel="stylesheet" href="/static/css/narrative_momentum.css?v=3">
+    <link rel="stylesheet" href="/static/css/narrative_momentum.css?v=4">
 </head>
 <body>
     <div class="dashboard-container narrative-page">
@@ -44,6 +44,11 @@
 
             <section class="narrative-readiness" id="narrative-readiness">
                 내러티브 데이터 상태를 확인하는 중입니다.
+            </section>
+
+            <section class="narrative-action-status idle" id="narrative-action-status" role="status" aria-live="polite">
+                <strong>대기 중</strong>
+                <span>뉴스 자동생성, 스캔 실행, 후보저장 버튼을 누르면 진행 상태와 결과가 여기에 표시됩니다.</span>
             </section>
 
             <section class="narrative-status-grid" id="narrative-status-grid"></section>
@@ -223,6 +228,6 @@
         </main>
     </div>
 
-    <script src="/static/js/narrative_momentum.js?v=3"></script>
+    <script src="/static/js/narrative_momentum.js?v=4"></script>
 </body>
 </html>

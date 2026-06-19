@@ -40,6 +40,48 @@
         return data;
     }
 
+    function setActionStatus(kind, title, message, detail) {
+        const box = $('narrative-action-status');
+        if (!box) return;
+        box.className = 'narrative-action-status ' + (kind || 'idle');
+        box.innerHTML = '<strong>' + escapeHtml(title || '') + '</strong>'
+            + '<span>' + escapeHtml(message || '') + '</span>'
+            + (detail ? '<span class="narrative-action-detail">' + escapeHtml(detail) + '</span>' : '');
+    }
+
+    function setButtonBusy(id, busy, busyLabel) {
+        const button = $(id);
+        if (!button) return;
+        if (!button.dataset.defaultLabel) {
+            button.dataset.defaultLabel = button.textContent;
+        }
+        button.disabled = !!busy;
+        button.textContent = busy ? busyLabel : button.dataset.defaultLabel;
+    }
+
+    function describeTopSignals(signals) {
+        const list = Array.isArray(signals) ? signals : [];
+        if (!list.length) return '상위 후보 없음';
+        return list.slice(0, 5).map(function (item) {
+            const score = Number(item.final_score || item.score || 0);
+            return (item.name || item.ticker || '-') + ' ' + score.toFixed(1) + '점';
+        }).join(', ');
+    }
+
+    function describeCollection(collection) {
+        if (!collection) return '기존 최신 내러티브를 사용했습니다.';
+        if (collection.generated) {
+            return '뉴스 기사 ' + (collection.article_count || 0) + '건에서 내러티브 '
+                + (collection.narrative_count || 0) + '건을 자동 생성했습니다.';
+        }
+        return '자동 생성 없음: ' + ((collection.errors || []).join(', ') || '이미 최신 데이터입니다.');
+    }
+
+    function showActionError(title, err) {
+        const message = err && err.message ? err.message : String(err || '알 수 없는 오류');
+        setActionStatus('error', title, message);
+    }
+
     function renderStatusCards() {
         const status = state.status || {};
         const items = [
@@ -321,32 +363,59 @@
     }
 
     async function runScan(saveCandidates) {
-        const result = await fetchJson('/api/narrative-momentum/scan', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({save_candidates: !!saveCandidates, auto_collect: true}),
-        });
-        state.latest = {
-            status: result.status,
-            signals: result.signals,
-            unmatched: [],
-        };
-        await loadAll();
+        const buttonId = saveCandidates ? 'btn-narrative-save-scan' : 'btn-narrative-scan';
+        const title = saveCandidates ? '스캔과 후보저장 실행 중' : '스캔 실행 중';
+        setButtonBusy(buttonId, true, '실행 중...');
+        setActionStatus('running', title, '뉴스 자동생성 필요 여부를 확인한 뒤 후보를 계산합니다.');
+        try {
+            const result = await fetchJson('/api/narrative-momentum/scan', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({save_candidates: !!saveCandidates, auto_collect: true}),
+            });
+            state.latest = {
+                status: result.status,
+                signals: result.signals,
+                unmatched: [],
+            };
+            setActionStatus(
+                'success',
+                saveCandidates ? '후보저장 완료' : '스캔 완료',
+                '후보 ' + (result.total_scanned || 0) + '개를 계산했고, 저장 ' + (result.saved_count || 0) + '개를 처리했습니다.',
+                describeCollection(result.collection) + ' 상위 후보: ' + describeTopSignals(result.signals)
+            );
+            await loadAll();
+            activateTab('signals');
+        } catch (err) {
+            showActionError(saveCandidates ? '후보저장 실패' : '스캔 실패', err);
+        } finally {
+            setButtonBusy(buttonId, false);
+        }
     }
 
     async function collectNarratives() {
         const statusEl = $('narrative-editor-status');
+        setButtonBusy('btn-narrative-collect', true, '생성 중...');
+        setActionStatus('running', '뉴스 자동생성 실행 중', '뉴스 RSS를 읽고 오늘 날짜 내러티브 JSON을 생성합니다.');
         if (statusEl) statusEl.textContent = '뉴스에서 내러티브 JSON을 자동 생성하는 중입니다.';
-        const result = await fetchJson('/api/narrative-momentum/collect', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({}),
-        });
-        if (statusEl) {
-            statusEl.textContent = '자동 생성 완료: 내러티브 ' + (result.narrative_count || 0)
-                + '개, 기사 ' + (result.article_count || 0) + '개';
+        try {
+            const result = await fetchJson('/api/narrative-momentum/collect', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({}),
+            });
+            const message = '기사 ' + (result.article_count || 0) + '건, 내러티브 '
+                + (result.narrative_count || 0) + '건을 생성했습니다.';
+            setActionStatus('success', '뉴스 자동생성 완료', message, '저장 위치: ' + (result.history_path || '.runtime/narrative_history.json'));
+            if (statusEl) statusEl.textContent = '자동 생성 완료: ' + message;
+            await loadAll();
+            activateTab('history');
+        } catch (err) {
+            if (statusEl) statusEl.textContent = '자동 생성 실패: ' + (err.message || String(err));
+            showActionError('뉴스 자동생성 실패', err);
+        } finally {
+            setButtonBusy('btn-narrative-collect', false);
         }
-        await loadAll();
     }
 
     async function saveSchedule() {
@@ -371,14 +440,25 @@
 
     async function runScheduledNow() {
         const saveCandidates = ($('narrative-schedule-mode')?.value || 'execute') !== 'analysis_only';
+        setButtonBusy('btn-narrative-run-scheduled', true, '실행 중...');
+        setActionStatus('running', '스케줄 즉시 실행 중', '자동 생성, 스캔, 저장을 스케줄러와 같은 방식으로 실행합니다.');
         $('narrative-schedule-status').textContent = '실행 중...';
-        const result = await fetchJson('/api/narrative-momentum/run-scheduled', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({save_candidates: saveCandidates, auto_collect: true}),
-        });
-        $('narrative-schedule-status').textContent = '완료: 후보 ' + (result.total_scanned || 0) + '개, 저장 ' + (result.saved_count || 0) + '개';
-        await loadAll();
+        try {
+            const result = await fetchJson('/api/narrative-momentum/run-scheduled', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({save_candidates: saveCandidates, auto_collect: true}),
+            });
+            const message = '후보 ' + (result.total_scanned || 0) + '개, 저장 ' + (result.saved_count || 0) + '개';
+            $('narrative-schedule-status').textContent = '완료: ' + message;
+            setActionStatus('success', '스케줄 즉시 실행 완료', message, describeCollection(result.collection) + ' 상위 후보: ' + describeTopSignals(result.signals));
+            await loadAll();
+        } catch (err) {
+            $('narrative-schedule-status').textContent = '실패: ' + (err.message || String(err));
+            showActionError('스케줄 즉시 실행 실패', err);
+        } finally {
+            setButtonBusy('btn-narrative-run-scheduled', false);
+        }
     }
 
     async function queueApproval(button) {
@@ -428,11 +508,11 @@
             });
         });
         $('btn-narrative-refresh').addEventListener('click', loadAll);
-        $('btn-narrative-collect').addEventListener('click', function () { collectNarratives().catch(alert); });
-        $('btn-narrative-scan').addEventListener('click', function () { runScan(false).catch(alert); });
-        $('btn-narrative-save-scan').addEventListener('click', function () { runScan(true).catch(alert); });
+        $('btn-narrative-collect').addEventListener('click', collectNarratives);
+        $('btn-narrative-scan').addEventListener('click', function () { runScan(false); });
+        $('btn-narrative-save-scan').addEventListener('click', function () { runScan(true); });
         $('btn-narrative-save-schedule').addEventListener('click', function () { saveSchedule().catch(alert); });
-        $('btn-narrative-run-scheduled').addEventListener('click', function () { runScheduledNow().catch(alert); });
+        $('btn-narrative-run-scheduled').addEventListener('click', runScheduledNow);
         $('btn-narrative-theme-reload').addEventListener('click', function () {
             fetchJson('/api/narrative-momentum/theme-map/reload', {method: 'POST'}).then(function (data) {
                 state.themes = data.themes || [];
