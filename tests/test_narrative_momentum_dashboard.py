@@ -121,12 +121,15 @@ class NarrativeMomentumDashboardTest(unittest.TestCase):
                     patch.object(narrative_momentum, "_has_pending_buy", return_value=False), \
                     patch.object(narrative_momentum, "_create_approval_row", return_value=10) as create:
                 result = narrative_momentum.queue_narrative_approval(
-                    {"ticker": "005930", "name": "임의명", "score": 0, "qty": 2, "price": 80000}
+                    {"ticker": "005930", "name": "임의명", "score": 0, "qty": 2, "price": 80000, "reason": "client score 0"}
                 )
         self.assertEqual(result["id"], 10)
         self.assertEqual(create.call_args.args[0]["name"], "삼성전자")
         self.assertEqual(create.call_args.args[0]["qty"], 2)
         self.assertEqual(create.call_args.args[0]["price"], 80000)
+        self.assertIn("내러티브 모멘텀", create.call_args.args[0]["reason"])
+        self.assertIn("점", create.call_args.args[0]["reason"])
+        self.assertIn("요청메모: client score 0", create.call_args.args[0]["reason"])
 
     def test_queue_approval_rejects_missing_or_zero_qty(self):
         today = trader.datetime.now(trader.KST).strftime("%Y-%m-%d")
@@ -171,6 +174,38 @@ class NarrativeMomentumDashboardTest(unittest.TestCase):
             )
         self.assertEqual(saved, 0)
         save.assert_not_called()
+
+    def test_scan_persists_saved_count_after_candidate_save(self):
+        today = trader.datetime.now(trader.KST).strftime("%Y-%m-%d")
+        history = [
+            {
+                "date": today,
+                "dominant_narratives": [
+                    {
+                        "theme": "AI 반도체 투자 확대",
+                        "strength": 88,
+                        "sentiment": "bullish",
+                        "direction": "rising",
+                        "affected_sectors": ["반도체"],
+                    }
+                ],
+            }
+        ]
+        theme_map = {"반도체": [{"ticker": "005930", "name": "삼성전자"}]}
+        with TemporaryDirectory() as tmp:
+            history_path = Path(tmp) / "narrative_history.json"
+            theme_path = Path(tmp) / "theme_map.json"
+            latest_path = Path(tmp) / "latest.json"
+            save_json_file(history_path, history)
+            save_json_file(theme_path, theme_map)
+            with patch.object(narrative_momentum, "NARRATIVE_HISTORY_PATH", history_path), \
+                    patch.object(narrative_momentum, "THEME_MAP_PATH", theme_path), \
+                    patch.object(narrative_momentum, "LATEST_RESULT_PATH", latest_path), \
+                    patch.object(narrative_momentum, "_save_candidates", return_value=1):
+                result = narrative_momentum.scan_narrative_momentum({"save_candidates": True})
+            saved_payload = narrative_momentum.load_json_file(latest_path, {})
+        self.assertEqual(result["saved_count"], 1)
+        self.assertEqual(saved_payload["saved_count"], 1)
 
     def test_auto_approval_pending_ids_exclude_narrative_source_when_requested(self):
         with TemporaryDirectory() as tmp:
