@@ -61,5 +61,122 @@ class MistockIndicatorStrategyTests(unittest.TestCase):
         self.assertEqual(result["candidates"], [])
 
 
+class RsiDivergenceTests(unittest.TestCase):
+    def test_calc_rsi_series_length(self):
+        from src.strategy.indicators import calc_rsi_series
+        prices = [100 + i * 0.3 for i in range(50)]
+        result = calc_rsi_series(prices, 14)
+        # period+1 이후부터 계산 가능 → len(prices) - period 개
+        self.assertEqual(len(result), len(prices) - 14)
+
+    def _make_alternating(self, start: float, up_pct: float, down_pct: float, n: int) -> list:
+        """up_pct / down_pct 교차 캔들 생성 → 현실적인 RSI 범위(50~90) 확보"""
+        prices = [start]
+        for i in range(n):
+            if i % 2 == 0:
+                prices.append(prices[-1] * (1 + up_pct / 100))
+            else:
+                prices.append(prices[-1] * (1 - down_pct / 100))
+        return prices[1:]
+
+    def test_bearish_divergence_detected(self):
+        from src.strategy.indicators import calc_rsi_divergence
+        # 전반부: 3%↑ 1%↓ 교차 → RSI ~75
+        # 후반부: 0.5%↑ 0.4%↓ 교차 → 더 높은 가격이지만 RSI ~55
+        warmup = [90 + i * 0.3 for i in range(14)]
+        first_half = self._make_alternating(95.0, 3.0, 1.0, 20)   # 강한 상승 RSI↑
+        second_half = self._make_alternating(max(first_half) + 1, 0.5, 0.4, 20)  # 완만 상승 RSI↓
+        prices = warmup + first_half + second_half
+        result = calc_rsi_divergence(prices, period=40)
+        self.assertTrue(result["bearish"],
+            f"Expected bearish divergence. price: {result['price_high1']:.1f}->{result['price_high2']:.1f}, "
+            f"RSI: {result['rsi_high1']:.1f}->{result['rsi_high2']:.1f}")
+
+    def test_no_divergence_when_price_not_making_new_highs(self):
+        from src.strategy.indicators import calc_rsi_divergence
+        # 후반부 가격 고점이 전반부보다 낮으면 다이버전스 조건 자체가 성립 안 함
+        warmup = [90 + i * 0.3 for i in range(14)]
+        first_half = self._make_alternating(95.0, 3.0, 1.0, 20)   # 강한 상승 → 높은 고점
+        peak = max(first_half)
+        second_half = self._make_alternating(peak * 0.95, 1.0, 1.5, 20)  # 하락 조정 → 낮은 고점
+        prices = warmup + first_half + second_half
+        result = calc_rsi_divergence(prices, period=40)
+        self.assertFalse(result["bearish"],
+            f"Expected no divergence (price_high2 < price_high1). "
+            f"price: {result['price_high1']:.1f}->{result['price_high2']:.1f}, "
+            f"RSI: {result['rsi_high1']:.1f}->{result['rsi_high2']:.1f}")
+
+    def test_divergence_returns_price_and_rsi_highs(self):
+        from src.strategy.indicators import calc_rsi_divergence
+        warmup = [90 + i * 0.3 for i in range(14)]
+        first_half = self._make_alternating(95.0, 3.0, 1.0, 20)
+        second_half = self._make_alternating(max(first_half) + 1, 0.5, 0.4, 20)
+        prices = warmup + first_half + second_half
+        result = calc_rsi_divergence(prices, period=40)
+        self.assertIn("price_high1", result)
+        self.assertIn("price_high2", result)
+        self.assertIn("rsi_high1", result)
+        self.assertIn("rsi_high2", result)
+        self.assertGreater(result["price_high2"], result["price_high1"])
+        self.assertLess(result["rsi_high2"], result["rsi_high1"])
+
+    def test_divergence_returns_false_when_insufficient_data(self):
+        from src.strategy.indicators import calc_rsi_divergence
+        prices = [100.0] * 20  # 데이터 부족
+        result = calc_rsi_divergence(prices, period=40)
+        self.assertFalse(result["bearish"])
+
+
+class MacdRsiMomentumProfileV2Tests(unittest.TestCase):
+    def setUp(self):
+        self.original_model = config.strategy_model
+        self.original_rsi_min = config.indicator_rsi_entry_min
+        self.original_rsi_max = config.indicator_rsi_entry_max
+        self.original_volume_ratio = config.indicator_volume_ratio
+        config.strategy_model = "macd_rsi_momentum"
+        config.indicator_rsi_entry_min = 50
+        config.indicator_rsi_entry_max = 70
+        config.indicator_volume_ratio = 1.3
+
+    def tearDown(self):
+        config.strategy_model = self.original_model
+        config.indicator_rsi_entry_min = self.original_rsi_min
+        config.indicator_rsi_entry_max = self.original_rsi_max
+        config.indicator_volume_ratio = self.original_volume_ratio
+
+    def test_hist_turn_up_with_volume_scores(self):
+        """histogram이 음수에서 반전 + 거래량 급증 시 momentum_scope 이유가 포함되어야 함"""
+        # 장기 하락 후 소폭 반등 → prev_hist<0, hist>prev_hist
+        prices = [110 - i * 0.3 for i in range(70)] + [89, 88.5, 89.2, 90.0]
+        volumes = [1000] * (len(prices) - 1) + [1600]
+
+        profile = strategy.strategy_profile(prices, prices, volumes)
+
+        reasons_text = " ".join(profile["reasons"])
+        self.assertIn("momentum_scope", reasons_text)
+
+    def test_divergence_reentry_in_profile(self):
+        """RSI 하락 다이버전스 + MACD 재골든크로스 → divergence_reentry=True 반환"""
+        warmup = [80 + i * 0.3 for i in range(30)]
+        first_leg = [89 + i * 0.9 for i in range(20)]    # 강한 1차 상승 → RSI 높음
+        correction = [107 - i * 0.4 for i in range(10)]  # 조정
+        second_leg = [103 + i * 0.6 for i in range(20)]  # 새 고점, RSI 낮음
+        prices = warmup + first_leg + correction + second_leg
+
+        profile = strategy.strategy_profile(prices, prices, [1000] * len(prices))
+
+        # divergence_reentry 키가 존재해야 함
+        self.assertIn("divergence_reentry", profile)
+
+    def test_overheated_rsi_penalized_without_divergence(self):
+        """RSI 70 이상이고 다이버전스 없을 때 패널티 적용"""
+        # 급등 후 RSI 과열 상태 (MACD 골든크로스 없음)
+        prices = [100 + i * 1.5 for i in range(80)]
+        profile = strategy.strategy_profile(prices, prices, [1000] * len(prices))
+
+        reasons_text = " ".join(profile["reasons"])
+        self.assertIn("overheated", reasons_text)
+
+
 if __name__ == "__main__":
     unittest.main()

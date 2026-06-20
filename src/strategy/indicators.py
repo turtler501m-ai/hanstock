@@ -51,3 +51,65 @@ def calc_bollinger(prices: list[float], period: int = 20) -> tuple:
     mid = sum(window) / period
     std = (sum((x - mid) ** 2 for x in window) / period) ** 0.5
     return round(mid - 2 * std), round(mid), round(mid + 2 * std)
+
+
+def calc_rsi_series(prices: list[float], period: int = 14) -> list[float]:
+    """prices 리스트의 각 봉에 대한 RSI 값 목록을 반환한다.
+    반환 길이 = len(prices) - period
+    """
+    if len(prices) <= period:
+        return []
+    result = []
+    for i in range(period, len(prices)):
+        result.append(calc_rsi(prices[:i + 1], period))
+    return result
+
+
+def calc_rsi_divergence(prices: list[float], period: int = 40) -> dict:
+    """RSI 하락 다이버전스 감지 (로스캐머런 두 번째 매매법).
+
+    최근 period봉을 전반부/후반부로 나눠서:
+    - 가격 고점: 후반부 > 전반부 (더 높음)
+    - RSI 고점: 후반부 < 전반부 (더 낮음)
+    두 조건이 모두 성립하면 bearish=True.
+
+    반환:
+        {
+            "bearish": bool,
+            "price_high1": float,  # 전반부 가격 고점
+            "price_high2": float,  # 후반부 가격 고점
+            "rsi_high1": float,    # 전반부 RSI 고점
+            "rsi_high2": float,    # 후반부 RSI 고점
+        }
+    """
+    needed = period + 14  # RSI 계산에 최소 14봉 워밍업 필요
+    empty = {"bearish": False, "price_high1": 0.0, "price_high2": 0.0,
+             "rsi_high1": 0.0, "rsi_high2": 0.0}
+    if len(prices) < needed:
+        return empty
+
+    recent_prices = prices[-period:]
+    rsi_series = calc_rsi_series(prices, 14)
+    recent_rsi = rsi_series[-period:]
+
+    if len(recent_rsi) < period:
+        return empty
+
+    half = period // 2
+    price_high1 = max(recent_prices[:half])
+    price_high2 = max(recent_prices[half:])
+    rsi_high1 = max(recent_rsi[:half])
+    rsi_high2 = max(recent_rsi[half:])
+
+    bearish = (
+        price_high2 > price_high1   # 가격 고점 상승
+        and rsi_high2 < rsi_high1   # RSI 고점 하락
+        and rsi_high2 > 45          # 과매도 구간 아님 (완전 붕괴는 제외)
+    )
+    return {
+        "bearish": bearish,
+        "price_high1": price_high1,
+        "price_high2": price_high2,
+        "rsi_high1": rsi_high1,
+        "rsi_high2": rsi_high2,
+    }
