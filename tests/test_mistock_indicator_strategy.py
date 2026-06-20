@@ -146,14 +146,15 @@ class MacdRsiMomentumProfileV2Tests(unittest.TestCase):
 
     def test_hist_turn_up_with_volume_scores(self):
         """histogram이 음수에서 반전 + 거래량 급증 시 momentum_scope 이유가 포함되어야 함"""
-        # 장기 하락 후 소폭 반등 → prev_hist<0, hist>prev_hist
-        prices = [110 - i * 0.3 for i in range(70)] + [89, 88.5, 89.2, 90.0]
+        # 70봉 하락 후 1봉 반등 → prev_hist<0이고 hist>prev_hist인 첫 전환 시점
+        prices = [110 - i * 0.3 for i in range(70)] + [90.0]
         volumes = [1000] * (len(prices) - 1) + [1600]
 
         profile = strategy.strategy_profile(prices, prices, volumes)
 
         reasons_text = " ".join(profile["reasons"])
-        self.assertIn("momentum_scope", reasons_text)
+        self.assertIn("momentum_scope", reasons_text,
+            f"Got reasons: {profile['reasons']}")
 
     def test_divergence_reentry_in_profile(self):
         """RSI 하락 다이버전스 + MACD 재골든크로스 → divergence_reentry=True 반환"""

@@ -139,6 +139,8 @@ def _macd_rsi_momentum_profile(
     highs: list[float] | None = None,
     volumes: list[float] | None = None,
 ) -> dict[str, Any]:
+    from src.strategy.indicators import calc_rsi_divergence
+
     highs = highs or prices
     volumes = volumes or []
     current = prices[-1] if prices else 0.0
@@ -150,9 +152,23 @@ def _macd_rsi_momentum_profile(
     prev_macd = calc_macd(prices[:-1]) if len(prices) >= 36 else {"hist": 0.0}
     hist = float(macd.get("hist", 0.0) or 0.0)
     prev_hist = float(prev_macd.get("hist", 0.0) or 0.0)
+
+    entry_min = float(config.indicator_rsi_entry_min)
+    entry_max = float(config.indicator_rsi_entry_max)
+    vol_ratio = float(config.indicator_volume_ratio)
+
     score = 0
     reasons: list[str] = []
 
+    # --- 거래량 확인 (여러 신호에서 공유) ---
+    volume_confirmed = False
+    vol_avg = 0.0
+    if len(volumes) >= 20:
+        vol_avg = sum(volumes[-20:]) / 20
+        if vol_avg > 0 and volumes[-1] > vol_avg * vol_ratio:
+            volume_confirmed = True
+
+    # --- MACD 기본 신호 ---
     if macd["bull_cross"]:
         score += 2
         reasons.append("MACD bullish cross")
@@ -160,12 +176,20 @@ def _macd_rsi_momentum_profile(
         score += 1
         reasons.append("MACD positive")
 
-    if hist > prev_hist:
+    # --- Momentum Scope: histogram 음수→반전 조기 신호 ---
+    hist_turn_up = prev_hist < 0 and hist > prev_hist
+    if hist_turn_up:
+        if volume_confirmed:
+            score += 2
+            reasons.append("momentum_scope: hist turn-up + volume")
+        else:
+            score += 1
+            reasons.append("momentum_scope: hist turn-up")
+    elif hist > prev_hist and hist > 0:
         score += 1
         reasons.append("MACD histogram rising")
 
-    entry_min = float(config.indicator_rsi_entry_min)
-    entry_max = float(config.indicator_rsi_entry_max)
+    # --- RSI 진입 조건 ---
     if prev_rsi < entry_min <= rsi14:
         score += 2
         reasons.append(f"RSI 50 cross {prev_rsi:.0f}->{rsi14:.0f}")
@@ -173,6 +197,7 @@ def _macd_rsi_momentum_profile(
         score += 1
         reasons.append(f"RSI momentum zone {rsi14:.0f}")
 
+    # --- 추세 필터 ---
     if len(prices) >= 60 and current > sma60:
         score += 1
         reasons.append("above SMA60 trend")
@@ -180,15 +205,34 @@ def _macd_rsi_momentum_profile(
         score += 1
         reasons.append("above SMA20")
 
-    if len(volumes) >= 20:
-        vol_avg = sum(volumes[-20:]) / 20
-        if vol_avg > 0 and volumes[-1] > vol_avg * float(config.indicator_volume_ratio):
-            score += 1
-            reasons.append(f"volume confirmation {volumes[-1] / vol_avg:.1f}x")
+    # --- 거래량 단독 확인 (hist_turn_up 아닐 때) ---
+    if volume_confirmed and not hist_turn_up and vol_avg > 0:
+        score += 1
+        reasons.append(f"volume confirmation {volumes[-1] / vol_avg:.1f}x")
 
+    # --- RSI 과열 패널티 ---
+    overheated_reason = f"RSI overheated {rsi14:.0f}"
     if rsi14 >= entry_max and not macd["bull_cross"]:
         score -= 2
-        reasons.append(f"RSI overheated {rsi14:.0f}")
+        reasons.append(overheated_reason)
+
+    # --- 두 번째 매매법: RSI 하락 다이버전스 + MACD 재골든크로스 ---
+    # 첫 번째 매매법보다 신뢰도가 높으므로 +3점 (과열 패널티 취소)
+    divergence_reentry = False
+    if len(prices) >= 54 and macd["bull_cross"]:
+        div = calc_rsi_divergence(prices, period=40)
+        if div["bearish"]:
+            score += 3
+            reasons.append(
+                f"RSI bearish divergence + MACD reentry "
+                f"(P:{div['price_high1']:.1f}->{div['price_high2']:.1f}, "
+                f"RSI:{div['rsi_high1']:.0f}->{div['rsi_high2']:.0f})"
+            )
+            divergence_reentry = True
+            # 과열 패널티 취소: 1차 상승 후 RSI 높은 것은 자연스러운 현상
+            if overheated_reason in reasons:
+                reasons.remove(overheated_reason)
+                score += 2  # 패널티 복원
 
     return {
         "score": max(0, score),
@@ -201,6 +245,7 @@ def _macd_rsi_momentum_profile(
         "sma20": sma20,
         "sma60": sma60,
         "price": current,
+        "divergence_reentry": divergence_reentry,
         "strategy_model": "macd_rsi_momentum",
     }
 
