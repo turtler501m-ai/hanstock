@@ -108,7 +108,7 @@ class KISWebSocketClient(threading.Thread):
             logger.info(f"[WS] Subscribing to Order Execution. TR_ID={tr_id}, HTS_ID={tr_key}")
             self.subscribe(tr_id, tr_key)
         else:
-            logger.warning("[WS] KISTOCK_HTS_ID is not configured. Skipping order execution subscription.")
+            logger.info("[WS] KISTOCK_HTS_ID is not configured. Skipping order execution subscription.")
             
         # 2. Resubscribe to other existing subscriptions if any (upon reconnection)
         for sub_tr_id, sub_tr_key in self.active_subscriptions:

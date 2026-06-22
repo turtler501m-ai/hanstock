@@ -99,6 +99,18 @@ class TestKISWebSocketClient(unittest.TestCase):
         self.assertIn(("H0STCNT0", "005930"), self.client.active_subscriptions)
         self.assertIn(("H0STASP0", "000660"), self.client.active_subscriptions)
 
+    def test_on_open_logs_missing_hts_id_as_info(self):
+        with patch("src.api.kis_websocket.config.kistock_hts_id", ""), patch.object(
+            self.client, "subscribe"
+        ) as subscribe, patch("src.api.kis_websocket.logger.warning") as warning, patch(
+            "src.api.kis_websocket.logger.info"
+        ) as info:
+            self.client.on_open(MagicMock())
+
+        subscribe.assert_not_called()
+        warning.assert_not_called()
+        self.assertTrue(any("KISTOCK_HTS_ID is not configured" in call.args[0] for call in info.call_args_list))
+
     @patch("src.api.kis_websocket.slack_error")
     def test_on_error_sends_slack_when_enabled(self, mock_slack_error):
         client = KISWebSocketClient(notify_errors=True)
