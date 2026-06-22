@@ -4,6 +4,7 @@ PORT="${PORT:-8000}"
 HOST="${HOST:-0.0.0.0}"
 RELOAD="${RELOAD:-false}"
 LINES="${LINES:-80}"
+UVICORN_LOG_LEVEL="${UVICORN_LOG_LEVEL:-error}"
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
@@ -100,7 +101,7 @@ start_server() {
 
     echo "[server] starting server on http://$HOST:$PORT"
 
-    args=(-m uvicorn src.dashboard:app --host "$HOST" --port "$PORT")
+    args=(-m uvicorn src.dashboard:app --host "$HOST" --port "$PORT" --log-level "$UVICORN_LOG_LEVEL")
     if [ "$RELOAD" = "true" ]; then
         args+=(--reload)
     fi
