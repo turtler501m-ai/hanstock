@@ -273,6 +273,9 @@ class KISWebSocketClient(threading.Thread):
 
     def on_error(self, ws, error):
         self.last_error = str(error)
+        if "Connection to remote host was lost" in self.last_error:
+            logger.info(f"[WS] Recoverable disconnect: {error}")
+            return
         logger.error(f"[WS ERROR] {error}")
         if not self.notify_errors:
             return

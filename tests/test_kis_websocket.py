@@ -115,12 +115,26 @@ class TestKISWebSocketClient(unittest.TestCase):
     def test_on_error_sends_slack_when_enabled(self, mock_slack_error):
         client = KISWebSocketClient(notify_errors=True)
 
-        client.on_error(None, "Connection to remote host was lost.")
+        client.on_error(None, "fatal websocket error")
+
+        self.assertEqual(client.last_error, "fatal websocket error")
+        mock_slack_error.assert_called_once_with(
+            "KIS WebSocket error: fatal websocket error"
+        )
+
+    @patch("src.api.kis_websocket.slack_error")
+    def test_on_error_treats_remote_host_lost_as_recoverable(self, mock_slack_error):
+        client = KISWebSocketClient(notify_errors=True)
+
+        with patch("src.api.kis_websocket.logger.error") as log_error, patch(
+            "src.api.kis_websocket.logger.info"
+        ) as log_info:
+            client.on_error(None, "Connection to remote host was lost.")
 
         self.assertEqual(client.last_error, "Connection to remote host was lost.")
-        mock_slack_error.assert_called_once_with(
-            "KIS WebSocket error: Connection to remote host was lost."
-        )
+        log_error.assert_not_called()
+        mock_slack_error.assert_not_called()
+        self.assertTrue(any("Recoverable disconnect" in call.args[0] for call in log_info.call_args_list))
 
     @patch("src.api.kis_websocket.slack_error")
     def test_on_error_does_not_send_slack_when_disabled(self, mock_slack_error):
