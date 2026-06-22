@@ -175,6 +175,19 @@ class KISClientTests(unittest.TestCase):
         self.assertEqual(client.circuit.error_count, 5)
         self.assertEqual(client.circuit.opened_at, datetime(2026, 4, 26, 9, 0, 4))
 
+    def test_mark_failure_logs_unknown_message_when_error_is_empty(self):
+        client = KISClient(
+            self.make_config(),
+            session=Mock(),
+            access_token="token",
+        )
+
+        with patch("src.utils.logger.logger.error") as log_error:
+            client.mark_failure("")
+
+        self.assertEqual(client.circuit.error_count, 1)
+        self.assertIn("unknown KIS API failure", log_error.call_args.args[0])
+
     def test_place_order_uses_live_tr_id_for_live_environment(self):
         session = Mock()
         session.post.side_effect = [

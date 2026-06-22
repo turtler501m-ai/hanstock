@@ -2923,12 +2923,20 @@ def _pending_approval_ids(limit: int = 200, *, exclude_sources: set[str] | None 
     return [int(row["id"]) for row in rows]
 
 
+def _is_approval_already_claimed(exc: Exception) -> bool:
+    detail = str(exc.detail) if isinstance(exc, HTTPException) else str(exc)
+    return "approval is already" in detail
+
+
 def _auto_approve_pending_approvals(limit: int = 200) -> list[dict]:
     results = []
     for approval_id in _pending_approval_ids(limit, exclude_sources=AUTO_APPROVAL_EXCLUDED_SOURCES):
         try:
             results.append(_approve_pending_approval(approval_id, "자동승인"))
         except Exception as exc:
+            if _is_approval_already_claimed(exc):
+                logger.debug(f"auto approval skipped approval_id={approval_id}: {exc}")
+                continue
             logger.warning(f"auto approval failed for approval_id={approval_id}: {exc}")
             continue
     return results

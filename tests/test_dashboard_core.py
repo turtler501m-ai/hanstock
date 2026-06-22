@@ -6,6 +6,7 @@ from datetime import datetime
 from unittest.mock import patch
 
 import src.dashboard as dashboard
+import src.dashboard.core as dashboard_core
 from src.dashboard import _parse_balance, _portfolio_totals
 
 
@@ -80,6 +81,20 @@ class DashboardCoreTests(unittest.TestCase):
         self.assertEqual(totals["total_eval"], 9_937_130)
         self.assertGreater(totals["cash_ratio"], 0)
         self.assertLessEqual(totals["cash_ratio"], 1.0)
+
+    def test_auto_approve_ignores_already_claimed_approval(self):
+        exc = dashboard.HTTPException(status_code=409, detail="approval is already executing")
+
+        with patch.object(dashboard_core, "_pending_approval_ids", return_value=[123]), patch.object(
+            dashboard_core, "_approve_pending_approval", side_effect=exc
+        ), patch.object(dashboard_core.logger, "warning") as warning, patch.object(
+            dashboard_core.logger, "debug"
+        ) as debug:
+            result = dashboard_core._auto_approve_pending_approvals()
+
+        self.assertEqual(result, [])
+        warning.assert_not_called()
+        debug.assert_called_once()
 
     def test_balance_cache_is_scoped_to_account(self):
         original_cache = dashboard.BALANCE_CACHE

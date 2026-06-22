@@ -294,10 +294,18 @@ class KISClient:
         err_str = ""
         if error is not None:
             err_str = str(error)
+            if not err_str:
+                err_str = repr(error)
+            if err_str in {"''", '""'}:
+                err_str = "unknown KIS API failure"
         else:
             exc_type, exc_value, exc_traceback = sys.exc_info()
             if exc_value is not None:
                 err_str = str(exc_value)
+                if not err_str:
+                    err_str = f"{exc_type.__name__}: {exc_value!r}" if exc_type else repr(exc_value)
+        if not err_str:
+            err_str = "unknown KIS API failure"
         if "EGW00201" in err_str or "거래건수를 초과" in err_str:
             return
         self.circuit.record_failure(self.now(), self.config.circuit_max_errors)
