@@ -381,7 +381,7 @@ class KISClient:
                 f"{self.config.base_url}/uapi/domestic-stock/v1/quotations/volume-rank",
                 headers=self.headers("FHPST01710000"),
                 params={
-                    "FID_COND_MRK_DIV_CODE": "J",
+                    "FID_COND_MRKT_DIV_CODE": "J",
                     "FID_COND_SCR_DIV_CODE": "20171",
                     "FID_INPUT_ISCD": "0000",
                     "FID_DIV_CLS_CODE": "0",

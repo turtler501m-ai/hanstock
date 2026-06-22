@@ -241,6 +241,8 @@ class KISClientTests(unittest.TestCase):
 
         self.assertEqual(result, ["005930"])
         self.assertEqual(session.get.call_args.kwargs["headers"]["tr_id"], "FHPST01710000")
+        self.assertEqual(session.get.call_args.kwargs["params"]["FID_COND_MRKT_DIV_CODE"], "J")
+        self.assertNotIn("FID_COND_MRK_DIV_CODE", session.get.call_args.kwargs["params"])
 
     def test_place_order_uses_live_tr_id_for_live_environment(self):
         session = Mock()
