@@ -112,6 +112,8 @@ ENV_FIELD_TEXT = {
     "AI_MIN_MODEL_CONFIDENCE": {"label": "AI 최소 신뢰도"},
     "AI_REQUIRE_BACKTEST_PASS": {"label": "백테스트 통과 필수"},
     "AI_AUTO_APPROVE": {"label": "AI 자동 승인"},
+    "AI_MIN_RULE_SCORE": {"label": "AI 최소 룰 점수", "hint": "OpenAI 호출 전 필터링할 최소 룰 점수입니다 (기본 1.5)."},
+    "AI_ALLOW_CANDIDATE_PROMOTION": {"label": "AI 후보 승격 허용", "hint": "true이면 룰 미달 종목도 AI 점수를 바탕으로 승급합니다."},
     "OPENAI_API_KEY": {"label": "OpenAI API Key", "hint": "gpt-5-mini 호출에 사용할 OpenAI API 키입니다."},
     "OPENAI_MODEL": {"label": "OpenAI 모델", "hint": "예: gpt-5-mini"},
     "OPENAI_TIMEOUT_SECONDS": {"label": "OpenAI 응답 제한초"},

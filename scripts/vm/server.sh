@@ -155,6 +155,26 @@ watch_logs() {
     wait
 }
 
+use_systemd() {
+    if command -v systemctl >/dev/null 2>&1 && systemctl list-unit-files hanstock.service >/dev/null 2>&1; then
+        return 0
+    fi
+    return 1
+}
+
+if use_systemd; then
+    case "$ACTION" in
+        start)    sudo systemctl start hanstock ;;
+        stop)     sudo systemctl stop hanstock ;;
+        restart)  sudo systemctl restart hanstock ;;
+        status)   systemctl status hanstock ;;
+        logs)     journalctl -u hanstock -n "$LINES" --no-pager ;;
+        tail)     journalctl -u hanstock -f ;;
+        *)        echo "Usage: $0 {start|stop|restart|status|logs|tail}"; exit 1 ;;
+    esac
+    exit 0
+fi
+
 case "$ACTION" in
     start)    start_server ;;
     stop)     stop_server ;;

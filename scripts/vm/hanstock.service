@@ -1,0 +1,18 @@
+[Unit]
+Description=Hanstock Trading Dashboard Service
+After=network.target
+
+[Service]
+Type=simple
+User=turtler800
+WorkingDirectory=/home/turtler800/hanstock
+ExecStart=/home/turtler800/hanstock/.venv/bin/uvicorn src.dashboard:app --host 127.0.0.1 --port 8000
+Restart=always
+RestartSec=5
+Environment=PATH=/home/turtler800/hanstock/.venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+EnvironmentFile=/home/turtler800/hanstock/.env
+StandardOutput=append:/home/turtler800/hanstock/logs/dashboard-server.log
+StandardError=append:/home/turtler800/hanstock/logs/dashboard-server.err.log
+
+[Install]
+WantedBy=multi-user.target

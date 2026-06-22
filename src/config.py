@@ -82,6 +82,8 @@ class Settings(BaseSettings):
     ai_min_model_confidence: float = 0.60
     ai_require_backtest_pass: bool = True
     ai_auto_approve: bool = False
+    ai_min_rule_score: float = 1.5
+    ai_allow_candidate_promotion: bool = False
     openai_api_key: str = ""
     openai_model: str = "gpt-5-mini"
     openai_timeout_seconds: float = 20.0

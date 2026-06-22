@@ -48,8 +48,15 @@ class ModelPredictor:
         self.risk_level = str(profile.get("risk_level", "") or "")
         self.focus = _as_str_list(profile.get("focus"))
         self.avoid = _as_str_list(profile.get("avoid"))
-        self.min_rule_score_for_ai = _as_float(profile.get("min_rule_score_for_ai"), 0.0)
-        self.allow_candidate_promotion = bool(profile.get("allow_candidate_promotion", False))
+        self.min_rule_score_for_ai = _as_float(
+            profile.get("min_rule_score_for_ai"),
+            _as_float(getattr(config, "ai_min_rule_score", 1.5), 1.5),
+        )
+        self.allow_candidate_promotion = bool(
+            profile.get("allow_candidate_promotion")
+            if profile.get("allow_candidate_promotion") is not None
+            else getattr(config, "ai_allow_candidate_promotion", False)
+        )
 
         self.provider = "openai_responses"
         self.model_name = str(getattr(config, "openai_model", "gpt-5-mini") or "gpt-5-mini")

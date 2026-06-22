@@ -41,6 +41,7 @@ from src.dashboard.services.cache_service import DashboardCacheService  # noqa: 
 from src.dashboard.services.futures_service import FuturesDashboardService  # noqa: E402
 from src.dashboard.services.scheduler_service import DashboardSchedulerService  # noqa: E402
 from src.dashboard.services.external_service import ExternalIntegrationService  # noqa: E402
+from src.dashboard.services.stock_service import DashboardStockService  # noqa: E402
 from src.strategy.seven_split import adjust_tick_size  # noqa: E402
 from src.utils.logger import logger  # noqa: E402
 
@@ -188,6 +189,8 @@ ENV_FIELDS = [
     {"key": "AI_MIN_MODEL_CONFIDENCE", "label": "AI Min Confidence", "type": "float"},
     {"key": "AI_REQUIRE_BACKTEST_PASS", "label": "AI Require Backtest Pass", "type": "bool"},
     {"key": "AI_AUTO_APPROVE", "label": "AI Auto Approve", "type": "bool"},
+    {"key": "AI_MIN_RULE_SCORE", "label": "AI Min Rule Score", "type": "float"},
+    {"key": "AI_ALLOW_CANDIDATE_PROMOTION", "label": "AI Allow Candidate Promotion", "type": "bool"},
     {"key": "OPENAI_API_KEY", "label": "OpenAI API Key", "type": "secret"},
     {"key": "OPENAI_MODEL", "label": "OpenAI Model", "type": "text"},
     {"key": "OPENAI_TIMEOUT_SECONDS", "label": "OpenAI Timeout Seconds", "type": "float"},
@@ -472,6 +475,7 @@ _dashboard_cache_service = DashboardCacheService(
     captured_at_fn=lambda: trader.datetime.now(trader.KST).isoformat(),
     derived_kinds=_BALANCE_DERIVED_SNAPSHOT_KINDS,
 )
+stock_service = DashboardStockService()
 
 
 def _clear_balance_cache() -> None:
@@ -951,57 +955,12 @@ def _save_candidate_cache(
 
 
 def _resolve_dashboard_strategy(strategy_id: str | None = None) -> dict | None:
-    from src.db.repository import load_ai_strategies
-
-    strategies = load_ai_strategies()
-    if strategy_id:
-        return next(
-            (
-                strategy
-                for strategy in strategies
-                if strategy.get("id") == strategy_id or strategy.get("model") == strategy_id
-            ),
-            None,
-        )
-    return next((strategy for strategy in strategies if strategy.get("selected")), None)
+    return stock_service.resolve_dashboard_strategy(strategy_id)
 
 
 def build_dashboard_signals(api, parsed: dict, strategy_id: str | None = None) -> list[dict]:
     strategy = _resolve_dashboard_strategy(strategy_id)
-    resolved_strategy_id = strategy.get("id") if strategy else (strategy_id or "seven_split")
-    strategy_model = str(strategy.get("model") or "") if strategy else ""
-    if strategy_model == "none":
-        strategy_model = ""
-    signals = []
-    for holding in parsed["holdings"]:
-        daily = api.get_daily(holding["symbol"], n=60)
-        signal = trader.generate_signal(
-            holding["_raw"],
-            daily,
-            strategy_model=strategy_model,
-        )
-        indicators = signal.get("indicators", {})
-        signals.append({
-            "strategy_id": resolved_strategy_id,
-            "symbol": holding["symbol"],
-            "name": holding["name"],
-            "qty": holding["qty"],
-            "price": holding["price"],
-            "rt": holding["rt"],
-            "action": signal.get("action", "hold"),
-            "signal_qty": signal.get("qty", 0),
-            "signal_price": signal.get("price", 0),
-            "reason": signal.get("reason", ""),
-            "rsi": indicators.get("rsi"),
-            "rsi2": indicators.get("rsi2"),
-            "sma20": indicators.get("sma20"),
-            "sma60": indicators.get("sma60"),
-            "bb_lo": indicators.get("bb_lo"),
-            "bb_hi": indicators.get("bb_hi"),
-            "strategy_score": indicators.get("strategy_score"),
-            "macd_hist": indicators.get("macd_hist"),
-        })
-    return signals
+    return stock_service.build_dashboard_signals(api, parsed, strategy)
 
 
 def build_dashboard_candidates(
@@ -1016,105 +975,18 @@ def build_dashboard_candidates(
     strategy_description: str = "",
     universe: list[str] | None = None,
 ) -> dict:
-    held_symbols = {holding["symbol"] for holding in parsed["holdings"]}
-    if universe is None:
-        universe = trader.build_scan_universe(api, held_symbols)
-    else:
-        universe = [symbol for symbol in universe if symbol not in held_symbols]
-
-    if ranker == "gpt_5_mini" and ranker_weight == 0.4 and not strategy_model:
-        scan_kwargs = {
-            "universe": universe,
-            "min_score": min_score,
-        }
-        if strategy_profile is not None:
-            scan_kwargs["strategy_profile"] = strategy_profile
-        if strategy_description:
-            scan_kwargs["strategy_description"] = strategy_description
-        scan_result = trader.find_candidates(held_symbols, **scan_kwargs)
-    else:
-        ranker_param = "rule_only" if ranker == "none" else ranker
-        orig_weight = trader.config.ai_score_weight
-        orig_model = trader.config.openai_model
-        orig_enabled = trader.config.ai_strategy_enabled
-        try:
-            trader.config.ai_score_weight = ranker_weight
-            trader.config.openai_model = ranker_param
-            if ranker_param == "rule_only":
-                trader.config.ai_strategy_enabled = False
-            else:
-                trader.config.ai_strategy_enabled = True
-
-            scan_result = trader.find_candidates(
-                held_symbols,
-                universe=universe,
-                min_score=min_score,
-                ranker=ranker_param,
-                strategy_model=strategy_model,
-                strategy_profile=strategy_profile,
-                strategy_description=strategy_description,
-            )
-        finally:
-            trader.config.ai_score_weight = orig_weight
-            trader.config.openai_model = orig_model
-            trader.config.ai_strategy_enabled = orig_enabled
-        
-    candidates = scan_result.get("candidates", [])
-    
-    if optimizer == "score_tilted_inverse_vol":
-        orders = trader.build_orders(candidates, api.get_quote, len(parsed["holdings"]), parsed["cash"])
-    else:
-        orders = trader.build_orders(
-            candidates, api.get_quote, len(parsed["holdings"]), parsed["cash"], optimizer=optimizer
-        )
-        
-    order_by_ticker = {order["ticker"]: order for order in orders}
-
-    rows = []
-    for candidate in candidates:
-        order = order_by_ticker.get(candidate["ticker"], {})
-        row = {
-            "ticker": candidate["ticker"],
-            "name": candidate.get("name", candidate["ticker"]),
-            "current_price": candidate["current_price"],
-            "score": candidate["score"],
-            "reasons": candidate["reasons"],
-            "rsi": candidate.get("rsi"),
-            "rsi2": candidate.get("rsi2"),
-            "macd_hist": candidate.get("macd_hist"),
-            "sma20": candidate.get("sma20"),
-            "sma60": candidate.get("sma60"),
-            "bb_lo": candidate.get("bb_lo"),
-            "bb_hi": candidate.get("bb_hi"),
-            "planned_qty": order.get("quantity", 0),
-            "limit_price": order.get("limit_price", 0),
-            "estimated_cost": order.get("estimated_cost", 0),
-            "universe_size": len(universe),
-        }
-        for key in (
-            "rule_score",
-            "ml_score",
-            "final_score",
-            "ai_enabled",
-            "ai_model_status",
-            "ai_model_version",
-            "feature_version",
-            "ai_score_weight",
-            "ai_fallback_reason",
-            "top_features",
-        ):
-            if key in candidate:
-                row[key] = candidate[key]
-        rows.append(row)
-
-    return {
-        "candidates": rows,
-        "universe_size": len(universe),
-        "scanned": scan_result.get("scanned", 0),
-        "min_score": min_score,
-        "scan_summary": scan_result.get("scan_summary", []),
-        "scan_error": scan_result.get("scan_error"),
-    }
+    return stock_service.build_dashboard_candidates(
+        api=api,
+        parsed=parsed,
+        min_score=min_score,
+        ranker=ranker,
+        ranker_weight=ranker_weight,
+        optimizer=optimizer,
+        strategy_model=strategy_model,
+        strategy_profile=strategy_profile,
+        strategy_description=strategy_description,
+        universe=universe,
+    )
 
 
 def _build_candidate_orders_from_scan(candidates: list, *, held_count: int = 0, cash: int) -> list:
@@ -1147,24 +1019,12 @@ def build_dashboard_execution_plan(strategy_id: str | None = None) -> dict:
     api = _get_api()
     balance_data = _get_balance_data(api)
     parsed = _parse_balance(balance_data)
-    runtime_bundle = trader.build_runtime_plan(
-        api,
-        balance_data,
-        read_cached_candidates=True,
-        force_strategy_id=strategy_id,
+    return stock_service.build_dashboard_execution_plan(
+        api=api,
+        balance_data=balance_data,
+        parsed_balance=parsed,
+        strategy_id=strategy_id,
     )
-    return {
-        "mode": "dashboard",
-        "strategy_id": strategy_id or "seven_split",
-        "plan": runtime_bundle["plan"],
-        "cash": parsed["cash"],
-        "remaining_cash": runtime_bundle["remaining_cash"],
-        "total_eval": parsed["total_eval"],
-        "pnl": parsed["pnl"],
-        "daily_loss_halt": runtime_bundle["daily_loss_halt"],
-        "scanned": runtime_bundle["candidate_scan"]["scanned"],
-        "scan_error": runtime_bundle["candidate_scan"]["scan_error"],
-    }
 
 
 def _init_approval_db() -> None:

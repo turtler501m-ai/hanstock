@@ -1903,10 +1903,14 @@ async function renderCandidates() {
             const detailSuffix = detailParts.length ? ` (${detailParts.join(' | ')})` : '';
             const reasonText = reasonLines.join(' · ') + detailSuffix;
 
+            const promotedBadge = row.promoted_by_ai 
+                ? `<span class="badge-purple" style="background-color: #8b5cf6; color: white; padding: 1px 5px; border-radius: 3px; font-size: 0.72rem; font-weight: 600; display: inline-block; vertical-align: middle; margin-left: 4px; box-shadow: 0 0 4px rgba(139, 92, 246, 0.4);">AI 승격</span>`
+                : '';
+
             const tr = document.createElement('tr');
             tr.innerHTML = `
                 <td>
-                    <span class="symbol-name">${escapeHtml(stockName || row.ticker)}</span>
+                    <span class="symbol-name">${escapeHtml(stockName || row.ticker)}${promotedBadge}</span>
                     <span class="symbol-code">${stockName ? row.ticker : ''}</span>
                 </td>
                 <td>${pill(formatNumber(row.score, 2), row.score >= 3 ? 'buy' : 'warn')}</td>
@@ -2912,7 +2916,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 name: formData.get('strat_name'),
                 model: formData.get('strat_model'),
                 weight: parseFloat(formData.get('strat_weight')),
-                description: formData.get('strat_desc') || ''
+                description: formData.get('strat_desc') || '',
+                profile: {
+                    min_rule_score_for_ai: parseFloat(formData.get('strat_min_rule_score') || '1.5'),
+                    min_ai_confidence: parseFloat(formData.get('strat_min_confidence') || '0.6'),
+                    allow_candidate_promotion: formData.get('strat_allow_promotion') === 'true'
+                }
             };
 
             try {
@@ -2921,6 +2930,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 addAiForm.reset();
                 const weightInput = addAiForm.querySelector('input[name="strat_weight"]');
                 if (weightInput) weightInput.value = "0.4";
+                const ruleInput = addAiForm.querySelector('input[name="strat_min_rule_score"]');
+                if (ruleInput) ruleInput.value = "1.5";
+                const confInput = addAiForm.querySelector('input[name="strat_min_confidence"]');
+                if (confInput) confInput.value = "0.6";
+                const promoInput = addAiForm.querySelector('select[name="strat_allow_promotion"]');
+                if (promoInput) promoInput.value = "false";
                 
                 await Promise.all([renderAiStrategies(), syncStrategiesToDropdown(), renderStrategyContext()]);
             } catch (err) {
