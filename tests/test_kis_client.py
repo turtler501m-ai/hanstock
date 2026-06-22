@@ -8,10 +8,11 @@ from src.kis_client import CircuitBreakerState, KISClient, KISClientConfig
 
 
 class _FakeResponse:
-    def __init__(self, payload=None, status_code=200, raise_error=None):
+    def __init__(self, payload=None, status_code=200, raise_error=None, text=""):
         self._payload = payload or {}
         self.status_code = status_code
         self._raise_error = raise_error
+        self.text = text
 
     def json(self):
         return self._payload
@@ -187,6 +188,42 @@ class KISClientTests(unittest.TestCase):
 
         self.assertEqual(client.circuit.error_count, 1)
         self.assertIn("unknown KIS API failure", log_error.call_args.args[0])
+
+    def test_get_volume_rank_logs_http_failure_detail(self):
+        session = Mock()
+        session.get.return_value = _FakeResponse(status_code=500, text="server unavailable")
+        client = KISClient(
+            self.make_config(),
+            session=session,
+            access_token="token",
+        )
+
+        with patch("src.utils.logger.logger.error") as log_error:
+            result = client.get_volume_rank(top_n=5)
+
+        self.assertEqual(result, [])
+        self.assertIn("Volume rank HTTP 500: server unavailable", log_error.call_args.args[0])
+
+    def test_get_volume_rank_logs_kis_failure_detail(self):
+        session = Mock()
+        session.get.return_value = _FakeResponse(
+            {"rt_cd": "1", "msg_cd": "EGW00123", "msg1": "temporary unavailable"},
+            status_code=200,
+        )
+        client = KISClient(
+            self.make_config(),
+            session=session,
+            access_token="token",
+        )
+
+        with patch("src.utils.logger.logger.error") as log_error:
+            result = client.get_volume_rank(top_n=5)
+
+        self.assertEqual(result, [])
+        self.assertIn(
+            "Volume rank KIS rt_cd=1 msg_cd=EGW00123 msg1=temporary unavailable",
+            log_error.call_args.args[0],
+        )
 
     def test_place_order_uses_live_tr_id_for_live_environment(self):
         session = Mock()

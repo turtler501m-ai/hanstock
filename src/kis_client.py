@@ -396,11 +396,16 @@ class KISClient:
                 timeout=self.config.request_timeout_seconds,
             )
             if response.status_code != 200:
-                self.mark_failure()
+                self.mark_failure(f"Volume rank HTTP {response.status_code}: {self._response_text(response)}")
                 return []
             data = response.json()
             if data.get("rt_cd") != "0":
-                self.mark_failure()
+                self.mark_failure(
+                    "Volume rank KIS "
+                    f"rt_cd={data.get('rt_cd', '')} "
+                    f"msg_cd={data.get('msg_cd', '')} "
+                    f"msg1={data.get('msg1', '')}"
+                )
                 return []
             self.mark_success()
             return [
@@ -408,9 +413,19 @@ class KISClient:
                 for row in data.get("output", [])
                 if row.get("mksc_shrn_iscd", "").strip()
             ][:top_n]
-        except Exception:
-            self.mark_failure()
+        except Exception as exc:
+            self.mark_failure(f"Volume rank exception: {exc}")
             return []
+
+    @staticmethod
+    def _response_text(response: Any) -> str:
+        text = getattr(response, "text", "")
+        if text:
+            return str(text)[:500]
+        try:
+            return json.dumps(response.json(), ensure_ascii=False)[:500]
+        except Exception:
+            return ""
 
     def get_daily(self, symbol: str, n: int = 60) -> list[dict[str, Any]]:
         self.check_circuit()
