@@ -261,7 +261,7 @@ class KIStockAPI:
             _kis_throttle()
             url = f"{self.base_url}/uapi/domestic-stock/v1/quotations/volume-rank"
             params = {"FID_COND_MRK_DIV_CODE": "J", "FID_COND_SCR_DIV_CODE": "20171", "FID_INPUT_ISCD": "0000", "FID_DIV_CLS_CODE": "0", "FID_BLNG_CLS_CODE": "0", "FID_TRGT_CLS_CODE": "111111111", "FID_TRGT_EXLS_CLS_CODE": "0000000000", "FID_INPUT_PRICE_1": "", "FID_INPUT_PRICE_2": "", "FID_VOL_CNT": "", "FID_INPUT_DATE_1": ""}
-            r = HTTP.get(url, headers=self._headers("FHKUP03500000"), params=params, timeout=15)
+            r = HTTP.get(url, headers=self._headers("FHPST01710000"), params=params, timeout=15)
             data = self._response_json(r, "Volume rank")
             self._record_result(data)
             if data.get("rt_cd") != "0":

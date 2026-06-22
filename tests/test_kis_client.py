@@ -225,6 +225,23 @@ class KISClientTests(unittest.TestCase):
             log_error.call_args.args[0],
         )
 
+    def test_get_volume_rank_uses_volume_rank_tr_id(self):
+        session = Mock()
+        session.get.return_value = _FakeResponse(
+            {"rt_cd": "0", "output": [{"mksc_shrn_iscd": "005930"}]},
+            status_code=200,
+        )
+        client = KISClient(
+            self.make_config(),
+            session=session,
+            access_token="token",
+        )
+
+        result = client.get_volume_rank(top_n=5)
+
+        self.assertEqual(result, ["005930"])
+        self.assertEqual(session.get.call_args.kwargs["headers"]["tr_id"], "FHPST01710000")
+
     def test_place_order_uses_live_tr_id_for_live_environment(self):
         session = Mock()
         session.post.side_effect = [
