@@ -228,7 +228,8 @@ class MistockDashboardTests(unittest.TestCase):
         self.assertEqual(balance["holdings"][0]["qty"], 2.0)
         self.assertEqual(balance["holdings"][0]["source"], "local_shadow")
 
-    def test_demo_local_shadow_sell_does_not_call_kis_order_api(self):
+    def test_demo_sell_calls_kis_order_api(self):
+        calls = []
         class FakeClient:
             def get_overseas_balance(self):
                 return {
@@ -239,7 +240,8 @@ class MistockDashboardTests(unittest.TestCase):
                 }
 
             def place_overseas_order(self, symbol, action, price, qty):
-                raise AssertionError("local shadow sell should not call KIS")
+                calls.append((symbol, action, price, qty))
+                return {"rt_cd": "0", "msg1": "VTS sell order success"}
 
         object.__setattr__(mistock_config, "trading_env", "demo")
         original_dry_run = mistock_config.dry_run
@@ -260,11 +262,8 @@ class MistockDashboardTests(unittest.TestCase):
             object.__setattr__(mistock_config, "dry_run", original_dry_run)
 
         self.assertTrue(result["ok"])
-        self.assertEqual(result["source"], "local_shadow")
-        self.assertEqual(balance["balance_source"], "demo_local_shadow")
-        self.assertEqual(balance["cash"], 900.0)
-        self.assertEqual(balance["holdings"][0]["symbol"], "KLAC")
-        self.assertEqual(balance["holdings"][0]["qty"], 1.0)
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(calls[0], ("KLAC", "sell", 110, 2))
 
     def test_demo_balance_converts_krw_config_capital_to_usd(self):
         class FakeClient:

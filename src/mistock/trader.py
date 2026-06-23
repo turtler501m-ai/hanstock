@@ -707,12 +707,7 @@ def place_order(symbol: str, action: str, qty: float, price: float, reason: str 
             save_trade(symbol, symbol_name(symbol), action, qty, price, reason, True, "dry_run", "dry run order skipped")
             notify_slack_order(symbol, action, qty, price, reason or "dry run order skipped", True)
             return {"ok": True, "status": "dry_run", "msg1": "dry run order skipped"}
-        if config.trading_env == "demo" and action == "sell":
-            _apply_local_filled_order(symbol, action, qty, price)
-            msg = "simulated local shadow sell filled"
-            save_trade(symbol, symbol_name(symbol), action, qty, price, reason, True, "filled", msg)
-            notify_slack_order(symbol, action, qty, price, reason or msg, True)
-            return {"ok": True, "status": "filled", "msg1": msg, "source": "local_shadow"}
+
         try:
             client = _get_kis_client()
             res = client.place_overseas_order(symbol, action, price, qty)
