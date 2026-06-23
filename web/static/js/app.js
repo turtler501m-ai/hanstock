@@ -361,6 +361,73 @@ function setNoCandidatesModalOpen(open) {
     modal.setAttribute('aria-hidden', open ? 'false' : 'true');
 }
 
+function setPerformanceDetailModalOpen(open) {
+    const modal = document.getElementById('performanceDetailModal');
+    if (!modal) return;
+    modal.style.display = open ? 'block' : 'none';
+    modal.setAttribute('aria-hidden', open ? 'false' : 'true');
+}
+
+function renderPerformanceDetailModal(item) {
+    const titleEl = document.getElementById('performanceDetailTitle');
+    const subtitleEl = document.getElementById('performanceDetailSubtitle');
+    const bodyEl = document.getElementById('performanceDetailBody');
+    if (!titleEl || !subtitleEl || !bodyEl) return;
+
+    const details = Array.isArray(item.details) ? item.details : [];
+    titleEl.textContent = `${item.period || '-'} 성과 상세 목록`;
+    subtitleEl.textContent = `거래 ${Number(item.order_count || 0).toLocaleString()}건 · 실현손익 ${formatCurrency(item.realized_pnl || 0)}`;
+
+    if (!details.length) {
+        bodyEl.innerHTML = '<p class="ai-modal-footnote">해당 기간의 세부 거래가 없습니다.</p>';
+        setPerformanceDetailModalOpen(true);
+        return;
+    }
+
+    const rows = details.map((detail) => {
+        const action = String(detail.action || '').toLowerCase();
+        const pnl = Number(detail.realized_pnl || 0);
+        const pnlClass = pnl > 0 ? 'text-success' : (pnl < 0 ? 'text-danger' : '');
+        return `
+            <tr>
+                <td>${escapeHtml(detail.ts || '-')}</td>
+                <td>${escapeHtml(detail.symbol || '-')}</td>
+                <td>${escapeHtml(detail.name || '-')}</td>
+                <td>${escapeHtml(toKorAction(action))}</td>
+                <td>${Number(detail.qty || 0).toLocaleString()}</td>
+                <td>${formatCurrency(detail.price)}</td>
+                <td>${formatCurrency(detail.amount)}</td>
+                <td class="${pnlClass}">${pnl > 0 ? '+' : ''}${formatCurrency(pnl)}</td>
+                <td class="${pnlClass}">${formatPercent(detail.realized_pnl_rate || 0)}</td>
+                <td>${escapeHtml(translateReason(detail.reason || '-'))}</td>
+            </tr>
+        `;
+    }).join('');
+
+    bodyEl.innerHTML = `
+        <div class="table-responsive performance-detail-table-wrap">
+            <table class="performance-detail-table">
+                <thead>
+                    <tr>
+                        <th>시간</th>
+                        <th>종목</th>
+                        <th>종목명</th>
+                        <th>구분</th>
+                        <th>수량</th>
+                        <th>단가</th>
+                        <th>금액</th>
+                        <th>실현손익</th>
+                        <th>수익률</th>
+                        <th>사유</th>
+                    </tr>
+                </thead>
+                <tbody>${rows}</tbody>
+            </table>
+        </div>
+    `;
+    setPerformanceDetailModalOpen(true);
+}
+
 function buildScanErrorModalMarkup(errorMsg) {
     return `
         <div class="ai-modal-section">
@@ -2599,6 +2666,19 @@ function updatePeriodicPerformanceUI() {
                     <td class="${pnlClass}">${pnlRate > 0 ? '+' : ''}${pnlRate.toFixed(2)}%</td>
                     <td class="${pnl > 0 ? 'text-success' : (pnl < 0 ? 'text-danger' : '')}">${formatCurrency(item.net_cashflow)}</td>
                 `;
+                const periodCell = tr.querySelector('td');
+                if (periodCell) {
+                    periodCell.innerHTML = '';
+                    const button = document.createElement('button');
+                    button.type = 'button';
+                    button.className = 'period-detail-button';
+                    button.innerHTML = `<strong>${escapeHtml(item.period)}</strong>`;
+                    button.addEventListener('click', () => renderPerformanceDetailModal(item));
+                    periodCell.appendChild(button);
+                }
+                if (tr.cells[1]) {
+                    tr.cells[1].textContent = `${Number(item.order_count || 0).toLocaleString()}건`;
+                }
                 tbody.appendChild(tr);
             });
         }
@@ -3216,24 +3296,28 @@ window.showAiModal = function(element) {
 window.addEventListener('load', () => {
     const aiModal = document.getElementById('aiModal');
     const ncModal = document.getElementById('noCandidatesModal');
+    const performanceDetailModal = document.getElementById('performanceDetailModal');
 
     // 닫기 버튼 — 모든 .close-modal 버튼을 각 모달 컨텍스트로 연결
     document.querySelectorAll('.close-modal').forEach(btn => {
         btn.addEventListener('click', () => {
             setAiModalOpen(false);
             setNoCandidatesModalOpen(false);
+            setPerformanceDetailModalOpen(false);
         });
     });
 
     window.addEventListener('click', (event) => {
         if (event.target === aiModal) setAiModalOpen(false);
         if (event.target === ncModal) setNoCandidatesModalOpen(false);
+        if (event.target === performanceDetailModal) setPerformanceDetailModalOpen(false);
     });
 
     window.addEventListener('keydown', (event) => {
         if (event.key === 'Escape') {
             setAiModalOpen(false);
             setNoCandidatesModalOpen(false);
+            setPerformanceDetailModalOpen(false);
         }
     });
 

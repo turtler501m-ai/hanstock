@@ -1171,6 +1171,51 @@ tbody tr:hover {
     color: #34d399;
 }
 
+.period-detail-button {
+    color: #93c5fd;
+    cursor: pointer;
+    border: 0;
+    background: transparent;
+    padding: 0;
+    font: inherit;
+    text-decoration: underline;
+    text-decoration-style: dotted;
+    text-underline-offset: 4px;
+}
+
+.period-detail-button:hover,
+.period-detail-button:focus {
+    color: #34d399;
+}
+
+.performance-detail-modal {
+    max-width: 980px;
+}
+
+.performance-detail-table-wrap {
+    max-height: 60vh;
+    overflow: auto;
+}
+
+.performance-detail-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.85rem;
+}
+
+.performance-detail-table th,
+.performance-detail-table td {
+    padding: 0.65rem 0.55rem;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    white-space: nowrap;
+    text-align: left;
+}
+
+.performance-detail-table th {
+    color: var(--text-muted);
+    font-weight: 600;
+}
+
 .ai-modal-card {
     margin: 8vh auto;
     max-width: 720px;

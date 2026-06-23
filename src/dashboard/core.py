@@ -2883,6 +2883,7 @@ def _period_bucket() -> dict:
         "cost_of_sold": 0,
         "realized_pnl_rate": 0.0,
         "net_cashflow": 0,
+        "details": [],
     }
 
 
@@ -2927,6 +2928,20 @@ def _build_periodic_performance(trades: list[dict]) -> dict:
             total_cost = holding["qty"] * holding["avg_cost"] + amount
             holding["qty"] = total_qty
             holding["avg_cost"] = total_cost / total_qty if total_qty > 0 else 0.0
+            detail = {
+                "ts": ts,
+                "symbol": symbol,
+                "name": trade.get("name") or symbol,
+                "action": action,
+                "qty": qty,
+                "price": price,
+                "amount": amount,
+                "realized_pnl": 0,
+                "cost_of_sold": 0,
+                "realized_pnl_rate": 0.0,
+                "reason": trade.get("reason", ""),
+                "order_status": trade.get("order_status", ""),
+            }
         else:
             sell_qty = min(qty, holding["qty"])
             cost_of_shares_sold = int(holding["avg_cost"] * sell_qty)
@@ -2940,6 +2955,25 @@ def _build_periodic_performance(trades: list[dict]) -> dict:
             holding["qty"] = max(0, holding["qty"] - sell_qty)
             if holding["qty"] <= 0:
                 holding["avg_cost"] = 0.0
+            detail = {
+                "ts": ts,
+                "symbol": symbol,
+                "name": trade.get("name") or symbol,
+                "action": action,
+                "qty": qty,
+                "price": price,
+                "amount": amount,
+                "realized_pnl": realized,
+                "cost_of_sold": cost_of_shares_sold,
+                "realized_pnl_rate": round((realized / cost_of_shares_sold * 100), 2)
+                if cost_of_shares_sold > 0
+                else 0.0,
+                "reason": trade.get("reason", ""),
+                "order_status": trade.get("order_status", ""),
+            }
+
+        day["details"].append(detail)
+        month["details"].append(detail)
 
     for rows in (daily, monthly):
         for bucket in rows.values():

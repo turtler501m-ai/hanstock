@@ -23,8 +23,10 @@ class DashboardPeriodicPerformanceTests(unittest.TestCase):
         bucket = _period_bucket()
         self.assertIn("cost_of_sold", bucket)
         self.assertIn("realized_pnl_rate", bucket)
+        self.assertIn("details", bucket)
         self.assertEqual(bucket["cost_of_sold"], 0)
         self.assertEqual(bucket["realized_pnl_rate"], 0.0)
+        self.assertEqual(bucket["details"], [])
 
     def test_account_trades_filters_dry_run_correctly(self):
         trades = [
@@ -71,6 +73,13 @@ class DashboardPeriodicPerformanceTests(unittest.TestCase):
         self.assertEqual(day_bucket["cost_of_sold"], 350000)
         self.assertEqual(day_bucket["realized_pnl_rate"], 10.0)
         self.assertEqual(day_bucket["net_cashflow"], -315000)
+        self.assertEqual(len(day_bucket["details"]), 2)
+        sell_detail = day_bucket["details"][1]
+        self.assertEqual(sell_detail["symbol"], "005930")
+        self.assertEqual(sell_detail["action"], "sell")
+        self.assertEqual(sell_detail["amount"], 385000)
+        self.assertEqual(sell_detail["realized_pnl"], 35000)
+        self.assertEqual(sell_detail["realized_pnl_rate"], 10.0)
 
 
 if __name__ == "__main__":

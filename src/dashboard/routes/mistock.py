@@ -1065,6 +1065,7 @@ def _period_bucket() -> dict:
         "cost_of_sold": 0.0,
         "realized_pnl_rate": 0.0,
         "net_cashflow": 0.0,
+        "details": [],
     }
 
 
