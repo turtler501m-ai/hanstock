@@ -2620,7 +2620,7 @@ def _claim_pending_approval(approval_id: int) -> dict:
 def _approval_response_msg(result: dict, *, ok: bool) -> str:
     response_msg = str(result.get("msg1", ""))
     if ok and not trader.DRY_RUN and trader.TRADING_ENV == "demo":
-        response_msg = f"{response_msg} (KIS demo order submitted; confirm fill status in broker order history)"
+        response_msg = f"{response_msg} (KIS 모의투자 주문 접수 완료, 체결 여부는 주문내역 동기화 후 확인)"
     return response_msg
 
 

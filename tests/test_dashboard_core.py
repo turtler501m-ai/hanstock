@@ -659,7 +659,7 @@ class DashboardCoreTests(unittest.TestCase):
                 self.assertEqual(len(rows), 1)
                 self.assertEqual(rows[0]["broker_order_id"], "D12345")
                 self.assertEqual(rows[0]["order_status"], "submitted")
-                self.assertIn("KIS demo order submitted", rows[0]["response_msg"])
+                self.assertIn("KIS 모의투자 주문 접수 완료", rows[0]["response_msg"])
         finally:
             dashboard.trader.config.trade_db_path = original_db_path
             dashboard._get_api = original_get_api
