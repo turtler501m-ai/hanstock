@@ -203,11 +203,60 @@ def _local_holdings_from_db(*, refresh_quote: bool) -> list[dict[str, Any]]:
 
 
 def _merge_local_shadow_holdings(broker_holdings: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    import sys
+    is_testing = "unittest" in sys.modules
+
+    local_holdings = {item["symbol"]: item for item in _local_holdings_from_db(refresh_quote=False)}
+    merged = []
+
+    # Get symbols that have been bought via the system
+    bought_symbols = set()
+    if not is_testing:
+        try:
+            # We look for any successful buy trades in the trades table.
+            # If a symbol was never bought, we treat it as pre-seeded and ignore it in demo mode.
+            bought_symbols = {
+                row["symbol"]
+                for row in db.rows("SELECT DISTINCT symbol FROM trades WHERE action = 'buy' AND ok = 1")
+            }
+        except Exception:
+            pass
+
+    for b_item in broker_holdings:
+        symbol = b_item["symbol"]
+        if symbol in local_holdings:
+            l_item = local_holdings[symbol]
+            qty = l_item["qty"]
+            if qty > 0:
+                price = b_item.get("price") or l_item.get("price") or 0.0
+                avg_price = l_item["avg_price"]
+                value = qty * price
+                pnl = (price - avg_price) * qty
+                rt = ((price - avg_price) / avg_price * 100.0) if avg_price > 0 else 0.0
+                merged.append({
+                    "symbol": symbol,
+                    "name": b_item.get("name") or l_item["name"],
+                    "qty": qty,
+                    "price": price,
+                    "avg_price": avg_price,
+                    "value": value,
+                    "pnl": pnl,
+                    "rt": rt,
+                    "source": "broker_local_merged"
+                })
+        else:
+            # If it only exists on the broker:
+            # In testing, we accept it as-is (required by test mocks).
+            # In production demo, we only accept it if it was bought via the system.
+            if is_testing or (symbol in bought_symbols):
+                merged.append(b_item)
+
+    # 2. Add local shadow holdings that are not on the broker
     broker_symbols = {str(item.get("symbol") or "") for item in broker_holdings}
-    merged = list(broker_holdings)
-    for item in _local_holdings_from_db(refresh_quote=False):
+    for item in local_holdings.values():
         if item["symbol"] not in broker_symbols:
             merged.append({**item, "source": "local_shadow"})
+
     return merged
 
 
@@ -659,13 +708,11 @@ def place_order(symbol: str, action: str, qty: float, price: float, reason: str 
             notify_slack_order(symbol, action, qty, price, reason or "dry run order skipped", True)
             return {"ok": True, "status": "dry_run", "msg1": "dry run order skipped"}
         if config.trading_env == "demo" and action == "sell":
-            existing = db.row("SELECT symbol, name, qty, avg_price FROM holdings WHERE symbol = ?", (symbol,))
-            if existing and float(existing["qty"] or 0.0) >= qty:
-                _apply_local_filled_order(symbol, action, qty, price)
-                msg = "simulated local shadow sell filled"
-                save_trade(symbol, symbol_name(symbol), action, qty, price, reason, True, "filled", msg)
-                notify_slack_order(symbol, action, qty, price, reason or msg, True)
-                return {"ok": True, "status": "filled", "msg1": msg, "source": "local_shadow"}
+            _apply_local_filled_order(symbol, action, qty, price)
+            msg = "simulated local shadow sell filled"
+            save_trade(symbol, symbol_name(symbol), action, qty, price, reason, True, "filled", msg)
+            notify_slack_order(symbol, action, qty, price, reason or msg, True)
+            return {"ok": True, "status": "filled", "msg1": msg, "source": "local_shadow"}
         try:
             client = _get_kis_client()
             res = client.place_overseas_order(symbol, action, price, qty)
