@@ -42,6 +42,24 @@ from src.dashboard.services.futures_service import FuturesDashboardService  # no
 from src.dashboard.services.scheduler_service import DashboardSchedulerService  # noqa: E402
 from src.dashboard.services.external_service import ExternalIntegrationService  # noqa: E402
 from src.dashboard.services.stock_service import DashboardStockService  # noqa: E402
+from src.dashboard.services.balance_service import (  # noqa: E402
+    clamp_ratio,
+    holding_value,
+    parse_balance,
+    portfolio_totals,
+    summary_item,
+    to_float,
+    to_int,
+)
+from src.dashboard.services.env_service import (  # noqa: E402
+    env_bool_value,
+    env_value_without_inline_comment,
+    expand_virtual_env_updates,
+    read_env_values,
+    serialize_env_value,
+    virtual_env_value,
+    write_env_values,
+)
 from src.strategy.seven_split import adjust_tick_size  # noqa: E402
 from src.utils.logger import logger  # noqa: E402
 
@@ -328,118 +346,34 @@ def _account_format_warning(account: str) -> str:
 
 
 def _to_int(value, default: int = 0) -> int:
-    try:
-        return int(float(value))
-    except (TypeError, ValueError):
-        return default
+    return to_int(value, default)
 
 
 def _to_float(value, default: float = 0.0) -> float:
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return default
+    return to_float(value, default)
 
 
 def _summary_item(summary):
-    if isinstance(summary, list):
-        return summary[0] if summary else {}
-    if isinstance(summary, dict):
-        return summary
-    return {}
+    return summary_item(summary)
 
 
 def _clamp_ratio(value: float) -> float:
-    return max(0.0, min(1.0, value))
+    return clamp_ratio(value)
 
 
 def _holding_value(stock: dict, qty: int, price: int) -> int:
-    broker_value = _to_int(stock.get("evlu_amt"))
-    if broker_value > 0:
-        return broker_value
-    return qty * price
+    return holding_value(stock, qty, price)
 
 
 def _portfolio_totals(cash: int, summary_total: int, holdings: list[dict]) -> dict:
-    stock_eval = sum(_to_int(holding.get("value")) for holding in holdings)
-    broker_total = max(0, summary_total)
-    calculated_total = cash + stock_eval
-    effective_total = broker_total if broker_total > 0 else calculated_total
-    if effective_total <= 0:
-        effective_total = calculated_total
-    return {
-        "stock_eval": stock_eval,
-        "broker_total_eval": broker_total,
-        "calculated_total_eval": calculated_total,
-        "total_eval": effective_total,
-        "cash_ratio": _clamp_ratio(cash / effective_total) if effective_total > 0 else 0.0,
-        "stock_ratio": _clamp_ratio(stock_eval / effective_total) if effective_total > 0 else 0.0,
-    }
+    return portfolio_totals(cash, summary_total, holdings)
 
 
 def _parse_balance(balance_data: dict) -> dict:
     override = _public_override("_parse_balance", _parse_balance)
     if override is not None:
         return override(balance_data)
-    if balance_data.get("_error"):
-        raise RuntimeError(balance_data["_error"])
-
-    stocks = balance_data.get("output1", [])
-    first_summary = _summary_item(balance_data.get("output2", [{}]))
-
-    holdings = []
-    for stock in stocks:
-        qty = _to_int(stock.get("hldg_qty"))
-        sellable_source = stock.get("hldg_qty")
-        for key in (
-            "ord_psbl_qty",
-            "ord_psbl_qty1",
-            "sell_psbl_qty",
-            "sll_psbl_qty",
-            "trad_psbl_qty",
-            "able_qty",
-        ):
-            if key in stock and stock.get(key) not in (None, ""):
-                sellable_source = stock.get(key)
-                break
-        sellable_qty = max(0, _to_int(sellable_source))
-        sellable_qty = min(qty, sellable_qty) if qty > 0 else 0
-        price = _to_int(stock.get("prpr"))
-        value = _holding_value(stock, qty, price)
-        if price <= 0 and qty > 0:
-            price = round(value / qty)
-        holdings.append({
-            "symbol": stock.get("pdno", ""),
-            "name": stock.get("prdt_name", stock.get("pdno", "")),
-            "qty": qty,
-            "sellable_qty": sellable_qty,
-            "price": price,
-            "rt": _to_float(stock.get("evlu_pfls_rt")),
-            "pnl": _to_int(stock.get("evlu_pfls_amt")),
-            "value": value,
-            "_raw": stock,
-        })
-
-    summary_total = _to_int(first_summary.get("tot_evlu_amt"))
-    summary_stock_eval = _to_int(first_summary.get("scts_evlu_amt"))
-    cash = _to_int(first_summary.get("prvs_rcdl_excc_amt"))
-    if cash == 0:
-        cash = _to_int(first_summary.get("dnca_tot_amt"))
-    if cash == 0:
-        if summary_total > 0:
-            cash = summary_total - summary_stock_eval
-    totals = _portfolio_totals(cash, summary_total, holdings)
-    return {
-        "cash": cash,
-        "total_eval": totals["total_eval"],
-        "broker_total_eval": totals["broker_total_eval"],
-        "calculated_total_eval": totals["calculated_total_eval"],
-        "stock_eval": totals["stock_eval"],
-        "cash_ratio": totals["cash_ratio"],
-        "stock_ratio": totals["stock_ratio"],
-        "pnl": _to_int(first_summary.get("evlu_pfls_smtl_amt")),
-        "holdings": holdings,
-    }
+    return parse_balance(balance_data)
 
 
 def _get_api() -> KIStockAPI:
@@ -1106,30 +1040,11 @@ def _save_auto_approval(enabled: bool) -> None:
 
 
 def _read_env_values(path: Path = ENV_PATH) -> dict[str, str]:
-    if not path.exists():
-        return {}
-    values: dict[str, str] = {}
-    for line in path.read_text(encoding="utf-8").splitlines():
-        stripped = line.strip()
-        if not stripped or stripped.startswith("#") or "=" not in stripped:
-            continue
-        key, value = stripped.split("=", 1)
-        key = key.strip()
-        value = _env_value_without_inline_comment(value.strip())
-        if len(value) >= 2 and value[0] == value[-1] and value[0] in ("'", '"'):
-            value = value[1:-1]
-        values[key] = value
-    return values
+    return read_env_values(path)
 
 
 def _env_value_without_inline_comment(value: str) -> str:
-    quote = None
-    for index, char in enumerate(value):
-        if char in ("'", '"') and (index == 0 or value[index - 1] != "\\"):
-            quote = None if quote == char else (char if quote is None else quote)
-        if char == "#" and quote is None and index > 0 and value[index - 1].isspace():
-            return value[:index].strip()
-    return value.strip()
+    return env_value_without_inline_comment(value)
 
 
 def _mask_env_value(value: str) -> str:
@@ -1178,27 +1093,15 @@ def _validate_env_value(key: str, value: object) -> str:
 
 
 def _env_bool_value(values: dict[str, str], key: str, default: bool = False) -> bool:
-    raw = str(values.get(key, str(default))).strip().lower()
-    return raw in {"true", "1", "yes", "on"}
+    return env_bool_value(values, key, default)
 
 
 def _virtual_env_value(key: str, values: dict[str, str]) -> str:
-    dry_run = _env_bool_value(values, "DRY_RUN", True)
-    trading_env = values.get("TRADING_ENV", "demo")
-    enable_live = _env_bool_value(values, "ENABLE_LIVE_TRADING", False)
-    if key == "ORDER_SUBMISSION_ENABLED":
-        return "true" if (not dry_run and (trading_env == "demo" or enable_live)) else "false"
-    return ""
+    return virtual_env_value(key, values)
 
 
 def _expand_virtual_env_updates(updates: dict[str, str]) -> dict[str, str]:
-    expanded = dict(updates)
-    order_submission = expanded.pop("ORDER_SUBMISSION_ENABLED", None)
-
-    if order_submission is not None:
-        expanded["DRY_RUN"] = "false" if _env_bool_value({"value": order_submission}, "value") else "true"
-
-    return expanded
+    return expand_virtual_env_updates(updates)
 
 
 def _apply_runtime_env_updates(updates: dict[str, str]) -> None:
@@ -1384,38 +1287,11 @@ def _runtime_order_mode_updates(key: str, enabled: bool) -> dict[str, str]:
 
 
 def _serialize_env_value(value: str) -> str:
-    if not value or any(char.isspace() for char in value) or "#" in value:
-        return json.dumps(value, ensure_ascii=False)
-    return value
+    return serialize_env_value(value)
 
 
 def _write_env_values(updates: dict[str, str], path: Path = ENV_PATH) -> None:
-    lines = path.read_text(encoding="utf-8").splitlines() if path.exists() else []
-    seen: set[str] = set()
-    output: list[str] = []
-    for line in lines:
-        stripped = line.strip()
-        if not stripped or stripped.startswith("#") or "=" not in stripped:
-            output.append(line)
-            continue
-        key = stripped.split("=", 1)[0].strip()
-        if key in updates:
-            value_part = line.split("=", 1)[1]
-            suffix = ""
-            comment_index = value_part.find(" #")
-            if comment_index >= 0:
-                suffix = value_part[comment_index:]
-            output.append(f"{key}={_serialize_env_value(updates[key])}{suffix}")
-            seen.add(key)
-        else:
-            output.append(line)
-    missing = [key for key in updates if key not in seen]
-    if missing:
-        if output and output[-1].strip():
-            output.append("")
-        output.append("# Dashboard updates")
-        output.extend(f"{key}={_serialize_env_value(updates[key])}" for key in missing)
-    path.write_text("\n".join(output) + "\n", encoding="utf-8")
+    write_env_values(updates, path)
 
 
 
