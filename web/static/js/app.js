@@ -361,26 +361,51 @@ function setNoCandidatesModalOpen(open) {
     modal.setAttribute('aria-hidden', open ? 'false' : 'true');
 }
 
-function setPerformanceDetailModalOpen(open) {
-    const modal = document.getElementById('performanceDetailModal');
-    if (!modal) return;
-    modal.style.display = open ? 'block' : 'none';
-    modal.setAttribute('aria-hidden', open ? 'false' : 'true');
+function setPerformanceDetailPanelOpen(open) {
+    const panel = document.getElementById('performance-detail-panel');
+    if (!panel) return;
+    panel.style.display = open ? 'block' : 'none';
 }
 
-function renderPerformanceDetailModal(item) {
+function renderPerformanceDetailPanel(item) {
+    const panel = document.getElementById('performance-detail-panel');
     const titleEl = document.getElementById('performanceDetailTitle');
     const subtitleEl = document.getElementById('performanceDetailSubtitle');
     const bodyEl = document.getElementById('performanceDetailBody');
-    if (!titleEl || !subtitleEl || !bodyEl) return;
+    if (!panel || !titleEl || !subtitleEl || !bodyEl) return;
 
     const details = Array.isArray(item.details) ? item.details : [];
     titleEl.textContent = `${item.period || '-'} 성과 상세 목록`;
-    subtitleEl.textContent = `거래 ${Number(item.order_count || 0).toLocaleString()}건 · 실현손익 ${formatCurrency(item.realized_pnl || 0)}`;
+    subtitleEl.textContent = '선택한 성과 기간의 매수/매도 체결 기준 상세 내역입니다.';
+
+    const pnl = Number(item.realized_pnl || 0);
+    const pnlRate = Number(item.realized_pnl_rate || 0);
+    const pnlClass = pnl > 0 ? 'text-success' : (pnl < 0 ? 'text-danger' : '');
+    const summaryHtml = `
+        <div class="performance-detail-summary">
+            <div>
+                <span>거래 건수</span>
+                <strong>${Number(item.order_count || 0).toLocaleString()}건</strong>
+            </div>
+            <div>
+                <span>매수/매도 금액</span>
+                <strong>${formatCurrency(item.buy_amount)} / ${formatCurrency(item.sell_amount)}</strong>
+            </div>
+            <div>
+                <span>실현손익</span>
+                <strong class="${pnlClass}">${pnl > 0 ? '+' : ''}${formatCurrency(pnl)}</strong>
+            </div>
+            <div>
+                <span>실현수익률</span>
+                <strong class="${pnlClass}">${pnlRate > 0 ? '+' : ''}${pnlRate.toFixed(2)}%</strong>
+            </div>
+        </div>
+    `;
 
     if (!details.length) {
-        bodyEl.innerHTML = '<p class="ai-modal-footnote">해당 기간의 세부 거래가 없습니다.</p>';
-        setPerformanceDetailModalOpen(true);
+        bodyEl.innerHTML = `${summaryHtml}<p class="ai-modal-footnote">해당 기간의 세부 거래가 없습니다.</p>`;
+        setPerformanceDetailPanelOpen(true);
+        panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
         return;
     }
 
@@ -405,6 +430,7 @@ function renderPerformanceDetailModal(item) {
     }).join('');
 
     bodyEl.innerHTML = `
+        ${summaryHtml}
         <div class="table-responsive performance-detail-table-wrap">
             <table class="performance-detail-table">
                 <thead>
@@ -425,7 +451,8 @@ function renderPerformanceDetailModal(item) {
             </table>
         </div>
     `;
-    setPerformanceDetailModalOpen(true);
+    setPerformanceDetailPanelOpen(true);
+    panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 }
 
 function buildScanErrorModalMarkup(errorMsg) {
@@ -2639,6 +2666,7 @@ async function renderPeriodicPerformance() {
 
 function updatePeriodicPerformanceUI() {
     if (!periodicDataCache) return;
+    setPerformanceDetailPanelOpen(false);
     
     const dataList = periodicActiveTab === 'daily' ? (periodicDataCache.daily || []) : (periodicDataCache.monthly || []);
     
@@ -2673,7 +2701,7 @@ function updatePeriodicPerformanceUI() {
                     button.type = 'button';
                     button.className = 'period-detail-button';
                     button.innerHTML = `<strong>${escapeHtml(item.period)}</strong>`;
-                    button.addEventListener('click', () => renderPerformanceDetailModal(item));
+                    button.addEventListener('click', () => renderPerformanceDetailPanel(item));
                     periodCell.appendChild(button);
                 }
                 if (tr.cells[1]) {
@@ -3296,28 +3324,28 @@ window.showAiModal = function(element) {
 window.addEventListener('load', () => {
     const aiModal = document.getElementById('aiModal');
     const ncModal = document.getElementById('noCandidatesModal');
-    const performanceDetailModal = document.getElementById('performanceDetailModal');
+    const closePerformanceDetailBtn = document.getElementById('btn-close-performance-detail');
 
     // 닫기 버튼 — 모든 .close-modal 버튼을 각 모달 컨텍스트로 연결
     document.querySelectorAll('.close-modal').forEach(btn => {
         btn.addEventListener('click', () => {
             setAiModalOpen(false);
             setNoCandidatesModalOpen(false);
-            setPerformanceDetailModalOpen(false);
         });
     });
+    if (closePerformanceDetailBtn) {
+        closePerformanceDetailBtn.addEventListener('click', () => setPerformanceDetailPanelOpen(false));
+    }
 
     window.addEventListener('click', (event) => {
         if (event.target === aiModal) setAiModalOpen(false);
         if (event.target === ncModal) setNoCandidatesModalOpen(false);
-        if (event.target === performanceDetailModal) setPerformanceDetailModalOpen(false);
     });
 
     window.addEventListener('keydown', (event) => {
         if (event.key === 'Escape') {
             setAiModalOpen(false);
             setNoCandidatesModalOpen(false);
-            setPerformanceDetailModalOpen(false);
         }
     });
 

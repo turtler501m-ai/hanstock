@@ -1188,13 +1188,56 @@ tbody tr:hover {
     color: #34d399;
 }
 
-.performance-detail-modal {
-    max-width: 980px;
+.performance-detail-panel {
+    margin-top: 1.5rem;
+    padding: 16px;
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.performance-detail-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 1rem;
+    margin-bottom: 12px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.performance-detail-header h3 {
+    margin: 0;
+    font-size: 1rem;
+    color: #60a5fa;
+}
+
+.performance-detail-header .section-help {
+    margin: 0.25rem 0 0;
+}
+
+.performance-detail-summary {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 12px;
+    margin-bottom: 16px;
+    padding: 12px;
+    border-radius: 6px;
+    background: rgba(255, 255, 255, 0.01);
+}
+
+.performance-detail-summary strong {
+    display: block;
+    margin-top: 3px;
+    color: var(--text-color);
+    font-size: 0.95rem;
 }
 
 .performance-detail-table-wrap {
     max-height: 60vh;
     overflow: auto;
+    border: 1px solid var(--border);
+    border-radius: 6px;
 }
 
 .performance-detail-table {
@@ -1205,15 +1248,16 @@ tbody tr:hover {
 
 .performance-detail-table th,
 .performance-detail-table td {
-    padding: 0.65rem 0.55rem;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    padding: 0.6rem 0.75rem;
+    border-bottom: 1px solid var(--border);
     white-space: nowrap;
     text-align: left;
 }
 
 .performance-detail-table th {
+    background: rgba(255, 255, 255, 0.02);
     color: var(--text-muted);
-    font-weight: 600;
+    font-weight: 500;
 }
 
 .ai-modal-card {
@@ -1350,6 +1394,10 @@ tbody tr:hover {
     .performance-kpis {
         grid-template-columns: repeat(2, minmax(0, 1fr));
     }
+
+    .performance-detail-summary {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
 }
 
 @media (max-width: 760px) {
@@ -1417,6 +1465,15 @@ tbody tr:hover {
     }
 
     .performance-kpis {
+        grid-template-columns: 1fr;
+    }
+
+    .performance-detail-header {
+        align-items: stretch;
+        flex-direction: column;
+    }
+
+    .performance-detail-summary {
         grid-template-columns: 1fr;
     }
 }

@@ -649,6 +649,16 @@
                                 <tbody></tbody>
                             </table>
                         </div>
+                        <div id="performance-detail-panel" class="performance-detail-panel" style="display: none;">
+                            <div class="performance-detail-header">
+                                <div>
+                                    <h3 id="performanceDetailTitle">성과 상세 목록</h3>
+                                    <p id="performanceDetailSubtitle" class="section-help"></p>
+                                </div>
+                                <button type="button" class="button-ghost compact-button" id="btn-close-performance-detail">닫기</button>
+                            </div>
+                            <div id="performanceDetailBody" class="performance-detail-body"></div>
+                        </div>
                     </div>
 
                     <h3 class="subsection-title">자동매매 보유 종목 상세</h3>
@@ -1564,15 +1574,6 @@
             <h2 id="noCandidatesTitle">매수 후보 없음 분석 결과</h2>
             <p id="noCandidatesSubtitle" class="ai-modal-subtitle"></p>
             <div id="noCandidatesBody" class="ai-modal-body"></div>
-        </div>
-    </div>
-
-    <div id="performanceDetailModal" class="modal" aria-hidden="true">
-        <div class="modal-content ai-modal-card performance-detail-modal" role="dialog" aria-modal="true" aria-labelledby="performanceDetailTitle">
-            <button type="button" class="close-modal" aria-label="닫기">&times;</button>
-            <h2 id="performanceDetailTitle">성과 상세 목록</h2>
-            <p id="performanceDetailSubtitle" class="ai-modal-subtitle"></p>
-            <div id="performanceDetailBody" class="ai-modal-body"></div>
         </div>
     </div>
 
