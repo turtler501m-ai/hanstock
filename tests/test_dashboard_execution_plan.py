@@ -19,7 +19,7 @@ class DashboardExecutionPlanApiTests(unittest.TestCase):
         for route in dashboard.app.routes:
             methods = getattr(route, "methods", set()) or set()
             path = getattr(route, "path", "")
-            if "GET" in methods and "execution-plan" in path:
+            if "GET" in methods and "execution-plan" in path and "ai-stock" not in path:
                 candidates.append(route)
         if not candidates:
             raise AssertionError("No GET dashboard execution-plan route is registered on src.dashboard.app")

@@ -61,6 +61,23 @@ def dispatch_due_schedules() -> list[str]:
                     auto_collect=True,
                 )
                 save_scheduler_result(mode, datetime.now(KST).isoformat(), result)
+            elif str(strategy_id or "").startswith("ai_stock_"):
+                # AI스톡: 주문 경로(run_scheduled_cycle)를 타지 않고 자동화 엔진을 호출한다(§5.12.2).
+                from src.ai_stock.automation_service import run_strategy as _ai_run
+                from src.ai_stock.markets import normalize_market
+
+                market = normalize_market(sched.get("market") or "KR", default="KR")
+                if market == "ALL":
+                    market = "KR"
+                result = _ai_run(market=market, strategy_id=strategy_id, run_type="scheduled")
+                # 2차 실시간 사이클(후보 풀 대상)도 같은 디스패치에서 best-effort 실행
+                try:
+                    from src.ai_stock.realtime_service import run_realtime_cycle
+
+                    result["realtime"] = run_realtime_cycle(market, strategy_id=strategy_id)
+                except Exception as rt_exc:
+                    logger.warning(f"[dispatch] {strategy_id} realtime cycle failed: {rt_exc}")
+                save_scheduler_result(mode, datetime.now(KST).isoformat(), result)
             else:
                 run_scheduled_cycle(
                     mode,

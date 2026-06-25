@@ -344,6 +344,12 @@ def init_db() -> None:
             sync_custom_rules_to_db(conn)
         except (sqlite3.Error, OSError, ValueError, TypeError) as sc_err:
             logger.warning(f"Failed to sync custom rules to DB on init: {sc_err}")
+        try:
+            from src.db.ai_stock_repository import init_ai_stock_tables
+            init_ai_stock_tables(conn)
+            conn.commit()
+        except (sqlite3.Error, OSError, ValueError, TypeError, ImportError) as ai_err:
+            logger.warning(f"Failed to init ai_stock tables: {ai_err}")
 
 
 def _ensure_column(conn: DBWrapper, table: str, column: str, column_type: str) -> None:

@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI스톡 대시보드</title>
+    <link rel="stylesheet" href="/static/css/ai_stock.css">
+</head>
+<body>
+    <header class="ai-header">
+        <div class="ai-title">
+            <h1>AI<span class="accent">스톡</span></h1>
+            <nav class="ai-topnav" aria-label="메인 메뉴">
+                <a href="/">한스톡</a>
+                <a href="/mistock">미스톡</a>
+                <a href="/narrative-momentum">내러티브</a>
+                <a class="active" href="/ai-stock">AI스톡</a>
+                <a href="/env-settings">환경설정</a>
+            </nav>
+        </div>
+
+        <!-- 안전/신선도/fallback 배너 (§8.5) -->
+        <div id="ai-banner" class="ai-banner" role="status" hidden></div>
+
+        <!-- 공통 헤더 필터 (§3 공통 화면 설정) -->
+        <div class="ai-filters" aria-label="공통 필터">
+            <label>시장
+                <select id="f-market">
+                    <option value="ALL">전체</option>
+                    <option value="KR">한국(AI한스톡)</option>
+                    <option value="US">미국(AI미스톡)</option>
+                </select>
+            </label>
+            <label>분석 기준일 <input type="date" id="f-date"></label>
+            <label>전략
+                <select id="f-strategy"><option value="ai_stock_default_v1">기본 전략</option></select>
+            </label>
+            <label>최소 종합점수 <input type="number" id="f-min-score" min="0" max="100" value="0"></label>
+            <label>최대 위험점수 <input type="number" id="f-max-risk" min="0" max="100" value="100"></label>
+            <button type="button" id="btn-refresh">데이터 새로고침</button>
+            <button type="button" id="btn-scan" class="primary">AI 분석 실행</button>
+            <span class="ai-status-chip">최근 분석 <b id="s-last-scan">-</b></span>
+            <span class="ai-status-chip">AI 모델 <b id="s-model">-</b></span>
+            <span class="ai-status-chip">신선도 <b id="s-fresh">-</b></span>
+            <span class="ai-status-chip" id="s-safety">안전모드 -</span>
+        </div>
+
+        <!-- 세부 탭 9개 (§1.1) -->
+        <nav class="ai-tabs" role="tablist">
+            <button class="ai-tab active" data-tab="overview" role="tab">시장 브리핑</button>
+            <button class="ai-tab" data-tab="narratives" role="tab">내러티브</button>
+            <button class="ai-tab" data-tab="discovery" role="tab">AI 종목 발굴</button>
+            <button class="ai-tab" data-tab="analysis" role="tab">종목 분석</button>
+            <button class="ai-tab" data-tab="watchlist" role="tab">관찰종목</button>
+            <button class="ai-tab" data-tab="portfolio" role="tab">포트폴리오</button>
+            <button class="ai-tab" data-tab="performance" role="tab">성과 검증</button>
+            <button class="ai-tab" data-tab="strategies" role="tab">AI 전략 관리</button>
+            <button class="ai-tab" data-tab="execution" role="tab">실행 계획</button>
+        </nav>
+    </header>
+
+    <main class="ai-main">
+        <section class="ai-panel active" data-panel="overview">
+            <h2>시장 브리핑</h2>
+            <div id="p-overview" class="ai-content"><p class="ai-empty">데이터를 불러오는 중…</p></div>
+        </section>
+        <section class="ai-panel" data-panel="narratives">
+            <h2>내러티브</h2>
+            <div id="p-narratives" class="ai-content"><p class="ai-empty">시장을 선택하세요.</p></div>
+        </section>
+        <section class="ai-panel" data-panel="discovery">
+            <h2>AI 종목 발굴 <small>(1차 배치 점수화)</small></h2>
+            <div id="p-discovery-status" class="ai-scan-status"></div>
+            <div id="p-discovery" class="ai-content"><p class="ai-empty">[AI 분석 실행]으로 후보를 생성하세요.</p></div>
+        </section>
+        <section class="ai-panel" data-panel="analysis">
+            <h2>종목 분석</h2>
+            <div id="p-analysis" class="ai-content"><p class="ai-empty">후보를 선택하면 상세가 표시됩니다.</p></div>
+        </section>
+        <section class="ai-panel" data-panel="watchlist">
+            <h2>관찰종목</h2>
+            <div id="p-watchlist" class="ai-content"><p class="ai-empty">관찰 후보가 없습니다.</p></div>
+        </section>
+        <section class="ai-panel" data-panel="portfolio">
+            <h2>포트폴리오</h2>
+            <div id="p-portfolio" class="ai-content"><p class="ai-empty">-</p></div>
+        </section>
+        <section class="ai-panel" data-panel="performance">
+            <h2>성과 검증</h2>
+            <div id="p-performance" class="ai-content"><p class="ai-empty">-</p></div>
+        </section>
+        <section class="ai-panel" data-panel="strategies">
+            <h2>AI 전략 관리 <small>(자동화 정책 · 스케줄)</small></h2>
+            <div id="p-strategies" class="ai-content"><p class="ai-empty">-</p></div>
+        </section>
+        <section class="ai-panel" data-panel="execution">
+            <h2>실행 계획 <small>(2차 실시간 타이밍)</small></h2>
+            <div id="p-timing" class="ai-content"></div>
+            <div id="p-execution" class="ai-content"><p class="ai-empty">confirmed 후보만 실행 계획으로 연결됩니다.</p></div>
+        </section>
+    </main>
+
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="/static/js/ai_stock.js"></script>
+</body>
+</html>
