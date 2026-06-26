@@ -48,12 +48,17 @@ class AutomationTests(unittest.TestCase):
 
     def test_execute_gate_blocked_when_guarded(self):
         # 안전 가드가 닫힌 기본 환경에서 execute 단계는 차단된다.
-        pol = {"automation_level": 6, "auto_execute": 1, "require_paper_passed": 1}
-        cand = {"final_score": 90, "rule_score": 80, "risk_score": 10, "data_as_of": now().isoformat()}
-        gate = evaluate_gate(policy=pol, candidate=cand, stage="execute")
-        self.assertFalse(gate["proceed"])
-        self.assertTrue(len(gate["blocked_reason"]) > 0)
-        self.assertNotIn("paper_passed_required", gate["blocked_reason"])
+        orig = automation_service.live_trading_allowed
+        automation_service.live_trading_allowed = lambda: False
+        try:
+            pol = {"automation_level": 6, "auto_execute": 1, "require_paper_passed": 1}
+            cand = {"final_score": 90, "rule_score": 80, "risk_score": 10, "data_as_of": now().isoformat()}
+            gate = evaluate_gate(policy=pol, candidate=cand, stage="execute")
+            self.assertFalse(gate["proceed"])
+            self.assertTrue(len(gate["blocked_reason"]) > 0)
+            self.assertNotIn("paper_passed_required", gate["blocked_reason"])
+        finally:
+            automation_service.live_trading_allowed = orig
 
     def test_execute_gate_ignores_legacy_paper_policy(self):
         orig = automation_service.live_trading_allowed
@@ -136,9 +141,14 @@ class AutomationTests(unittest.TestCase):
             automation_service.live_trading_allowed = orig
 
     def test_set_policy_forces_off_execute_when_guarded(self):
-        pol = set_policy("ai_stock_default_v1", "KR", {"automation_level": 6, "auto_execute": 1})
-        # 환경 가드가 닫혀 있으면 auto_execute는 강제로 0
-        self.assertEqual(pol["auto_execute"], 0)
+        orig = automation_service.live_trading_allowed
+        automation_service.live_trading_allowed = lambda: False
+        try:
+            pol = set_policy("ai_stock_default_v1", "KR", {"automation_level": 6, "auto_execute": 1})
+            # 환경 가드가 닫혀 있으면 auto_execute는 강제로 0
+            self.assertEqual(pol["auto_execute"], 0)
+        finally:
+            automation_service.live_trading_allowed = orig
 
     def test_set_policy_normalizes_level_and_auto_flags(self):
         pol = set_policy("ai_stock_default_v1", "KR", {

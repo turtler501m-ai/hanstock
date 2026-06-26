@@ -60,13 +60,19 @@ def create_plan(candidate_id: int, *, options: dict[str, Any] | None = None) -> 
     risk_budget = _capital() * risk_pct
     qty_by_risk = math.floor(risk_budget / rps) if rps > 0 else 0
     qty_by_cash = math.floor(_capital() / entry_price) if entry_price > 0 else 0
-    quantity = max(0, min(qty_by_risk, qty_by_cash))
+    account = _account_snapshot(market)
+    qty_by_portfolio = _portfolio_quantity_cap(
+        account,
+        symbol=candidate.get("symbol"),
+        entry_price=entry_price,
+        policy=pol,
+    )
+    quantity = max(0, min(qty_by_risk, qty_by_cash, qty_by_portfolio))
     estimated_cost = round(entry_price * quantity, 2)
 
     _check_order_amount(check, market, estimated_cost)
-    _check_portfolio_limits(check, market, candidate.get("symbol"), estimated_cost, pol)
-    if not check("quantity_positive", quantity > 0, str(quantity)):
-        raise ValueError("plan blocked: quantity is zero")
+    _check_portfolio_limits(check, account, candidate.get("symbol"), estimated_cost, pol, entry_price=entry_price)
+    check("quantity_positive", quantity > 0, str(quantity))
 
     blocking = [c["check"] for c in checks if not c["ok"]]
     if blocking:
@@ -141,12 +147,13 @@ def _check_order_amount(check, market: str, estimated_cost: float) -> None:
 
 def _check_portfolio_limits(
     check,
-    market: str,
+    account: dict[str, Any],
     symbol: str | None,
     estimated_cost: float,
     policy: dict[str, Any],
+    *,
+    entry_price: float = 0.0,
 ) -> None:
-    account = _account_snapshot(market)
     if not account.get("available"):
         check("account_snapshot", True, "unavailable_nonblocking")
         return
@@ -154,7 +161,8 @@ def _check_portfolio_limits(
     total = _num(account.get("total_eval"))
     stock_eval = _num(account.get("stock_eval"))
     holdings = account.get("holdings") or []
-    check("cash_available", cash >= estimated_cost, f"{cash}/{estimated_cost}")
+    required_cash = estimated_cost if estimated_cost > 0 else entry_price
+    check("cash_available", cash >= required_cash, f"{cash}/{required_cash}")
     if total <= 0:
         check("portfolio_total_positive", False, str(total))
         return
@@ -171,6 +179,32 @@ def _check_portfolio_limits(
         (stock_eval + estimated_cost) / total <= max_market_pct,
         f"{round((stock_eval + estimated_cost) / total, 4)}/{max_market_pct}",
     )
+
+
+def _portfolio_quantity_cap(
+    account: dict[str, Any],
+    *,
+    symbol: str | None,
+    entry_price: float,
+    policy: dict[str, Any],
+) -> int:
+    if entry_price <= 0 or not account.get("available"):
+        return 10**12
+    cash = _num(account.get("cash"))
+    total = _num(account.get("total_eval"))
+    stock_eval = _num(account.get("stock_eval"))
+    holdings = account.get("holdings") or []
+    if total <= 0:
+        return 0
+
+    max_position_pct = _num(policy.get("max_position_pct"), 10.0) / 100.0
+    max_market_pct = _num(policy.get("max_market_exposure_pct"), 50.0) / 100.0
+    current_symbol_value = sum(_num(h.get("value")) for h in holdings if str(h.get("symbol")) == str(symbol))
+
+    position_room = max(0.0, (total * max_position_pct) - current_symbol_value)
+    market_room = max(0.0, (total * max_market_pct) - stock_eval)
+    available_room = max(0.0, min(cash, position_room, market_room))
+    return math.floor(available_room / entry_price)
 
 
 def _account_snapshot(market: str) -> dict[str, Any]:
