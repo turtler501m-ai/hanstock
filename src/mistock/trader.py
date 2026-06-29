@@ -283,6 +283,19 @@ def _apply_local_filled_order(symbol: str, action: str, qty: float, price: float
             db.execute("DELETE FROM holdings WHERE symbol = ?", (symbol,))
 
 
+def _kis_demo_order_is_unsupported(msg: str) -> bool:
+    normalized = str(msg or "")
+    return any(
+        marker in normalized
+        for marker in (
+            "모의투자에서는 해당업무가 제공되지 않습니다",
+            "해당업무가 제공되지 않습니다",
+            "not provided in demo",
+            "unsupported in demo",
+        )
+    )
+
+
 def get_holdings() -> list[dict[str, Any]]:
     if config.trading_env not in {"demo", "real"}:
         return _local_holdings_from_db(refresh_quote=True)
@@ -717,6 +730,11 @@ def place_order(symbol: str, action: str, qty: float, price: float, reason: str 
             status = "filled" if ok else "failed"
             if ok and config.trading_env == "demo":
                 _apply_local_filled_order(symbol, action, qty, price)
+            elif config.trading_env == "demo" and _kis_demo_order_is_unsupported(msg):
+                _apply_local_filled_order(symbol, action, qty, price)
+                ok = True
+                status = "demo_local_filled"
+                msg = f"KIS demo overseas order unsupported; local shadow fill applied: {msg}"
             save_trade(symbol, symbol_name(symbol), action, qty, price, reason, ok, status, msg)
             notify_slack_order(symbol, action, qty, price, reason or msg, ok)
             return {"ok": ok, "status": status, "msg1": msg, "res": res}

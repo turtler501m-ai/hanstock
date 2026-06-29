@@ -265,6 +265,34 @@ class MistockDashboardTests(unittest.TestCase):
         self.assertEqual(len(calls), 1)
         self.assertEqual(calls[0], ("KLAC", "sell", 110, 2))
 
+    def test_demo_unsupported_overseas_order_applies_local_fill(self):
+        class FakeClient:
+            def place_overseas_order(self, symbol, action, price, qty):
+                return {"rt_cd": "1", "msg1": "모의투자에서는 해당업무가 제공되지 않습니다."}
+
+        object.__setattr__(mistock_config, "trading_env", "demo")
+        original_dry_run = mistock_config.dry_run
+        object.__setattr__(mistock_config, "dry_run", False)
+
+        try:
+            with patch.object(mistock_trader, "_get_kis_client", return_value=FakeClient()), \
+                    patch.object(mistock_trader, "notify_slack_order"):
+                mistock_db.execute(
+                    "INSERT INTO holdings (symbol, name, qty, avg_price, updated_at) VALUES (?, ?, ?, ?, ?)",
+                    ("SBUX", "SBUX", 3.0, 100.0, mistock_db.now_text()),
+                )
+                result = mistock_trader.place_order("SBUX", "sell", 3, 110, reason="unit test")
+        finally:
+            object.__setattr__(mistock_config, "dry_run", original_dry_run)
+
+        holding = mistock_db.row("SELECT symbol FROM holdings WHERE symbol = ?", ("SBUX",))
+        trade = mistock_db.row("SELECT ok, order_status, response_msg FROM trades WHERE symbol = ?", ("SBUX",))
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["status"], "demo_local_filled")
+        self.assertIsNone(holding)
+        self.assertEqual(trade["ok"], 1)
+        self.assertEqual(trade["order_status"], "demo_local_filled")
+
     def test_demo_balance_converts_krw_config_capital_to_usd(self):
         class FakeClient:
             def get_overseas_balance(self):
