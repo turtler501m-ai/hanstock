@@ -168,6 +168,26 @@ class TraderKISIntegrationTests(unittest.TestCase):
         headers.assert_called_once_with("TTTC8434R")
         self.assertEqual(http_get.call_args.kwargs["headers"], {"x-test-header": "delegated"})
 
+    def test_get_balance_http_error_does_not_expose_account_url(self):
+        response = _FakeResponse(status_code=500)
+        response.text = "Internal Server Error"
+
+        with (
+            patch.object(trader, "TRADING_ENV", "real"),
+            patch.object(trader, "BASE_URL", "https://example.test"),
+            patch.object(trader, "KISTOCK_ACCOUNT", "1234567801"),
+            patch.object(trader.KIStockAPI, "_load_or_fetch_token", return_value="token-abc"),
+            patch.object(trader.HTTP, "get", return_value=response),
+        ):
+            api = trader.KIStockAPI(notify_errors=False)
+            with self.assertRaises(RuntimeError) as raised:
+                api.get_balance()
+
+        message = str(raised.exception)
+        self.assertIn("KIS balance HTTP 500", message)
+        self.assertNotIn("CANO=", message)
+        self.assertNotIn("inquire-balance?", message)
+
     def test_get_daily_uses_market_division_by_symbol_type(self):
         response = _FakeResponse({"rt_cd": "0", "output2": [{"stck_bsop_date": "20260425"}]})
 

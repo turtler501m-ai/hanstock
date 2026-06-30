@@ -352,7 +352,15 @@ class KIStockAPI:
         _kis_order_throttle()
         try:
             r = HTTP.get(url, headers=self._headers(tr_id), params=params, timeout=15)
-            r.raise_for_status()
+            if getattr(r, "status_code", 200) != 200:
+                try:
+                    data = r.json()
+                except Exception:
+                    data = {}
+                msg = data.get("msg1") if isinstance(data, dict) else ""
+                if not msg:
+                    msg = getattr(r, "text", "")
+                raise RuntimeError(f"KIS balance HTTP {r.status_code}: {msg or 'request failed'}")
             self._success()
             return r.json()
         except Exception as e:
