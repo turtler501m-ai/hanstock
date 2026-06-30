@@ -586,6 +586,48 @@ class MistockDashboardTests(unittest.TestCase):
         self.assertEqual(last["results"][1]["round"], 2)
         self.assertEqual(last["results"][0]["time"], "06-18 01:00")
 
+    def test_mistock_scheduler_status_keeps_historical_errors_out_of_current_errors(self):
+        runs = [
+            {
+                "recorded_at": "2026-06-18T01:00:00+09:00",
+                "mode": "execute",
+                "result": {
+                    "status": "failed",
+                    "ok": False,
+                    "scanned": 10,
+                    "candidates": 1,
+                    "sold": [],
+                    "bought": [],
+                    "pending_approved": [],
+                    "plan": [],
+                    "errors": [{"symbol": "TSLA", "message": "old broker rejected"}],
+                },
+            },
+            {
+                "recorded_at": "2026-06-18T02:00:00+09:00",
+                "mode": "execute",
+                "result": {
+                    "status": "success",
+                    "ok": True,
+                    "scanned": 20,
+                    "candidates": 2,
+                    "sold": [],
+                    "bought": [],
+                    "pending_approved": [],
+                    "plan": [],
+                    "errors": [],
+                },
+            },
+        ]
+
+        with patch("src.dashboard.routes.mistock.load_mistock_daily_runs", return_value=runs):
+            result = mistock.mistock_scheduler_status()
+
+        last = result["last_result"]["result"]
+        self.assertEqual(last["errors"], [])
+        self.assertEqual(last["historical_error_count"], 1)
+        self.assertEqual(last["historical_errors"][0]["symbol"], "TSLA")
+
     def test_mistock_easy_preset_uses_nasdaq_profile_and_selects_strategy(self):
         result = mistock.mistock_apply_ai_strategy_preset("aggressive")
         strategies = mistock.mistock_ai_strategies()["strategies"]

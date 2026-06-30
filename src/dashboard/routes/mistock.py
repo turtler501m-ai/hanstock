@@ -1510,6 +1510,7 @@ def merge_mistock_runs_to_kis_format(runs: list) -> dict | None:
     
     latest_recorded_at = runs[-1]["recorded_at"]
     latest_mode = runs[-1]["mode"]
+    latest_errors = []
     
     for idx, run in enumerate(runs):
         round_num = idx + 1
@@ -1521,6 +1522,8 @@ def merge_mistock_runs_to_kis_format(runs: list) -> dict | None:
         
         raw_result = run["result"]
         mapped = map_mistock_to_kis_format(raw_result)
+        if idx == len(runs) - 1:
+            latest_errors = mapped.get("errors", []) if isinstance(mapped.get("errors", []), list) else []
         
         for item in mapped.get("results", []):
             item_copy = dict(item)
@@ -1568,7 +1571,9 @@ def merge_mistock_runs_to_kis_format(runs: list) -> dict | None:
             "results": merged_results,
             "auto_approved": merged_approved,
             "auto_approval_errors": [],
-            "errors": merged_errors,
+            "errors": latest_errors,
+            "historical_errors": merged_errors,
+            "historical_error_count": len(merged_errors),
             "scanned": runs[-1]["result"].get("scanned", 0),
             "candidates": runs[-1]["result"].get("candidates", 0)
         }
