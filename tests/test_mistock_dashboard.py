@@ -431,6 +431,66 @@ class MistockDashboardTests(unittest.TestCase):
         self.assertEqual(result["config"]["slack_enabled"], "false")
         self.assertIn("order_submission_enabled", result["config"])
 
+    def test_mistock_analysis_only_does_not_queue_sell_approvals(self):
+        object.__setattr__(mistock_config, "trading_env", "demo")
+        signal = {
+            "symbol": "SBUX",
+            "action": "sell",
+            "signal_qty": 2,
+            "signal_price": 100.0,
+            "reason": "unit sell signal",
+        }
+
+        with patch.object(mistock_trader, "scan_candidates", return_value={"scanned": 1, "candidates": []}), \
+                patch.object(
+                    mistock_trader,
+                    "get_balance",
+                    return_value={"cash": 1000.0, "total_eval": 1000.0, "holdings": [], "stock_eval": 0.0},
+                ), \
+                patch.object(mistock_trader, "signals", return_value=[signal]), \
+                patch.object(mistock_scheduler, "is_us_market_open", return_value=False), \
+                patch("src.mistock.scheduler.Path.write_text"), \
+                patch("src.mistock.scheduler.send_mistock_slack"):
+            result = mistock_scheduler.run_mistock_scheduled_cycle(mode="analysis_only")
+
+        pending = mistock_db.rows("SELECT * FROM approvals WHERE status = 'pending'")
+        self.assertTrue(result["ok"])
+        self.assertEqual(pending, [])
+
+    def test_mistock_scheduler_does_not_duplicate_pending_sell_approval(self):
+        object.__setattr__(mistock_config, "trading_env", "demo")
+        now = mistock_db.now_text()
+        mistock_db.execute(
+            """
+            INSERT INTO approvals (created_at, updated_at, symbol, name, action, qty, price, reason, source, status, response_msg)
+            VALUES (?, ?, 'SBUX', 'SBUX', 'sell', 2, 100, 'existing', 'scheduler', 'pending', '')
+            """,
+            (now, now),
+        )
+        signal = {
+            "symbol": "SBUX",
+            "action": "sell",
+            "signal_qty": 2,
+            "signal_price": 100.0,
+            "reason": "unit sell signal",
+        }
+
+        with patch.object(mistock_trader, "scan_candidates", return_value={"scanned": 1, "candidates": []}), \
+                patch.object(
+                    mistock_trader,
+                    "get_balance",
+                    return_value={"cash": 1000.0, "total_eval": 1000.0, "holdings": [], "stock_eval": 0.0},
+                ), \
+                patch.object(mistock_trader, "signals", return_value=[signal]), \
+                patch.object(mistock_scheduler, "is_us_market_open", return_value=False), \
+                patch("src.mistock.scheduler.Path.write_text"), \
+                patch("src.mistock.scheduler.send_mistock_slack"):
+            result = mistock_scheduler.run_mistock_scheduled_cycle(mode="execute")
+
+        pending = mistock_db.rows("SELECT * FROM approvals WHERE status = 'pending' AND symbol = 'SBUX'")
+        self.assertTrue(result["ok"])
+        self.assertEqual(len(pending), 1)
+
     def test_mistock_scheduler_status_clears_stale_restart_error_after_success(self):
         original_state = dict(mistock._mistock_scheduler_run_state)
         mistock._mistock_scheduler_run_state.replace({

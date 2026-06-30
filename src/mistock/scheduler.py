@@ -24,6 +24,22 @@ from src.mistock.strategy import symbol_name
 KST = timezone(timedelta(hours=9))
 
 
+def _pending_scheduler_approval_exists(symbol: str, action: str) -> bool:
+    existing = mistock_db.row(
+        """
+        SELECT id
+        FROM approvals
+        WHERE symbol = ?
+          AND action = ?
+          AND source = 'scheduler'
+          AND status = 'pending'
+        LIMIT 1
+        """,
+        (symbol, action),
+    )
+    return existing is not None
+
+
 def is_us_market_open() -> bool:
     """
     현재 한국 시각(KST) 기준 미국 정규장 운영 시간(마감 5분 전 가드) 내에 있는지 검사합니다.
@@ -138,7 +154,12 @@ def run_mistock_scheduled_cycle(mode: str = "execute") -> dict:
             sold_items.append({"symbol": sig["symbol"], "qty": qty, "price": price, "result": res})
             if idx < len(sell_sigs) - 1:
                 time.sleep(_order_delay_seconds())
-        else:
+        elif mode == "execute":
+            if _pending_scheduler_approval_exists(sig["symbol"], "sell"):
+                logger.info(
+                    f"[MISTOCK SCHEDULER] Pending sell approval already exists for {sig['symbol']}; skipping duplicate."
+                )
+                continue
             logger.info(f"[MISTOCK SCHEDULER] Auto-approval/order submission disabled or skipped (market_open={market_open}). Queuing {sig['symbol']} as pending approval.")
             now = mistock_db.now_text()
             mistock_db.execute(
