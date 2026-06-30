@@ -205,7 +205,7 @@ class KIStockAPI:
                 raise KISRateLimitError(msg)
             if "CHECK_ACNO" in msg or "INVALID_CHECK_ACNO" in msg:
                 raise KISAccountError(msg)
-            response.raise_for_status()
+            raise RuntimeError(f"{context} HTTP {response.status_code}: {msg or 'KIS API request failed'}")
         return data
 
     @retry(

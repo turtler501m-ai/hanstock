@@ -113,6 +113,42 @@ class DashboardCoreTests(unittest.TestCase):
             dashboard.BALANCE_CACHE = original_cache
             dashboard.trader.config.kistock_account = original_account
 
+    def test_balance_data_falls_back_to_cache_on_kis_server_error(self):
+        cached = {
+            "output1": [],
+            "output2": [{"dnca_tot_amt": "1000", "tot_evlu_amt": "1000"}],
+            "_cache": {"cached_at": "2026-06-30T08:00:00+09:00", "stale": True},
+        }
+
+        class _FailingAPI:
+            def get_balance(self):
+                raise RuntimeError("Balance HTTP 500: Internal Server Error")
+
+        with patch.object(dashboard_core, "_load_balance_cache", return_value=cached), \
+                patch.object(dashboard_core, "_balance_cache_age_seconds", return_value=999999):
+            result = dashboard_core._get_balance_data(_FailingAPI())
+
+        self.assertEqual(result, cached)
+
+    def test_kis_http_error_message_does_not_expose_account_url(self):
+        from src.api.kis_api import KIStockAPI
+
+        class _Response:
+            status_code = 500
+            text = "Internal Server Error"
+
+            def json(self):
+                return {}
+
+        api = object.__new__(KIStockAPI)
+        with self.assertRaises(RuntimeError) as raised:
+            api._response_json(_Response(), "Balance")
+
+        message = str(raised.exception)
+        self.assertIn("Balance HTTP 500", message)
+        self.assertNotIn("CANO=", message)
+        self.assertNotIn("inquire-balance?", message)
+
     def test_env_writer_preserves_comments_and_updates_allowed_keys(self):
         path = MemoryTextPath("# KIS\nTRADING_ENV=demo\nDRY_RUN=true\nMAX_POSITIONS=10 # 최대보유주식종목\n")
         dashboard._write_env_values({"TRADING_ENV": "real", "MAX_POSITIONS": "5"}, path)

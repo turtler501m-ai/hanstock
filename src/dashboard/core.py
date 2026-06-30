@@ -717,9 +717,21 @@ def _get_balance_data(api: KIStockAPI, allow_cache: bool = True) -> dict:
                 if cached is not None:
                     return cached
             raise
+        except Exception:
+            if allow_cache:
+                cached = _load_balance_cache()
+                if cached is not None:
+                    return cached
+            raise
         try:
             _parse_balance(balance_data)
         except DashboardOperationError:
+            if allow_cache:
+                cached = _load_balance_cache()
+                if cached is not None:
+                    return cached
+            raise
+        except Exception:
             if allow_cache:
                 cached = _load_balance_cache()
                 if cached is not None:
