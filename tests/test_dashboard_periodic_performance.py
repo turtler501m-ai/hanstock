@@ -81,6 +81,52 @@ class DashboardPeriodicPerformanceTests(unittest.TestCase):
         self.assertEqual(sell_detail["realized_pnl"], 35000)
         self.assertEqual(sell_detail["realized_pnl_rate"], 10.0)
 
+    def test_build_periodic_performance_ignores_implausible_partial_fill_price(self):
+        trader.DRY_RUN = False
+        trader.TRADING_ENV = "real"
+        trades = [
+            {
+                "ok": 1,
+                "dry_run": 0,
+                "symbol": "026940",
+                "action": "buy",
+                "qty": 1159,
+                "price": 2750,
+                "filled_qty": 336,
+                "filled_price": 223507,
+                "order_status": "partial",
+                "ts": "2026-06-25 12:34:46",
+            },
+            {
+                "ok": 1,
+                "dry_run": 0,
+                "symbol": "026940",
+                "action": "buy",
+                "qty": 3274,
+                "price": 2705,
+                "filled_qty": 3274,
+                "filled_price": 2705,
+                "order_status": "filled",
+                "ts": "2026-06-25 13:03:06",
+            },
+            {
+                "ok": 1,
+                "dry_run": 0,
+                "symbol": "026940",
+                "action": "sell",
+                "qty": 395,
+                "price": 2645,
+                "filled_qty": 395,
+                "filled_price": 2645,
+                "order_status": "filled",
+                "ts": "2026-06-25 15:02:53",
+            },
+        ]
+
+        perf = _build_periodic_performance(trades)
+
+        self.assertEqual(perf["daily"][0]["realized_pnl"], -23700)
+
 
 if __name__ == "__main__":
     unittest.main()

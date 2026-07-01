@@ -788,6 +788,56 @@ class DashboardCoreTests(unittest.TestCase):
             dashboard.trader.config.trade_db_path = original_db_path
             dashboard.trader.DRY_RUN = original_dry_run
 
+    def test_order_status_sync_does_not_match_reused_order_id_for_other_symbol(self):
+        original_db_path = dashboard.trader.config.trade_db_path
+        original_dry_run = dashboard.trader.DRY_RUN
+
+        class _FakeAPI:
+            def get_trade_history(self, start_date, end_date):
+                return [{
+                    "odno": "D12345",
+                    "pdno": "000660",
+                    "sll_buy_dvsn_cd": "02",
+                    "ord_dt": "20260626",
+                    "ord_tmd": "093015",
+                    "tot_ccld_qty": "10",
+                    "avg_prvs": "120000",
+                }]
+
+        try:
+            with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+                db_path = f"{tmpdir}/trades.sqlite"
+                dashboard.trader.config.trade_db_path = db_path
+                dashboard.trader.DRY_RUN = False
+                dashboard.trader.save_trade(
+                    "005930",
+                    "Samsung",
+                    "buy",
+                    1,
+                    70000,
+                    "demo order",
+                    True,
+                    True,
+                    broker_order_id="D12345",
+                    order_status="submitted",
+                    filled_qty=0,
+                    filled_price=0,
+                )
+
+                result = dashboard._sync_order_status_from_history(_FakeAPI(), days=1)
+
+                self.assertEqual(result["checked_count"], 1)
+                self.assertEqual(result["updated_count"], 0)
+                with sqlite3.connect(db_path) as conn:
+                    conn.row_factory = sqlite3.Row
+                    row = conn.execute("SELECT * FROM trades").fetchone()
+                self.assertEqual(row["order_status"], "submitted")
+                self.assertEqual(row["filled_qty"], 0)
+                self.assertEqual(row["filled_price"], 0)
+        finally:
+            dashboard.trader.config.trade_db_path = original_db_path
+            dashboard.trader.DRY_RUN = original_dry_run
+
     def test_order_history_window_enforces_minimum_month_lookback(self):
         start_date, end_date = dashboard._order_history_window(1)
         start = datetime.strptime(start_date, "%Y%m%d")

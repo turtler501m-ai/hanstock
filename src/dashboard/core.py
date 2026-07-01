@@ -2860,6 +2860,14 @@ def _trade_is_sync_adjustment(trade: dict) -> bool:
     return False
 
 
+def _filled_price_matches_order(trade: dict, *, tolerance: float = 0.30) -> bool:
+    filled_price = _to_int(trade.get("filled_price"))
+    order_price = _to_int(trade.get("price"))
+    if filled_price <= 0 or order_price <= 0:
+        return True
+    return order_price * (1.0 - tolerance) <= filled_price <= order_price * (1.0 + tolerance)
+
+
 def _account_trades(trades: list[dict]) -> list[dict]:
     account_rows = []
     # If the trader is running in dry-run/demo mode, or if there are no live trades, show dry-run trades
@@ -2878,6 +2886,11 @@ def _account_trades(trades: list[dict]) -> list[dict]:
         filled_price = _to_int(trade.get("filled_price"))
         if order_status in {"submitted", "partial", "open"} and filled_qty <= 0:
             continue
+        if filled_qty > 0 and not _filled_price_matches_order(trade):
+            if order_status in {"submitted", "partial", "open"}:
+                continue
+            filled_qty = 0
+            filled_price = 0
         if filled_qty > 0:
             trade = {**trade, "qty": filled_qty, "price": filled_price or _to_int(trade.get("price"))}
         account_rows.append(trade)
@@ -3080,7 +3093,15 @@ def _history_timestamp(row: dict) -> str:
 def _history_trade_key(trade: dict) -> tuple:
     order_id = str(trade.get("broker_order_id") or "").strip()
     if order_id:
-        return ("order", order_id)
+        ts = str(trade.get("ts") or trade.get("timestamp") or "")
+        trade_date = ts[:10] if len(ts) >= 10 else ""
+        return (
+            "order",
+            order_id,
+            trade_date,
+            str(trade.get("symbol") or ""),
+            str(trade.get("action") or ""),
+        )
     return (
         "trade",
         str(trade.get("ts") or trade.get("timestamp") or ""),
@@ -3089,6 +3110,25 @@ def _history_trade_key(trade: dict) -> tuple:
         _to_int(trade.get("qty")),
         _to_int(trade.get("price")),
     )
+
+
+def _history_matches_tracked_order(row: dict, trade: dict) -> bool:
+    if _broker_order_id_from_history(row) != str(trade.get("broker_order_id") or "").strip():
+        return False
+    row_symbol = _history_symbol(row)
+    trade_symbol = str(trade.get("symbol") or "")
+    if row_symbol and trade_symbol and row_symbol != trade_symbol:
+        return False
+    row_action = _history_action(row)
+    trade_action = str(trade.get("action") or "").lower()
+    if row_action and trade_action and row_action != trade_action:
+        return False
+    row_date = _history_timestamp(row)[:10]
+    trade_ts = str(trade.get("ts") or trade.get("timestamp") or "")
+    trade_date = trade_ts[:10] if len(trade_ts) >= 10 else ""
+    if row_date and trade_date and row_date != trade_date:
+        return False
+    return True
 
 
 def _history_row_to_trade(row: dict) -> dict:
@@ -3243,17 +3283,11 @@ def _sync_order_status_from_history(api, *, days: int = MIN_ORDER_HISTORY_SYNC_D
             "history_count": 0,
             "fallback": "balance",
         }
-    history_by_order_id = {
-        order_id: row
-        for row in history
-        if (order_id := _broker_order_id_from_history(row))
-    }
-
     orders = []
     updated_count = 0
     for trade in tracked:
         order_id = str(trade.get("broker_order_id") or "")
-        row = history_by_order_id.get(order_id)
+        row = next((item for item in history if _history_matches_tracked_order(item, trade)), None)
         if row is None:
             orders.append({"broker_order_id": order_id, "order_status": trade.get("order_status") or "submitted"})
             continue
