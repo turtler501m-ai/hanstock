@@ -310,8 +310,10 @@ async def _disable_dashboard_cache(request, call_next):
         response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
         response.headers["Pragma"] = "no-cache"
         response.headers["Expires"] = "0"
-        response.headers.pop("ETag", None)
-        response.headers.pop("Last-Modified", None)
+        if "ETag" in response.headers:
+            del response.headers["ETag"]
+        if "Last-Modified" in response.headers:
+            del response.headers["Last-Modified"]
     return response
 
 
