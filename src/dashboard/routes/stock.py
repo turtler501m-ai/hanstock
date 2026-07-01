@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-from fastapi import APIRouter, Body, HTTPException, Request
+from fastapi import APIRouter, Body, HTTPException, Request, Response
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 import src.dashboard.core as _core
@@ -1515,7 +1515,9 @@ def get_trades(limit: int = 50):
 
 
 @router.get("/api/performance/periodic")
-def get_periodic_performance():
+def get_periodic_performance(response: Response):
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    response.headers["Pragma"] = "no-cache"
     try:
         trades = _load_merged_trades()
         return _build_periodic_performance(trades)
@@ -1526,7 +1528,9 @@ def get_periodic_performance():
 
 
 @router.get("/api/performance")
-def get_performance():
+def get_performance(response: Response):
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    response.headers["Pragma"] = "no-cache"
     try:
         trades = _account_trades(_load_merged_trades())
         

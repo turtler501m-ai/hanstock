@@ -301,7 +301,16 @@ async function fetchJson(url, timeoutMs = 60000) {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
     try {
-        const response = await fetch(url, { signal: controller.signal });
+        const requestUrl = new URL(url, window.location.origin);
+        requestUrl.searchParams.set('_ts', Date.now().toString());
+        const response = await fetch(requestUrl.toString(), {
+            signal: controller.signal,
+            cache: 'no-store',
+            headers: {
+                'Cache-Control': 'no-cache',
+                'Pragma': 'no-cache',
+            },
+        });
         const data = await response.json();
         if (!response.ok) {
             throw new Error(data.detail || `요청 실패: ${response.status}`);
