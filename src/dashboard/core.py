@@ -298,6 +298,23 @@ app.mount("/static", StaticFiles(directory=WEB_DIR / "static"), name="static")
 app.mount("/templates", StaticFiles(directory=WEB_DIR / "templates"), name="templates")
 
 
+@app.middleware("http")
+async def _disable_dashboard_cache(request, call_next):
+    response = await call_next(request)
+    path = request.url.path
+    if (
+        path == "/"
+        or path == "/static/js/app.js"
+        or path.startswith("/api/performance")
+    ):
+        response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Expires"] = "0"
+        response.headers.pop("ETag", None)
+        response.headers.pop("Last-Modified", None)
+    return response
+
+
 def _public_override(name: str, current):
     module = sys.modules.get("src.dashboard")
     if module is None:
