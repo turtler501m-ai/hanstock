@@ -71,14 +71,24 @@ def dispatch_due_schedules() -> list[str]:
                 # market=ALL은 KR로 좁히지 않고 두 시장(KR/US) 모두 순회한다.
                 markets = STORABLE_MARKETS if raw_market == "ALL" else (raw_market,)
                 result: dict = {"strategy_id": strategy_id, "market": raw_market, "by_market": {}}
+                market_errors = []
                 for m in markets:
-                    m_result = _ai_run(market=m, strategy_id=strategy_id, run_type="scheduled")
+                    # 한 시장의 실패가 다른 시장 실행/이력 저장/스케줄 갱신을 막지 않도록 시장별로 격리한다.
+                    try:
+                        m_result = _ai_run(market=m, strategy_id=strategy_id, run_type="scheduled")
+                    except Exception as m_exc:
+                        logger.error(f"[dispatch] {strategy_id} run_strategy failed for {m}: {m_exc}")
+                        market_errors.append(f"{m}:{m_exc}")
+                        result["by_market"][m] = {"error": str(m_exc)}
+                        continue
                     # 2차 실시간 사이클(후보 풀 대상)도 같은 디스패치에서 best-effort 실행
                     try:
                         m_result["realtime"] = run_realtime_cycle(m, strategy_id=strategy_id)
                     except Exception as rt_exc:
                         logger.warning(f"[dispatch] {strategy_id} realtime cycle failed for {m}: {rt_exc}")
                     result["by_market"][m] = m_result
+                if market_errors:
+                    result["errors"] = market_errors
                 save_scheduler_result(mode, datetime.now(KST).isoformat(), result)
             else:
                 run_scheduled_cycle(

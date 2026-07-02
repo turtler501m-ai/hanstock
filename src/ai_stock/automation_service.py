@@ -332,6 +332,11 @@ def run_strategy(*, market: str, strategy_id: str = "ai_stock_default_v1",
     summary = {"scan_id": scan["scan_id"], "automation_level": level,
                "registered": 0, "confirmed": 0, "planned": 0, "approved": 0, "blocked": []}
 
+    if not int(policy.get("enabled", 1)):
+        # 정책 비활성화는 1차 스캔은 남기되 관찰/확인/계획/승인/주문 전 과정을 건너뛴다.
+        summary["blocked"].append("policy_disabled")
+        return {"scan": scan["summary"], "automation": summary}
+
     if level < AUTOMATION_WATCH:
         return {"scan": scan["summary"], "automation": summary}
 
