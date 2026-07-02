@@ -48,8 +48,8 @@ def _policy_view(policy: dict[str, Any] | None) -> dict[str, Any] | None:
         flags.append("policy_disabled")
     p["risk_flags"] = flags
     p["next_blocked_stage"] = (
-        "execute" if level < C.AUTOMATION_EXECUTE else
         "approve" if level < C.AUTOMATION_APPROVE else
+        "execute" if level < C.AUTOMATION_EXECUTE else
         None
     )
     p["requires_live_guard_for_execute"] = level >= C.AUTOMATION_EXECUTE

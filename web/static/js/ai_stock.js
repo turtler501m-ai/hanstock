@@ -30,6 +30,8 @@
     if (envelope && envelope.errors && envelope.errors.length) msgs.push("⚠ " + envelope.errors.join("; "));
     if (msgs.length) { b.textContent = msgs.join("  ·  "); b.hidden = false; }
     else { b.hidden = true; }
+    var fresh = $("#s-fresh");
+    if (fresh) fresh.textContent = new Date().toLocaleTimeString();
   }
 
   function renderSafety(s) {
@@ -110,10 +112,21 @@
   function loadCandidates() {
     var m = state.market;
     var minScore = $("#f-min-score").value || 0;
+    var maxRiskEl = $("#f-max-risk");
+    var maxRisk = maxRiskEl && maxRiskEl.value !== "" ? Number(maxRiskEl.value) : null;
+    var dateEl = $("#f-date");
+    var dateFilter = dateEl && dateEl.value ? dateEl.value : null;
     api("/api/ai-stock/candidates?market=" + m + "&min_score=" + minScore).then(function (env) {
       showBanner(env);
-      state.lastCandidates = env.data.candidates || [];
-      renderCandidates(state.lastCandidates);
+      var rows = env.data.candidates || [];
+      if (maxRisk != null) {
+        rows = rows.filter(function (c) { return c.risk_score == null || c.risk_score <= maxRisk; });
+      }
+      if (dateFilter) {
+        rows = rows.filter(function (c) { return (c.data_as_of || "").slice(0, 10) === dateFilter; });
+      }
+      state.lastCandidates = rows;
+      renderCandidates(rows);
     }).catch(err("#p-discovery"));
   }
 
@@ -386,15 +399,20 @@
   }
 
   // ---- 액션 ----
-  function runScan() {
-    var btn = $("#btn-scan"); btn.disabled = true; btn.textContent = "분석 중…";
-    var market = state.market === "ALL" ? "KR" : state.market;
-    api("/api/ai-stock/scans", {
+  function runOneScan(market) {
+    return api("/api/ai-stock/scans", {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ market: market, strategy_id: $("#f-strategy").value })
-    }).then(function (env) {
+    });
+  }
+
+  function runScan() {
+    var btn = $("#btn-scan"); btn.disabled = true; btn.textContent = "분석 중…";
+    var markets = state.market === "ALL" ? ["KR", "US"] : [state.market];
+    Promise.all(markets.map(runOneScan)).then(function (envs) {
       $("#s-last-scan").textContent = new Date().toLocaleTimeString();
-      $("#p-discovery-status").textContent = "스캔 완료: " + JSON.stringify(env.data && env.data.summary || {});
+      var summaries = markets.map(function (m, i) { return m + ": " + JSON.stringify(envs[i].data && envs[i].data.summary || {}); });
+      $("#p-discovery-status").textContent = "스캔 완료 — " + summaries.join("  ·  ");
       activateTab("discovery");
     }).catch(function (e) {
       $("#p-discovery-status").textContent = "스캔 오류: " + (e.message || e);

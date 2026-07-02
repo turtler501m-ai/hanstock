@@ -85,7 +85,9 @@ class DefaultProvider:
         change = None
         if len(series) >= 2 and series[-2]:
             change = round((series[-1] / series[-2] - 1.0) * 100.0, 2)
-        return {"price": price, "change_pct": change}
+        from src.ai_stock.freshness import now
+
+        return {"price": price, "change_pct": change, "data_as_of": now().isoformat()}
 
     def daily_series(self, market: str, symbol: str) -> list[float] | None:
         if market == MARKET_KR:
