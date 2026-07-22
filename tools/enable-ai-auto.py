@@ -83,10 +83,10 @@ def update_db() -> None:
     """)
     
     schedules = [
-        ("ai_stock_default_v1", 1, 5, "09:00", "15:30", "1,2,3,4,5", "execute", 1),
-        ("seven_split", 1, 5, "09:00", "15:30", "1,2,3,4,5", "execute", 1),
-        ("plunge_bounce_strategy", 1, 5, "09:00", "15:30", "1,2,3,4,5", "execute", 1),
-        ("narrative_momentum_strategy", 1, 5, "09:00", "15:30", "1,2,3,4,5", "execute", 1),
+        ("ai_stock_default_v1", 1, 5, "0900", "1530", "1,2,3,4,5", "execute", 1),
+        ("seven_split", 1, 5, "0900", "1530", "1,2,3,4,5", "execute", 1),
+        ("plunge_bounce_strategy", 1, 5, "0900", "1530", "1,2,3,4,5", "execute", 1),
+        ("narrative_momentum_strategy", 1, 5, "0900", "1530", "1,2,3,4,5", "execute", 1),
     ]
     
     for sid, enabled, interval, start_hm, end_hm, weekdays, mode, auto_app in schedules:
