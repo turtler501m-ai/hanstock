@@ -66,6 +66,45 @@ def update_db() -> None:
                 max_daily_orders = 10
         """, (strategy_id, market))
     
+    # strategy_schedules 테이블 생성 및 필수 전략 스케줄 강제 활성화
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS strategy_schedules (
+            strategy_id TEXT PRIMARY KEY,
+            enabled INTEGER DEFAULT 0,
+            interval_minutes INTEGER DEFAULT 180,
+            start_hm TEXT DEFAULT '09:00',
+            end_hm TEXT DEFAULT '15:30',
+            weekdays TEXT DEFAULT '1,2,3,4,5',
+            mode TEXT DEFAULT 'execute',
+            auto_approve INTEGER DEFAULT 0,
+            last_run_at TEXT,
+            updated_at TEXT
+        )
+    """)
+    
+    schedules = [
+        ("ai_stock_default_v1", 1, 5, "09:00", "15:30", "1,2,3,4,5", "execute", 1),
+        ("seven_split", 1, 5, "09:00", "15:30", "1,2,3,4,5", "execute", 1),
+        ("plunge_bounce_strategy", 1, 5, "09:00", "15:30", "1,2,3,4,5", "execute", 1),
+        ("narrative_momentum_strategy", 1, 5, "09:00", "15:30", "1,2,3,4,5", "execute", 1),
+    ]
+    
+    for sid, enabled, interval, start_hm, end_hm, weekdays, mode, auto_app in schedules:
+        cur.execute("""
+            INSERT INTO strategy_schedules (
+                strategy_id, enabled, interval_minutes, start_hm, end_hm, weekdays, mode, auto_approve, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now', 'localtime'))
+            ON CONFLICT(strategy_id) DO UPDATE SET
+                enabled = ?,
+                interval_minutes = ?,
+                start_hm = ?,
+                end_hm = ?,
+                weekdays = ?,
+                mode = ?,
+                auto_approve = ?,
+                updated_at = datetime('now', 'localtime')
+        """, (sid, enabled, interval, start_hm, end_hm, weekdays, mode, auto_app, enabled, interval, start_hm, end_hm, weekdays, mode, auto_app))
+        
     conn.commit()
     
     # 현재 상태 출력
@@ -73,7 +112,14 @@ def update_db() -> None:
     print("== Updated DB Automation Policies ==")
     for row in cur.fetchall():
         print(f"Strategy: {row[0]} | Market: {row[1]} | Level: {row[2]} | AutoApprove: {row[3]} | AutoExecute: {row[4]}")
+        
+    cur.execute("SELECT strategy_id, enabled, interval_minutes, mode, auto_approve FROM strategy_schedules")
+    print("== Updated DB Strategy Schedules ==")
+    for row in cur.fetchall():
+        print(f"Strategy: {row[0]} | Enabled: {row[1]} | Interval: {row[2]}m | Mode: {row[3]} | AutoApprove: {row[4]}")
+        
     conn.close()
+
 
 def update_env() -> None:
     if not ENV_PATH.exists():
