@@ -317,6 +317,10 @@ h1 .highlight {
     padding: 1rem;
 }
 
+.risk-card .label {
+    white-space: nowrap;
+}
+
 .risk-card strong {
     display: block;
     font-size: 1.25rem;
