@@ -245,14 +245,16 @@ h1 .highlight {
     100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
 }
 
-.summary-grid {
+.summary-grid,
+.risk-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    grid-template-columns: repeat(6, minmax(0, 1fr));
     gap: 1rem;
     margin-bottom: 1.5rem;
 }
 
-.summary-grid .card {
+.summary-grid .card,
+.risk-card {
     min-width: 0;
     padding: 1.1rem;
 }
@@ -261,7 +263,9 @@ h1 .highlight {
     margin-bottom: 0.4rem;
 }
 
-.summary-grid .card .value {
+.summary-grid .card .value,
+.risk-card strong {
+    display: block;
     font-size: clamp(1.08rem, 1.35vw, 1.55rem);
     line-height: 1.25;
     white-space: nowrap;
@@ -306,24 +310,8 @@ h1 .highlight {
     margin-bottom: 1.5rem;
 }
 
-.risk-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(145px, 1fr));
-    gap: 1rem;
-    margin-bottom: 1.5rem;
-}
-
-.risk-card {
-    padding: 1rem;
-}
-
 .risk-card .label {
     white-space: nowrap;
-}
-
-.risk-card strong {
-    display: block;
-    font-size: 1.25rem;
 }
 
 .status-banner {
@@ -1404,7 +1392,8 @@ tbody tr:hover {
         grid-template-columns: 1fr;
     }
 
-    .summary-grid {
+    .summary-grid,
+    .risk-grid {
         grid-template-columns: repeat(3, minmax(0, 1fr));
     }
 
@@ -1484,7 +1473,8 @@ tbody tr:hover {
         grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 
-    .summary-grid {
+    .summary-grid,
+    .risk-grid {
         grid-template-columns: repeat(2, minmax(0, 1fr));
         gap: 0.75rem;
     }
@@ -1512,7 +1502,8 @@ tbody tr:hover {
 }
 
 @media (max-width: 560px) {
-    .summary-grid {
+    .summary-grid,
+    .risk-grid {
         grid-template-columns: 1fr;
     }
 }
@@ -1639,8 +1630,13 @@ tbody tr:hover {
         gap: 0.75rem !important;
     }
     
-    .runtime-grid, .risk-grid {
+    .runtime-grid {
         grid-template-columns: 1fr !important;
+        gap: 0.75rem !important;
+    }
+
+    .risk-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
         gap: 0.75rem !important;
     }
     
@@ -1833,6 +1829,11 @@ tbody tr:hover {
 }
 
 @media (max-width: 560px) {
+    .summary-grid,
+    .risk-grid {
+        grid-template-columns: 1fr !important;
+    }
+
     header,
     .app-header {
         align-items: stretch !important;
