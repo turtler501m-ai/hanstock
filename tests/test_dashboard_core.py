@@ -402,14 +402,16 @@ class DashboardCoreTests(unittest.TestCase):
         original_total_capital = dashboard.trader.TOTAL_CAPITAL
         original_max_single_weight = dashboard.trader.MAX_SINGLE_WEIGHT
         original_config_total_capital = dashboard.trader.config.total_capital
+        original_account_initial_capital = dashboard.trader.config.account_initial_capital
         original_config_max_single_weight = dashboard.trader.config.max_single_weight
         try:
-            path = MemoryTextPath("TOTAL_CAPITAL=10000000\nMAX_SINGLE_WEIGHT=0.3\n")
+            path = MemoryTextPath("TOTAL_CAPITAL=10000000\nACCOUNT_INITIAL_CAPITAL=0\nMAX_SINGLE_WEIGHT=0.3\n")
             dashboard.ENV_PATH = path
 
             result = dashboard.update_env_settings({
                 "values": {
                     "TOTAL_CAPITAL": "12000000",
+                    "ACCOUNT_INITIAL_CAPITAL": "500000000",
                     "MAX_SINGLE_WEIGHT": "0.25",
                 }
             })
@@ -417,15 +419,18 @@ class DashboardCoreTests(unittest.TestCase):
             self.assertFalse(result["requires_restart"])
             self.assertEqual(dashboard.trader.TOTAL_CAPITAL, 12000000.0)
             self.assertEqual(dashboard.trader.config.total_capital, 12000000.0)
+            self.assertEqual(dashboard.trader.config.account_initial_capital, 500000000.0)
             self.assertEqual(dashboard.trader.MAX_SINGLE_WEIGHT, 0.25)
             self.assertEqual(dashboard.trader.config.max_single_weight, 0.25)
             self.assertIn("TOTAL_CAPITAL=12000000", path.content)
+            self.assertIn("ACCOUNT_INITIAL_CAPITAL=500000000", path.content)
             self.assertIn("MAX_SINGLE_WEIGHT=0.25", path.content)
         finally:
             dashboard.ENV_PATH = original_env_path
             dashboard.trader.TOTAL_CAPITAL = original_total_capital
             dashboard.trader.MAX_SINGLE_WEIGHT = original_max_single_weight
             dashboard.trader.config.total_capital = original_config_total_capital
+            dashboard.trader.config.account_initial_capital = original_account_initial_capital
             dashboard.trader.config.max_single_weight = original_config_max_single_weight
 
     def test_env_update_saves_openai_strategy_settings(self):

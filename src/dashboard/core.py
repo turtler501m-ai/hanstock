@@ -194,6 +194,7 @@ ENV_FIELDS = [
     {"key": "RSI_BUY", "label": "RSI Buy", "type": "int"},
     {"key": "RSI_SELL", "label": "RSI Sell", "type": "int"},
     {"key": "TOTAL_CAPITAL", "label": "Total Capital", "type": "float"},
+    {"key": "ACCOUNT_INITIAL_CAPITAL", "label": "Account Initial Capital", "type": "float", "hint": "계좌 전체 손익 표시 기준입니다. 주문 규모에는 영향을 주지 않습니다."},
     {"key": "MAX_POSITIONS", "label": "Max Positions", "type": "int"},
     {"key": "MAX_SINGLE_WEIGHT", "label": "Max Single Weight", "type": "float"},
     {"key": "CASH_BUFFER", "label": "Cash Buffer", "type": "float"},
@@ -1253,6 +1254,9 @@ KIS_ENV_BINDINGS = {
 
 def _apply_strategy_env_updates(updates: dict[str, str]) -> None:
     for key, value in updates.items():
+        if key == "ACCOUNT_INITIAL_CAPITAL":
+            trader.config.account_initial_capital = float(value)
+            continue
         binding = STRATEGY_ENV_BINDINGS.get(key)
         if binding:
             config_attr, trader_attr, caster = binding

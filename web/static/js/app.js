@@ -1045,7 +1045,9 @@ async function renderBalance() {
             ? Number(balance.cash || 0) + holdingValue
             : Number(balance.total_eval || 0);
 
-        const principal = Number(latestConfig?.total_capital || 0);
+        const principal = Number(latestConfig?.account_initial_capital || latestConfig?.total_capital || 0);
+        const accountPnl = displayTotal - principal;
+        const accountReturnRate = principal > 0 ? (accountPnl / principal) * 100 : 0;
         const evalPnl = Number(balance.pnl || 0);
         const evalCost = Math.max(0, Number(balance.stock_eval || holdingValue || 0) - evalPnl);
         const returnRate = evalCost > 0 ? (evalPnl / evalCost) * 100 : 0;
@@ -1053,6 +1055,14 @@ async function renderBalance() {
 
         setElementText('val-total', formatCurrency(displayTotal));
         setElementText('val-principal', formatCurrency(principal));
+        const accountPnlEl = setElementText('val-account-pnl', formatCurrency(accountPnl));
+        if (accountPnlEl) {
+            accountPnlEl.className = `value ${accountPnl >= 0 ? 'text-success' : 'text-danger'}`;
+        }
+        const accountReturnEl = setElementText('val-account-return', formatPercent(accountReturnRate));
+        if (accountReturnEl) {
+            accountReturnEl.className = `value ${accountReturnRate >= 0 ? 'text-success' : 'text-danger'}`;
+        }
         setElementText('val-cash', formatCurrency(balance.cash));
         setElementText('val-realized', formatCurrency(realizedPnl));
         const realizedEl = document.getElementById('val-realized');
@@ -1146,6 +1156,8 @@ async function renderBalance() {
         console.error('Failed to fetch balance data', err);
         setElementText('val-total', '불러오기 실패');
         setElementText('val-principal', '불러오기 실패');
+        setElementText('val-account-pnl', '불러오기 실패');
+        setElementText('val-account-return', '-');
         setElementText('val-cash', '불러오기 실패');
         setElementText('val-pnl', '불러오기 실패');
         setElementText('val-return', '-');

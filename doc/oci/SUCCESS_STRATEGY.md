@@ -25,6 +25,20 @@ Multi-region mode:
 - Each target needs its own `region`, `availability_domain`, `subnet_id`, and `image_id`.
 - The script checks every target's capacity and rotates launch attempts across target/profile pairs.
 
+Region expansion check:
+
+```bash
+python3 oci_retry.py expand-regions --root /home/turtler800/oci-vm-retry \
+  --region-keys IAD,PHX,FRA,LHR,NRT,KIX,SIN
+```
+
+This writes `region-subscription-status.json`. If Oracle returns
+`TenantCapacityExceeded`, the tenancy is blocked from additional subscribed
+regions until PAYG upgrade or subscribed-region limit increase. The retry
+script can still run with the existing targets, but true multi-region launch
+requires more READY region subscriptions plus region-specific subnet/image
+targets.
+
 Recommended path from public success cases:
 
 1. Verify OCI ids and home region with `diagnose`.

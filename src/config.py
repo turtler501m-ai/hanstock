@@ -65,6 +65,8 @@ class Settings(BaseSettings):
     
     # Risk Management
     total_capital: float = 10000000.0
+    # Display-only account baseline. It must not affect order sizing or risk limits.
+    account_initial_capital: float = 0.0
     max_positions: int = 3
     max_single_weight: float = 0.30
     cash_buffer: float = 0.20

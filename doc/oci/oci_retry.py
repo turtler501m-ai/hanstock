@@ -64,7 +64,9 @@ class RetryApp:
         self.log_path = Path(os.getenv("OCI_RETRY_LOG", root / "oci-retry.log"))
         self.state_path = Path(os.getenv("OCI_RETRY_STATE", root / "oci-retry-state.json"))
         self.lock_path = Path(os.getenv("OCI_RETRY_LOCK", root / "oci-retry.lock"))
+        self.region_status_path = Path(os.getenv("OCI_RETRY_REGION_STATUS", root / "region-subscription-status.json"))
         self.remote_log_path = os.getenv("OCI_RETRY_REMOTE_LOG", str(self.log_path))
+        self.tenancy_id = os.getenv("OCI_TENANCY_ID") or os.getenv("OCI_COMPARTMENT_ID", "")
         self.ssh_key_file = os.getenv("OCI_SSH_PUBLIC_KEY_FILE", str(Path.home() / ".ssh/id_ed25519.pub"))
         self.shape = os.getenv("OCI_SHAPE", "VM.Standard.A1.Flex")
         self.display_name = os.getenv("OCI_DISPLAY_NAME", "my-free-instance")
@@ -77,6 +79,53 @@ class RetryApp:
         self.profiles = self._profiles()
         self.targets = self._targets()
         self.log_path.parent.mkdir(parents=True, exist_ok=True)
+
+    def subscribed_regions(self) -> list[dict[str, object]]:
+        tenancy_id = self.tenancy_id or self.targets[0].compartment_id
+        payload = self.oci_json(["iam", "region-subscription", "list", "--tenancy-id", tenancy_id])
+        return list((payload or {}).get("data") or [])
+
+    def expand_regions(self, region_keys: list[str]) -> int:
+        tenancy_id = self.tenancy_id or self.targets[0].compartment_id
+        before = self.subscribed_regions()
+        subscribed_keys = {str(item.get("region-key")) for item in before}
+        results: list[dict[str, object]] = []
+
+        for key in region_keys:
+            key = key.strip().upper()
+            if not key:
+                continue
+            if key in subscribed_keys:
+                results.append({"region_key": key, "status": "already_subscribed", "ok": True})
+                continue
+            output = self.oci(["iam", "region-subscription", "create", "--tenancy-id", tenancy_id, "--region-key", key])
+            item = {"region_key": key, "status": "requested", "ok": True, "output": compact(output)}
+            if "TenantCapacityExceeded" in output:
+                item.update({"status": "tenant_capacity_exceeded", "ok": False})
+            elif "ServiceError" in output or "Error" in output:
+                item.update({"status": "error", "ok": False})
+            results.append(item)
+
+        after = self.subscribed_regions()
+        status = {
+            "updatedAt": now_kst().isoformat(),
+            "tenancyId": tenancy_id,
+            "requested": region_keys,
+            "results": results,
+            "subscriptions": after,
+            "targetsFile": os.getenv("OCI_RETRY_TARGETS_FILE", ""),
+            "note": (
+                "If requested regions show tenant_capacity_exceeded, this Free Tier tenancy is limited "
+                "to its current subscribed region. Upgrade to PAYG or request a subscribed-region limit increase, "
+                "then rerun expand-regions and add region-specific subnet/image targets."
+            ),
+        }
+        self.region_status_path.write_text(json.dumps(status, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        print(json.dumps(status, ensure_ascii=False, indent=2))
+        if any(not bool(item.get("ok")) for item in results):
+            self.log(f"REGION - Expansion blocked; details written to {self.region_status_path}")
+            return 2
+        return 0
 
     def _targets(self) -> list[Target]:
         raw = os.getenv("OCI_RETRY_TARGETS_JSON")
@@ -590,12 +639,13 @@ def post_slack(text: str) -> bool:
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("command", choices=["attempt", "report", "test-slack", "diagnose"])
+    parser.add_argument("command", choices=["attempt", "report", "test-slack", "diagnose", "expand-regions"])
     parser.add_argument("--root", default=os.getenv("OCI_RETRY_ROOT", str(Path(__file__).resolve().parent)))
     parser.add_argument("--env-file", default=None)
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--ignore-cooldown", action="store_true")
     parser.add_argument("--no-sleep", action="store_true")
+    parser.add_argument("--region-keys", default=os.getenv("OCI_RETRY_REGION_KEYS", "IAD,PHX,FRA,LHR,NRT,KIX,SIN"))
     args = parser.parse_args()
 
     root = Path(args.root).resolve()
@@ -612,6 +662,9 @@ def main() -> int:
         return app.send_report(test=True)
     if args.command == "diagnose":
         return app.diagnose()
+    if args.command == "expand-regions":
+        keys = [item.strip() for item in args.region_keys.split(",") if item.strip()]
+        return app.expand_regions(keys)
     return 1
 
 
