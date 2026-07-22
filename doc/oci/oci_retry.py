@@ -11,12 +11,23 @@ import sys
 import time
 import urllib.error
 import urllib.request
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 
 KST = timezone(timedelta(hours=9))
 ACTIVE_STATES = {"PROVISIONING", "RUNNING", "STARTING", "STOPPED", "STOPPING"}
+
+
+@dataclass(frozen=True)
+class Target:
+    name: str
+    region: str
+    compartment_id: str
+    availability_domain: str
+    subnet_id: str
+    image_id: str
 
 
 def now_kst() -> datetime:
@@ -54,10 +65,6 @@ class RetryApp:
         self.state_path = Path(os.getenv("OCI_RETRY_STATE", root / "oci-retry-state.json"))
         self.lock_path = Path(os.getenv("OCI_RETRY_LOCK", root / "oci-retry.lock"))
         self.remote_log_path = os.getenv("OCI_RETRY_REMOTE_LOG", str(self.log_path))
-        self.compartment_id = required("OCI_COMPARTMENT_ID")
-        self.subnet_id = required("OCI_SUBNET_ID")
-        self.image_id = required("OCI_IMAGE_ID")
-        self.availability_domain = required("OCI_AVAILABILITY_DOMAIN")
         self.ssh_key_file = os.getenv("OCI_SSH_PUBLIC_KEY_FILE", str(Path.home() / ".ssh/id_ed25519.pub"))
         self.shape = os.getenv("OCI_SHAPE", "VM.Standard.A1.Flex")
         self.display_name = os.getenv("OCI_DISPLAY_NAME", "my-free-instance")
@@ -68,7 +75,42 @@ class RetryApp:
         self.jitter_min = int(os.getenv("OCI_RETRY_JITTER_MIN_SECONDS", "15"))
         self.jitter_max = int(os.getenv("OCI_RETRY_JITTER_MAX_SECONDS", "240"))
         self.profiles = self._profiles()
+        self.targets = self._targets()
         self.log_path.parent.mkdir(parents=True, exist_ok=True)
+
+    def _targets(self) -> list[Target]:
+        raw = os.getenv("OCI_RETRY_TARGETS_JSON")
+        target_file = os.getenv("OCI_RETRY_TARGETS_FILE")
+        if target_file and Path(target_file).exists():
+            raw = Path(target_file).read_text(encoding="utf-8")
+        if raw:
+            data = json.loads(raw)
+            targets = [
+                Target(
+                    name=str(item.get("name") or item["region"]),
+                    region=str(item.get("region") or ""),
+                    compartment_id=str(item.get("compartment_id") or item.get("compartmentId") or required("OCI_COMPARTMENT_ID")),
+                    availability_domain=str(item.get("availability_domain") or item.get("availabilityDomain")),
+                    subnet_id=str(item.get("subnet_id") or item.get("subnetId")),
+                    image_id=str(item.get("image_id") or item.get("imageId")),
+                )
+                for item in data
+            ]
+            if not targets:
+                raise SystemExit("OCI_RETRY_TARGETS_JSON must contain at least one target")
+            return targets
+
+        region = os.getenv("OCI_REGION") or os.getenv("OCI_CLI_REGION") or ""
+        return [
+            Target(
+                name=os.getenv("OCI_RETRY_TARGET_NAME", region or "default"),
+                region=region,
+                compartment_id=required("OCI_COMPARTMENT_ID"),
+                availability_domain=required("OCI_AVAILABILITY_DOMAIN"),
+                subnet_id=required("OCI_SUBNET_ID"),
+                image_id=required("OCI_IMAGE_ID"),
+            )
+        ]
 
     def _profiles(self) -> list[dict[str, object]]:
         raw = os.getenv("OCI_RETRY_PROFILES", "1:6,2:12")
@@ -103,12 +145,15 @@ class RetryApp:
         state.update(extra)
         self.state_path.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
 
-    def oci(self, args: list[str]) -> str:
+    def oci(self, args: list[str], target: Target | None = None) -> str:
+        command = ["oci", *args]
+        if target and target.region:
+            command = ["oci", "--region", target.region, *args]
         if self.dry_run:
-            self.log("DRYRUN oci " + " ".join(args))
+            self.log("DRYRUN " + " ".join(command))
             return ""
         proc = subprocess.run(
-            ["oci", *args],
+            command,
             text=True,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
@@ -117,8 +162,8 @@ class RetryApp:
         )
         return proc.stdout or ""
 
-    def oci_json(self, args: list[str]) -> dict | None:
-        output = self.oci(args)
+    def oci_json(self, args: list[str], target: Target | None = None) -> dict | None:
+        output = self.oci(args, target=target)
         match = re.search(r"({.*})", output, flags=re.S)
         if not match:
             return None
@@ -128,23 +173,34 @@ class RetryApp:
             self.log(f"WARN - Could not parse OCI JSON: {output[:500]}")
             return None
 
-    def active_instance(self) -> dict | None:
+    def active_instance(self, target: Target | None = None) -> tuple[Target, dict] | None:
+        targets = [target] if target else self.targets
+        for current_target in targets:
+            if current_target is None:
+                continue
+            found = self._active_instance_for(current_target)
+            if found:
+                return current_target, found
+        return None
+
+    def _active_instance_for(self, target: Target) -> dict | None:
         for profile in self.profiles:
             payload = self.oci_json([
                 "compute", "instance", "list",
-                "--compartment-id", self.compartment_id,
+                "--compartment-id", target.compartment_id,
                 "--display-name", str(profile["name"]),
                 "--all",
-            ])
+            ], target=target)
             for item in (payload or {}).get("data", []):
                 if item.get("lifecycle-state") in ACTIVE_STATES:
                     return item
         return None
 
-    def capacity_statuses(self) -> dict[str, str]:
+    def capacity_statuses(self, target: Target | None = None) -> dict[str, str]:
+        target = target or self.targets[0]
         if self.capacity_mode == "off":
             return {profile_key(p): "SKIPPED" for p in self.profiles}
-        capacity_file = self.root / "oci-capacity-request.json"
+        capacity_file = self.root / f"oci-capacity-request-{safe_name(target.name)}.json"
         payload = [
             {
                 "instanceShape": self.shape,
@@ -155,10 +211,10 @@ class RetryApp:
         capacity_file.write_text(json.dumps(payload, separators=(",", ":")), encoding="utf-8")
         data = self.oci_json([
             "compute", "compute-capacity-report", "create",
-            "--availability-domain", self.availability_domain,
-            "--compartment-id", self.compartment_id,
+            "--availability-domain", target.availability_domain,
+            "--compartment-id", target.compartment_id,
             "--shape-availabilities", f"file://{capacity_file}",
-        ])
+        ], target=target)
         statuses = {profile_key(p): "UNKNOWN" for p in self.profiles}
         for item in ((data or {}).get("data") or {}).get("shape-availabilities", []):
             cfg = item.get("instance-shape-config") or {}
@@ -176,44 +232,51 @@ class RetryApp:
         add("profiles", True, ",".join(profile_key(p) for p in self.profiles))
         add("capacity_mode", self.capacity_mode == "gate", self.capacity_mode)
 
-        active = self.active_instance()
-        if active:
-            add("active_instance", True, f"{active.get('display-name')} {active.get('lifecycle-state')} {active.get('id')}")
-        else:
-            add("active_instance", True, "none")
-
-        subnet = self.oci_json(["network", "subnet", "get", "--subnet-id", self.subnet_id])
-        subnet_data = (subnet or {}).get("data") or {}
-        add("subnet", bool(subnet_data.get("id")), subnet_data.get("id") or "not found or unauthorized")
-
-        image = self.oci_json(["compute", "image", "get", "--image-id", self.image_id])
-        image_data = (image or {}).get("data") or {}
-        add("image", bool(image_data.get("id")), image_data.get("display-name") or image_data.get("id") or "not found or unauthorized")
-
-        ads = self.oci_json(["iam", "availability-domain", "list", "--compartment-id", self.compartment_id])
-        ad_names = [item.get("name") for item in ((ads or {}).get("data") or []) if item.get("name")]
-        add("availability_domain", self.availability_domain in ad_names, self.availability_domain)
-
-        shapes = self.oci_json([
-            "compute", "shape", "list",
-            "--compartment-id", self.compartment_id,
-            "--availability-domain", self.availability_domain,
-        ])
-        shape_names = [item.get("shape") for item in ((shapes or {}).get("data") or []) if item.get("shape")]
-        add("shape_available_in_ad", self.shape in shape_names, self.shape)
-
-        statuses = self.capacity_statuses()
-        for profile in self.profiles:
-            key = profile_key(profile)
-            add(f"capacity_{key}", statuses.get(key) == "AVAILABLE", statuses.get(key, "UNKNOWN"))
-
         print("== OCI retry diagnosis ==")
         print(f"time={ts()} KST")
-        print(f"compartment={self.compartment_id}")
-        print(f"availability_domain={self.availability_domain}")
-        print(f"subnet={self.subnet_id}")
-        print(f"image={self.image_id}")
+        print(f"targets={len(self.targets)}")
         print("")
+
+        for target in self.targets:
+            prefix = f"target[{target.name}]"
+            add(f"{prefix}.region", bool(target.region), target.region or "default from OCI config")
+            add(f"{prefix}.compartment", bool(target.compartment_id), target.compartment_id)
+            add(f"{prefix}.availability_domain", bool(target.availability_domain), target.availability_domain)
+            add(f"{prefix}.subnet_id", bool(target.subnet_id), target.subnet_id)
+            add(f"{prefix}.image_id", bool(target.image_id), target.image_id)
+
+            active = self.active_instance(target)
+            if active:
+                _, instance = active
+                add(f"{prefix}.active_instance", True, f"{instance.get('display-name')} {instance.get('lifecycle-state')} {instance.get('id')}")
+            else:
+                add(f"{prefix}.active_instance", True, "none")
+
+            subnet = self.oci_json(["network", "subnet", "get", "--subnet-id", target.subnet_id], target=target)
+            subnet_data = (subnet or {}).get("data") or {}
+            add(f"{prefix}.subnet", bool(subnet_data.get("id")), subnet_data.get("id") or "not found or unauthorized")
+
+            image = self.oci_json(["compute", "image", "get", "--image-id", target.image_id], target=target)
+            image_data = (image or {}).get("data") or {}
+            add(f"{prefix}.image", bool(image_data.get("id")), image_data.get("display-name") or image_data.get("id") or "not found or unauthorized")
+
+            ads = self.oci_json(["iam", "availability-domain", "list", "--compartment-id", target.compartment_id], target=target)
+            ad_names = [item.get("name") for item in ((ads or {}).get("data") or []) if item.get("name")]
+            add(f"{prefix}.availability_domain_known", target.availability_domain in ad_names, target.availability_domain)
+
+            shapes = self.oci_json([
+                "compute", "shape", "list",
+                "--compartment-id", target.compartment_id,
+                "--availability-domain", target.availability_domain,
+            ], target=target)
+            shape_names = [item.get("shape") for item in ((shapes or {}).get("data") or []) if item.get("shape")]
+            add(f"{prefix}.shape_available_in_ad", self.shape in shape_names, self.shape)
+
+            statuses = self.capacity_statuses(target)
+            for profile in self.profiles:
+                key = profile_key(profile)
+                add(f"{prefix}.capacity_{key}", statuses.get(key) == "AVAILABLE", statuses.get(key, "UNKNOWN"))
+
         failed = False
         for name, ok, detail in checks:
             marker = "OK" if ok else "WARN"
@@ -227,31 +290,31 @@ class RetryApp:
             print("diagnosis=ready")
         return 1 if failed else 0
 
-    def launch(self, profile: dict[str, object]) -> str:
-        shape_file = self.root / f"shape-{profile['ocpus']}c-{profile['memory']}g.json"
-        availability_file = self.root / "availability-config.json"
-        options_file = self.root / "instance-options.json"
+    def launch(self, target: Target, profile: dict[str, object]) -> str:
+        shape_file = self.root / f"shape-{safe_name(target.name)}-{profile['ocpus']}c-{profile['memory']}g.json"
+        availability_file = self.root / f"availability-config-{safe_name(target.name)}.json"
+        options_file = self.root / f"instance-options-{safe_name(target.name)}.json"
         shape_file.write_text(
             json.dumps({"ocpus": float(profile["ocpus"]), "memoryInGBs": float(profile["memory"])}),
             encoding="utf-8",
         )
         availability_file.write_text('{"recoveryAction":"RESTORE_INSTANCE"}', encoding="utf-8")
         options_file.write_text('{"areLegacyImdsEndpointsDisabled":false}', encoding="utf-8")
-        self.log(f"TRY - Launch {profile['name']} {profile['ocpus']} OCPU / {profile['memory']} GB")
+        self.log(f"TRY - Launch {profile['name']} on {target.name}/{target.region or 'default'} {profile['ocpus']} OCPU / {profile['memory']} GB")
         return self.oci([
             "compute", "instance", "launch",
-            "--availability-domain", self.availability_domain,
-            "--compartment-id", self.compartment_id,
+            "--availability-domain", target.availability_domain,
+            "--compartment-id", target.compartment_id,
             "--shape", self.shape,
             "--shape-config", f"file://{shape_file}",
-            "--image-id", self.image_id,
-            "--subnet-id", self.subnet_id,
+            "--image-id", target.image_id,
+            "--subnet-id", target.subnet_id,
             "--assign-public-ip", "true",
             "--availability-config", f"file://{availability_file}",
             "--instance-options", f"file://{options_file}",
             "--display-name", str(profile["name"]),
             "--ssh-authorized-keys-file", self.ssh_key_file,
-        ])
+        ], target=target)
 
     def attempt(self, ignore_cooldown: bool = False, no_sleep: bool = False) -> int:
         if self.lock_path.exists() and time.time() - self.lock_path.stat().st_mtime < 20 * 60:
@@ -273,41 +336,52 @@ class RetryApp:
 
             existing = self.active_instance()
             if existing:
-                self.log(f"SUCCESS! Existing instance found: {existing.get('id')} ({existing.get('display-name')})")
+                target, instance = existing
+                self.log(f"SUCCESS! Existing instance found on {target.name}/{target.region or 'default'}: {instance.get('id')} ({instance.get('display-name')})")
                 return 0
 
-            statuses = self.capacity_statuses()
-            for profile in self.profiles:
-                self.log(f"INFO - Capacity report {profile['name']} {profile_key(profile)}: {statuses[profile_key(profile)]}")
+            all_statuses: dict[str, dict[str, str]] = {}
+            for target in self.targets:
+                statuses = self.capacity_statuses(target)
+                all_statuses[target.name] = statuses
+                for profile in self.profiles:
+                    self.log(
+                        f"INFO - Capacity report {target.name}/{target.region or 'default'} "
+                        f"{profile['name']} {profile_key(profile)}: {statuses[profile_key(profile)]}"
+                    )
 
-            profile_index = int(state.get("profileIndex", 0)) % len(self.profiles)
-            launch_profiles = [self.profiles[(profile_index + i) % len(self.profiles)] for i in range(min(self.max_launches, len(self.profiles)))]
-            next_profile_index = (profile_index + len(launch_profiles)) % len(self.profiles)
+            pairs = [(target, profile) for target in self.targets for profile in self.profiles]
+            pair_index = int(state.get("pairIndex", state.get("profileIndex", 0))) % len(pairs)
+            launch_pairs = [pairs[(pair_index + i) % len(pairs)] for i in range(min(self.max_launches, len(pairs)))]
+            next_pair_index = (pair_index + len(launch_pairs)) % len(pairs)
 
             saw_capacity = saw_throttle = saw_limit = saw_error = False
-            for profile in launch_profiles:
-                status = statuses.get(profile_key(profile), "UNKNOWN")
+            for target, profile in launch_pairs:
+                status = all_statuses.get(target.name, {}).get(profile_key(profile), "UNKNOWN")
                 if self.capacity_mode == "gate" and status != "AVAILABLE":
-                    self.log(f"SKIP - Capacity gate blocked {profile['name']} ({profile_key(profile)}): {status}")
+                    self.log(
+                        f"SKIP - Capacity gate blocked {target.name}/{target.region or 'default'} "
+                        f"{profile['name']} ({profile_key(profile)}): {status}"
+                    )
                     saw_capacity = True
                     continue
-                output = self.launch(profile)
+                output = self.launch(target, profile)
                 if re.search(r"Out of host capacity|Out of capacity|out of capacity|InternalError", output):
-                    self.log(f"FAIL - Out of capacity for {profile['name']} (will retry)")
+                    self.log(f"FAIL - Out of capacity for {target.name}/{profile['name']} (will retry)")
                     saw_capacity = True
                 elif re.search(r"TooManyRequests|User-rate limit|status\"?:\\s*429", output):
-                    self.log(f"THROTTLED - TooManyRequests while launching {profile['name']}")
+                    self.log(f"THROTTLED - TooManyRequests while launching {target.name}/{profile['name']}")
                     saw_throttle = True
                 elif re.search(r"LimitExceeded|service limits were exceeded|standard-a1-(memory|core)", output):
-                    self.log(f"LIMIT - Service limit exceeded while launching {profile['name']}: {compact(output)}")
+                    self.log(f"LIMIT - Service limit exceeded while launching {target.name}/{profile['name']}: {compact(output)}")
                     saw_limit = True
                 elif re.search(r"NotAuthorizedOrNotFound|Authorization failed or requested resource not found", output):
-                    self.log(f"CONFIG - Launch blocked by authorization/resource mismatch for {profile['name']}: {compact(output)}")
+                    self.log(f"CONFIG - Launch blocked by authorization/resource mismatch for {target.name}/{profile['name']}: {compact(output)}")
                     if self.stop_on_config_error:
                         self.write_state(
                             "config_error",
                             now_kst() + timedelta(days=365),
-                            profileIndex=next_profile_index,
+                            pairIndex=next_pair_index,
                             lastError=compact(output),
                         )
                         self.log("STOP - Repeated launches paused until OCI ids, region, image, subnet, and policies are fixed")
@@ -315,13 +389,13 @@ class RetryApp:
                     saw_error = True
                 elif '"lifecycle-state"' in output:
                     instance_id = extract_instance_id(output)
-                    self.log(f"SUCCESS! Instance ID: {instance_id} ({profile['name']}, {profile_key(profile)})")
-                    self.write_state("success", now_kst() + timedelta(days=365), profileIndex=next_profile_index)
+                    self.log(f"SUCCESS! Instance ID: {instance_id} ({target.name}/{profile['name']}, {profile_key(profile)})")
+                    self.write_state("success", now_kst() + timedelta(days=365), pairIndex=next_pair_index)
                     return 0
                 elif self.dry_run:
-                    self.log(f"DRYRUN - Completed command generation for {profile['name']}")
+                    self.log(f"DRYRUN - Completed command generation for {target.name}/{profile['name']}")
                 else:
-                    self.log(f"ERROR - Launch failed for {profile['name']}: {compact(output)}")
+                    self.log(f"ERROR - Launch failed for {target.name}/{profile['name']}: {compact(output)}")
                     saw_error = True
 
             if self.dry_run:
@@ -329,16 +403,16 @@ class RetryApp:
                 return 0
             if saw_throttle:
                 minutes = random.randint(45, 75)
-                self.write_state("throttled", now_kst() + timedelta(minutes=minutes), profileIndex=next_profile_index)
+                self.write_state("throttled", now_kst() + timedelta(minutes=minutes), pairIndex=next_pair_index)
                 self.log(f"NEXT - Cooldown {minutes}m due to throttling")
             elif saw_limit:
                 minutes = random.randint(360, 720)
-                self.write_state("limit", now_kst() + timedelta(minutes=minutes), profileIndex=next_profile_index)
+                self.write_state("limit", now_kst() + timedelta(minutes=minutes), pairIndex=next_pair_index)
                 self.log(f"NEXT - Cooldown {minutes}m due to service limit")
             elif saw_capacity:
-                self.write_state("capacity", now_kst() + timedelta(minutes=random.randint(4, 8)), profileIndex=next_profile_index)
+                self.write_state("capacity", now_kst() + timedelta(minutes=random.randint(4, 8)), pairIndex=next_pair_index)
             elif saw_error:
-                self.write_state("error", now_kst() + timedelta(minutes=random.randint(10, 20)), profileIndex=next_profile_index)
+                self.write_state("error", now_kst() + timedelta(minutes=random.randint(10, 20)), pairIndex=next_pair_index)
             return 0
         finally:
             self.lock_path.unlink(missing_ok=True)
@@ -389,8 +463,9 @@ class RetryApp:
         current_text = "현재 생성된 인스턴스 없음 / resource_search_no_match"
         instance_id = "-"
         if current:
-            current_text = f"{current.get('display-name')} / {current.get('lifecycle-state')}"
-            instance_id = current.get("id") or "-"
+            target, instance = current
+            current_text = f"{target.name}/{target.region or 'default'} {instance.get('display-name')} / {instance.get('lifecycle-state')}"
+            instance_id = instance.get("id") or "-"
         recent_text = "\n".join(f"  - {line}" for line in recent_attempts) if recent_attempts else "  - -"
         return "\n".join([
             "[OCI VM 생성 재시도 리포트]",
@@ -452,6 +527,10 @@ def profile_key(profile: dict[str, object]) -> str:
 
 def compact(text: str) -> str:
     return re.sub(r"\s+", " ", text or "").strip()[:1200]
+
+
+def safe_name(text: str) -> str:
+    return re.sub(r"[^A-Za-z0-9_.-]+", "-", text or "target").strip("-") or "target"
 
 
 def extract_instance_id(text: str) -> str:

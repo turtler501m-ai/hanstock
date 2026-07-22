@@ -18,6 +18,13 @@ The retry command launches only when the compute capacity report says `AVAILABLE
 the retry loop is paused until region, compartment, subnet, image, availability domain, and
 IAM policy settings are fixed.
 
+Multi-region mode:
+
+- Put region-specific targets in `targets.json`.
+- Set `OCI_RETRY_TARGETS_FILE=/home/turtler800/oci-vm-retry/targets.json`.
+- Each target needs its own `region`, `availability_domain`, `subnet_id`, and `image_id`.
+- The script checks every target's capacity and rotates launch attempts across target/profile pairs.
+
 Recommended path from public success cases:
 
 1. Verify OCI ids and home region with `diagnose`.

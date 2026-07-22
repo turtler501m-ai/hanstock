@@ -1,0 +1,18 @@
+[
+  {
+    "name": "chuncheon-ad1",
+    "region": "ap-chuncheon-1",
+    "compartment_id": "ocid1.tenancy.oc1..example",
+    "availability_domain": "FGUx:AP-CHUNCHEON-1-AD-1",
+    "subnet_id": "ocid1.subnet.oc1.ap-chuncheon-1.example",
+    "image_id": "ocid1.image.oc1.ap-chuncheon-1.example"
+  },
+  {
+    "name": "tokyo-ad1",
+    "region": "ap-tokyo-1",
+    "compartment_id": "ocid1.tenancy.oc1..example",
+    "availability_domain": "example:AP-TOKYO-1-AD-1",
+    "subnet_id": "ocid1.subnet.oc1.ap-tokyo-1.example",
+    "image_id": "ocid1.image.oc1.ap-tokyo-1.example"
+  }
+]
