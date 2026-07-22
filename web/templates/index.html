@@ -59,9 +59,11 @@
                         <h3>총자산</h3>
                         <div class="value" id="val-total">-</div>
                     </div>
-                    <div class="card glass">
+                    <div class="card glass pnl-summary-card" id="total-pnl-card" role="button" tabindex="0"
+                         aria-expanded="false" aria-controls="total-pnl-breakdown" title="총손익 상세 목록 보기">
                         <h3>총손익</h3>
                         <div class="value" id="val-account-pnl">-</div>
+                        <small class="summary-card-action">상세 목록 보기</small>
                     </div>
                     <div class="card glass">
                         <h3>총수익률</h3>
@@ -79,6 +81,30 @@
                         <h3>계좌번호</h3>
                         <div class="value" id="val-account">-</div>
                     </div>
+                </section>
+
+                <section class="card glass total-pnl-breakdown" id="total-pnl-breakdown" hidden>
+                    <div class="panel-header split-header">
+                        <div>
+                            <h2>총손익 상세</h2>
+                            <p class="section-help">초기자산 5억 원 대비 전체 자산 변동과 현재 확인 가능한 손익 구성입니다.</p>
+                        </div>
+                        <button type="button" class="button-ghost compact-button" id="btn-close-total-pnl">닫기</button>
+                    </div>
+                    <div class="table-responsive">
+                        <table id="table-total-pnl-breakdown">
+                            <thead>
+                                <tr>
+                                    <th>구분</th>
+                                    <th>항목</th>
+                                    <th>금액</th>
+                                    <th>설명</th>
+                                </tr>
+                            </thead>
+                            <tbody></tbody>
+                        </table>
+                    </div>
+                    <p class="section-help total-pnl-note">기타 변동에는 입출금, 수수료, 세금, DB에 없는 과거 거래가 포함될 수 있습니다.</p>
                 </section>
 
                 <section class="risk-grid">

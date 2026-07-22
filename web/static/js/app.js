@@ -1053,6 +1053,15 @@ async function renderBalance() {
         const returnRate = evalCost > 0 ? (evalPnl / evalCost) * 100 : 0;
         const realizedPnl = Number(perf.realized_pnl || 0);
 
+        renderTotalPnlBreakdown({
+            principal,
+            displayTotal,
+            accountPnl,
+            realizedPnl,
+            evalPnl,
+            holdings: balance.holdings || []
+        });
+
         setElementText('val-total', formatCurrency(displayTotal));
         setElementText('val-principal', formatCurrency(principal));
         const accountPnlEl = setElementText('val-account-pnl', formatCurrency(accountPnl));
@@ -1163,6 +1172,64 @@ async function renderBalance() {
         setElementText('val-return', '-');
         setStatus(`계좌 API 오류: ${err.message}`);
         setTableMessage('#table-holdings tbody', 7, err.message);
+    }
+}
+
+function renderTotalPnlBreakdown({ principal, displayTotal, accountPnl, realizedPnl, evalPnl, holdings }) {
+    const panel = document.getElementById('total-pnl-breakdown');
+    const tbody = document.querySelector('#table-total-pnl-breakdown tbody');
+    const card = document.getElementById('total-pnl-card');
+    const closeButton = document.getElementById('btn-close-total-pnl');
+    if (!panel || !tbody || !card) {
+        return;
+    }
+
+    const otherChange = accountPnl - realizedPnl - evalPnl;
+    const rows = [
+        ['계좌 전체', '초기자산 대비 총손익', accountPnl, `${formatCurrency(principal)} → ${formatCurrency(displayTotal)}`],
+        ['확정 손익', '누적 실현손익', realizedPnl, '거래 DB에서 확인된 매도 손익'],
+        ['보유 손익', '현재 평가손익', evalPnl, '현재 보유 종목의 증권사 평가손익 합계'],
+        ['기타 변동', '미분류 자산 변동', otherChange, '입출금·수수료·세금·과거 미집계 거래 가능'],
+    ];
+    (holdings || []).forEach((holding) => {
+        rows.push([
+            '보유 종목',
+            `${holding.name || holding.symbol || '-'} (${holding.symbol || '-'})`,
+            Number(holding.pnl || 0),
+            `평가금 ${formatCurrency(holding.value || 0)} · 수익률 ${formatPercent(holding.rt || 0)}`,
+        ]);
+    });
+
+    tbody.innerHTML = rows.map(([category, item, amount, description]) => {
+        const value = Number(amount || 0);
+        const valueClass = value > 0 ? 'text-success' : (value < 0 ? 'text-danger' : '');
+        return `
+            <tr>
+                <td>${escapeHtml(category)}</td>
+                <td>${escapeHtml(item)}</td>
+                <td class="${valueClass}">${value > 0 ? '+' : ''}${formatCurrency(value)}</td>
+                <td>${escapeHtml(description)}</td>
+            </tr>
+        `;
+    }).join('');
+
+    const setExpanded = (expanded) => {
+        panel.hidden = !expanded;
+        card.setAttribute('aria-expanded', String(expanded));
+        if (expanded) {
+            panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
+    };
+    if (card.dataset.breakdownBound !== 'true') {
+        card.dataset.breakdownBound = 'true';
+        card.addEventListener('click', () => setExpanded(panel.hidden));
+        card.addEventListener('keydown', (event) => {
+            if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault();
+                setExpanded(panel.hidden);
+            }
+        });
+        closeButton?.addEventListener('click', () => setExpanded(false));
     }
 }
 

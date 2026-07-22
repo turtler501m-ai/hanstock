@@ -270,6 +270,35 @@ h1 .highlight {
     font-variant-numeric: tabular-nums;
 }
 
+.pnl-summary-card {
+    cursor: pointer;
+}
+
+.pnl-summary-card:hover,
+.pnl-summary-card:focus-visible {
+    border-color: rgba(96, 165, 250, 0.65);
+    transform: translateY(-1px);
+}
+
+.summary-card-action {
+    display: block;
+    margin-top: 0.35rem;
+    color: var(--text-muted);
+    font-size: 0.75rem;
+}
+
+.total-pnl-breakdown {
+    margin-bottom: 1.5rem;
+}
+
+.total-pnl-breakdown[hidden] {
+    display: none;
+}
+
+.total-pnl-note {
+    margin: 0.75rem 0 0;
+}
+
 .control-center {
     display: flex;
     flex-wrap: wrap;
