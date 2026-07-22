@@ -1533,6 +1533,7 @@ def get_performance(response: Response):
     response.headers["Pragma"] = "no-cache"
     try:
         trades = _account_trades(_load_merged_trades())
+        record_started_at = min((str(t.get("ts") or "") for t in trades if t.get("ts")), default="")
         
         total_trades = len(trades)
         success_count = sum(1 for t in trades if t.get("ok", False))
@@ -1663,7 +1664,8 @@ def get_performance(response: Response):
             "total_eval_pnl": int(total_eval_pnl),
             "total_broker_pnl": int(total_broker_pnl),
             "eval_details": eval_details,
-            "untracked_details": untracked_details
+            "untracked_details": untracked_details,
+            "record_started_at": record_started_at,
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

@@ -1059,6 +1059,7 @@ async function renderBalance() {
             accountPnl,
             realizedPnl,
             evalPnl,
+            recordStartedAt: perf.record_started_at || '',
             holdings: balance.holdings || []
         });
 
@@ -1175,7 +1176,7 @@ async function renderBalance() {
     }
 }
 
-function renderTotalPnlBreakdown({ principal, displayTotal, accountPnl, realizedPnl, evalPnl, holdings }) {
+function renderTotalPnlBreakdown({ principal, displayTotal, accountPnl, realizedPnl, evalPnl, recordStartedAt, holdings }) {
     const panel = document.getElementById('total-pnl-breakdown');
     const tbody = document.querySelector('#table-total-pnl-breakdown tbody');
     const card = document.getElementById('total-pnl-card');
@@ -1187,9 +1188,9 @@ function renderTotalPnlBreakdown({ principal, displayTotal, accountPnl, realized
     const otherChange = accountPnl - realizedPnl - evalPnl;
     const rows = [
         ['계좌 전체', '초기자산 대비 총손익', accountPnl, `${formatCurrency(principal)} → ${formatCurrency(displayTotal)}`],
-        ['확정 손익', '누적 실현손익', realizedPnl, '거래 DB에서 확인된 매도 손익'],
+        ['확정 손익', '기록 이후 실현손익', realizedPnl, `${recordStartedAt ? recordStartedAt.slice(0, 10) + '부터 ' : ''}KIS 체결기록으로 계산`],
         ['보유 손익', '현재 평가손익', evalPnl, '현재 보유 종목의 증권사 평가손익 합계'],
-        ['기타 변동', '미분류 자산 변동', otherChange, '입출금·수수료·세금·과거 미집계 거래 가능'],
+        ['기준 조정', '기록 시작 이전·미집계 누적손익', otherChange, '과거 매입원가 누락분과 수수료·세금·입출금 포함 가능'],
     ];
     (holdings || []).forEach((holding) => {
         rows.push([

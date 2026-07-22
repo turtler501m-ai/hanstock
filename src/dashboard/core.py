@@ -2870,6 +2870,10 @@ def _trade_is_dry_run(trade: dict) -> bool:
 
 def _trade_is_sync_adjustment(trade: dict) -> bool:
     reason = str(trade.get("reason") or "").lower()
+    # Broker history imports are actual fills, not synthetic balance adjustments.
+    # They must participate in realized-PnL reconstruction.
+    if reason.strip() == "broker history import":
+        return False
     # Check English terms
     if any(token in reason for token in ("sync", "adjust", "correction", "import")):
         return True
@@ -3210,6 +3214,9 @@ def _sync_filled_trades_from_history(api, *, days: int = 90) -> dict:
                             response_msg = ?,
                             broker_result = ?
                         WHERE broker_order_id = ?
+                          AND substr(ts, 1, 10) = ?
+                          AND symbol = ?
+                          AND action = ?
                         """,
                         (
                             "filled",
@@ -3218,6 +3225,9 @@ def _sync_filled_trades_from_history(api, *, days: int = 90) -> dict:
                             trade["response_msg"],
                             trade["broker_result"],
                             trade["broker_order_id"],
+                            trade["ts"][:10],
+                            trade["symbol"],
+                            trade["action"],
                         ),
                     )
                     updated_count += int(cursor.rowcount)

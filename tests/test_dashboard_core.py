@@ -43,6 +43,10 @@ class MemoryTextPath:
 
 
 class DashboardCoreTests(unittest.TestCase):
+    def test_broker_history_import_is_treated_as_real_fill(self):
+        self.assertFalse(dashboard._trade_is_sync_adjustment({"reason": "broker history import"}))
+        self.assertTrue(dashboard._trade_is_sync_adjustment({"reason": "balance sync adjustment"}))
+
     def test_parse_balance_uses_holding_eval_amount(self):
         parsed = _parse_balance({
             "output1": [{
