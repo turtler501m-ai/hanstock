@@ -61,7 +61,8 @@ class RetryApp:
         self.ssh_key_file = os.getenv("OCI_SSH_PUBLIC_KEY_FILE", str(Path.home() / ".ssh/id_ed25519.pub"))
         self.shape = os.getenv("OCI_SHAPE", "VM.Standard.A1.Flex")
         self.display_name = os.getenv("OCI_DISPLAY_NAME", "my-free-instance")
-        self.capacity_mode = os.getenv("OCI_RETRY_CAPACITY_REPORT_MODE", "log").lower()
+        self.capacity_mode = os.getenv("OCI_RETRY_CAPACITY_REPORT_MODE", "gate").lower()
+        self.stop_on_config_error = parse_bool(os.getenv("OCI_RETRY_STOP_ON_CONFIG_ERROR"), True)
         self.max_launches = int(os.getenv("OCI_RETRY_MAX_LAUNCHES_PER_RUN", "1"))
         self.timeout = int(os.getenv("OCI_RETRY_COMMAND_TIMEOUT_SECONDS", "120"))
         self.jitter_min = int(os.getenv("OCI_RETRY_JITTER_MIN_SECONDS", "15"))
@@ -70,7 +71,7 @@ class RetryApp:
         self.log_path.parent.mkdir(parents=True, exist_ok=True)
 
     def _profiles(self) -> list[dict[str, object]]:
-        raw = os.getenv("OCI_RETRY_PROFILES", "2:12,1:6,4:24")
+        raw = os.getenv("OCI_RETRY_PROFILES", "1:6,2:12")
         profiles: list[dict[str, object]] = []
         for part in raw.split(","):
             if not part.strip():
@@ -78,7 +79,7 @@ class RetryApp:
             ocpus_s, mem_s = part.strip().split(":", 1)
             ocpus = int(ocpus_s)
             memory = int(mem_s)
-            suffix = "" if ocpus == 4 and memory == 24 else f"-{ocpus}c{memory}g"
+            suffix = f"-{ocpus}c{memory}g"
             profiles.append({"name": f"{self.display_name}{suffix}", "ocpus": ocpus, "memory": memory})
         if not profiles:
             raise SystemExit("OCI_RETRY_PROFILES must contain at least one profile, e.g. 2:12")
@@ -165,6 +166,67 @@ class RetryApp:
             statuses[key] = item.get("availability-status") or "UNKNOWN"
         return statuses
 
+    def diagnose(self) -> int:
+        checks: list[tuple[str, bool, str]] = []
+
+        def add(name: str, ok: bool, detail: str) -> None:
+            checks.append((name, ok, detail))
+
+        add("shape", self.shape == "VM.Standard.A1.Flex", self.shape)
+        add("profiles", True, ",".join(profile_key(p) for p in self.profiles))
+        add("capacity_mode", self.capacity_mode == "gate", self.capacity_mode)
+
+        active = self.active_instance()
+        if active:
+            add("active_instance", True, f"{active.get('display-name')} {active.get('lifecycle-state')} {active.get('id')}")
+        else:
+            add("active_instance", True, "none")
+
+        subnet = self.oci_json(["network", "subnet", "get", "--subnet-id", self.subnet_id])
+        subnet_data = (subnet or {}).get("data") or {}
+        add("subnet", bool(subnet_data.get("id")), subnet_data.get("id") or "not found or unauthorized")
+
+        image = self.oci_json(["compute", "image", "get", "--image-id", self.image_id])
+        image_data = (image or {}).get("data") or {}
+        add("image", bool(image_data.get("id")), image_data.get("display-name") or image_data.get("id") or "not found or unauthorized")
+
+        ads = self.oci_json(["iam", "availability-domain", "list", "--compartment-id", self.compartment_id])
+        ad_names = [item.get("name") for item in ((ads or {}).get("data") or []) if item.get("name")]
+        add("availability_domain", self.availability_domain in ad_names, self.availability_domain)
+
+        shapes = self.oci_json([
+            "compute", "shape", "list",
+            "--compartment-id", self.compartment_id,
+            "--availability-domain", self.availability_domain,
+        ])
+        shape_names = [item.get("shape") for item in ((shapes or {}).get("data") or []) if item.get("shape")]
+        add("shape_available_in_ad", self.shape in shape_names, self.shape)
+
+        statuses = self.capacity_statuses()
+        for profile in self.profiles:
+            key = profile_key(profile)
+            add(f"capacity_{key}", statuses.get(key) == "AVAILABLE", statuses.get(key, "UNKNOWN"))
+
+        print("== OCI retry diagnosis ==")
+        print(f"time={ts()} KST")
+        print(f"compartment={self.compartment_id}")
+        print(f"availability_domain={self.availability_domain}")
+        print(f"subnet={self.subnet_id}")
+        print(f"image={self.image_id}")
+        print("")
+        failed = False
+        for name, ok, detail in checks:
+            marker = "OK" if ok else "WARN"
+            print(f"{marker} {name}: {detail}")
+            failed = failed or not ok
+        print("")
+        if failed:
+            print("diagnosis=attention_required")
+            print("note=Fix WARN items before enabling repeated launch attempts.")
+        else:
+            print("diagnosis=ready")
+        return 1 if failed else 0
+
     def launch(self, profile: dict[str, object]) -> str:
         shape_file = self.root / f"shape-{profile['ocpus']}c-{profile['memory']}g.json"
         availability_file = self.root / "availability-config.json"
@@ -225,7 +287,8 @@ class RetryApp:
             saw_capacity = saw_throttle = saw_limit = saw_error = False
             for profile in launch_profiles:
                 status = statuses.get(profile_key(profile), "UNKNOWN")
-                if self.capacity_mode == "gate" and status not in {"AVAILABLE", "UNKNOWN", "SKIPPED"}:
+                if self.capacity_mode == "gate" and status != "AVAILABLE":
+                    self.log(f"SKIP - Capacity gate blocked {profile['name']} ({profile_key(profile)}): {status}")
                     saw_capacity = True
                     continue
                 output = self.launch(profile)
@@ -238,6 +301,18 @@ class RetryApp:
                 elif re.search(r"LimitExceeded|service limits were exceeded|standard-a1-(memory|core)", output):
                     self.log(f"LIMIT - Service limit exceeded while launching {profile['name']}: {compact(output)}")
                     saw_limit = True
+                elif re.search(r"NotAuthorizedOrNotFound|Authorization failed or requested resource not found", output):
+                    self.log(f"CONFIG - Launch blocked by authorization/resource mismatch for {profile['name']}: {compact(output)}")
+                    if self.stop_on_config_error:
+                        self.write_state(
+                            "config_error",
+                            now_kst() + timedelta(days=365),
+                            profileIndex=next_profile_index,
+                            lastError=compact(output),
+                        )
+                        self.log("STOP - Repeated launches paused until OCI ids, region, image, subnet, and policies are fixed")
+                        return 2
+                    saw_error = True
                 elif '"lifecycle-state"' in output:
                     instance_id = extract_instance_id(output)
                     self.log(f"SUCCESS! Instance ID: {instance_id} ({profile['name']}, {profile_key(profile)})")
@@ -436,7 +511,7 @@ def post_slack(text: str) -> bool:
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("command", choices=["attempt", "report", "test-slack"])
+    parser.add_argument("command", choices=["attempt", "report", "test-slack", "diagnose"])
     parser.add_argument("--root", default=os.getenv("OCI_RETRY_ROOT", str(Path(__file__).resolve().parent)))
     parser.add_argument("--env-file", default=None)
     parser.add_argument("--dry-run", action="store_true")
@@ -445,6 +520,9 @@ def main() -> int:
     args = parser.parse_args()
 
     root = Path(args.root).resolve()
+    venv_bin = root / ".venv" / "bin"
+    if venv_bin.is_dir():
+        os.environ["PATH"] = f"{venv_bin}{os.pathsep}{os.environ.get('PATH', '')}"
     load_env(Path(args.env_file) if args.env_file else root / ".env")
     app = RetryApp(root=root, dry_run=args.dry_run)
     if args.command == "attempt":
@@ -453,6 +531,8 @@ def main() -> int:
         return app.send_report(test=False)
     if args.command == "test-slack":
         return app.send_report(test=True)
+    if args.command == "diagnose":
+        return app.diagnose()
     return 1
 
 
