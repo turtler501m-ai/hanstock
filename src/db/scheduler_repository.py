@@ -349,6 +349,11 @@ def save_strategy_schedule(strategy_id: str, **fields) -> dict:
     current = load_strategy_schedule(strategy_id)
     merged = {**current, **{k: v for k, v in fields.items() if v is not None}}
     now = datetime.now(KST).strftime("%Y-%m-%d %H:%M:%S")
+    
+    # 콜론 제거를 통한 시간 포맷 방어
+    start_hm = str(merged.get("start_hm") or "0900").replace(":", "")
+    end_hm = str(merged.get("end_hm") or "1530").replace(":", "")
+    
     with connect_db() as conn:
         conn.execute(
             """
@@ -361,8 +366,8 @@ def save_strategy_schedule(strategy_id: str, **fields) -> dict:
                 strategy_id,
                 1 if merged.get("enabled") else 0,
                 int(merged.get("interval_minutes") or 15),
-                str(merged.get("start_hm") or "0900"),
-                str(merged.get("end_hm") or "1530"),
+                start_hm,
+                end_hm,
                 str(merged.get("weekdays") or "1-5"),
                 str(merged.get("mode") or "execute"),
                 1 if merged.get("auto_approve") else 0,
@@ -416,8 +421,11 @@ def is_schedule_due(schedule: dict, now=None) -> bool:
     if not _weekday_matches(schedule.get("weekdays", "1-5"), dow):
         return False
     hm = now.strftime("%H%M")
-    start_hm = str(schedule.get("start_hm") or "0900")
-    end_hm = str(schedule.get("end_hm") or "1530")
+    
+    # 콜론 제거를 통해 대시보드 저장 포맷 유연화
+    start_hm = str(schedule.get("start_hm") or "0900").replace(":", "")
+    end_hm = str(schedule.get("end_hm") or "1530").replace(":", "")
+    
     if not (start_hm <= hm <= end_hm):
         return False
     last = schedule.get("last_run_at")
